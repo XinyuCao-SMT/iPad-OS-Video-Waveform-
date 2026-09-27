@@ -125,6 +125,10 @@ struct StreamPanelView: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
 
+            if !stream.diagnostics.isEmpty {
+                diagnosticsBox
+            }
+
             Text("""
             \(stream.transportKind.summary)
             H.264 由 VideoToolbox 编码，编码结果同时给录制与推流用（HaishinKit 收到已压缩帧就直接封装，不会二次编码）。
@@ -132,6 +136,38 @@ struct StreamPanelView: View {
             """)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 失败诊断：把「输入原文 / 解析结果 / 错误分支 / libsrt 版本」都列出来，可一键复制
+    private var diagnosticsBox: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("诊断信息", systemImage: "stethoscope")
+                    .font(.footnote.weight(.semibold))
+                Spacer()
+                Button {
+                    stream.copyDiagnostics()
+                } label: {
+                    Label(stream.diagnosticsCopied ? "已复制" : "复制",
+                          systemImage: stream.diagnosticsCopied ? "checkmark.circle" : "doc.on.doc")
+                        .font(.footnote)
+                }
+                .buttonStyle(.bordered)
+                Button(role: .destructive) {
+                    stream.clearDiagnostics()
+                } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+            }
+
+            Text(stream.diagnostics)
+                .font(.system(.caption2, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
         }
     }
 

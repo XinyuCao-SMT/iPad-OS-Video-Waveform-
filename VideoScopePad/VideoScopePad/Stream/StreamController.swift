@@ -33,6 +33,10 @@ final class StreamController: ObservableObject {
     @Published private(set) var statusText = "空闲"
     @Published private(set) var detailText = ""
     @Published private(set) var lastError: String?
+    /// 失败时的诊断串（面板上可一键复制发给开发助手）
+    @Published private(set) var diagnostics = ""
+    @Published private(set) var diagnosticsTitle = ""
+    @Published private(set) var diagnosticsCopied = false
     @Published private(set) var lastRecordingURL: URL?
     @Published private(set) var lastLogURL: URL?
 
@@ -259,8 +263,16 @@ final class StreamController: ObservableObject {
         lastError = nil
         isPreparing = true
         statusText = "连接服务器…"
+        diagnostics = ""
+        diagnosticsTitle = ""
 
-        let created = StreamTransport(kind: transportKind)
+        let created = StreamTransport(kind: transportKind,
+                                      inputURL: url,
+                                      streamKey: key,
+                                      videoSize: CGSize(width: max(encoderWidth, 1280), height: max(encoderHeight, 720)),
+                                      bitrate: Int(max(bitrateMbps, 0.5) * 1_000_000),
+                                      frameRate: Int(max(encoderFrameRate, 1)),
+                                      keyframeSeconds: keyframeSeconds)
         created.onState = { [weak self] state, detail in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -286,15 +298,19 @@ final class StreamController: ObservableObject {
             // 服务器确认后强制一个关键帧，接收端秒开
             self?.encoder?.requestKeyframe()
         }
+        created.onDiagnostics = { [weak self] text in
+            DispatchQueue.main.async { self?.setDiagnostics(text) }
+        }
         transport = created
+        created.start()
+    }
 
-        let frameRate = Int(max(encoderFrameRate, 1))
-        created.start(urlString: url,
-                      streamKey: key,
-                      videoSize: CGSize(width: max(encoderWidth, 1280), height: max(encoderHeight, 720)),
-                      bitrate: Int(max(bitrateMbps, 0.5) * 1_000_000),
-                      frameRate: frameRate,
-                      keyframeSeconds: keyframeSeconds)
+    private func setDiagnostics(_ text: String) {
+        diagnostics = text
+        // 标题取「协议 + 时间」，方便在面板上一眼看出是哪一次尝试
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        diagnosticsTitle = "\(transportKind.title) · \(formatter.string(from: Date()))"
     }
 
     func stopStreaming() {
@@ -304,6 +320,23 @@ final class StreamController: ObservableObject {
         isPreparing = false
         statusText = isRecording ? "录制中" : "空闲"
         stopEncoderIfIdle()
+    }
+
+    /// 复制诊断串到剪贴板
+    func copyDiagnostics() {
+        guard !diagnostics.isEmpty else { return }
+        UIPasteboard.general.string = diagnostics
+        diagnosticsCopied = true
+        let reset = DispatchQueue.main
+        reset.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.diagnosticsCopied = false
+        }
+    }
+
+    func clearDiagnostics() {
+        diagnostics = ""
+        diagnosticsTitle = ""
+        diagnosticsCopied = false
     }
 
     // MARK: - 收尾

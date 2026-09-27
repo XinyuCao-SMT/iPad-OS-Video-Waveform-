@@ -1,4 +1,4 @@
-﻿# ---- Xcode ----
+# ---- Xcode ----
 xcuserdata/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
@@ -10,7 +10,7 @@ build/
 *.dSYM.zip
 *.dSYM
 
-# ---- 鐢熸垚鐗╋紙鐢?tools/generate-xcodeproj.mjs 浜у嚭锛屽彲鎸夐渶鎻愪氦锛?----
+# ---- 生成物（由 tools/generate-xcodeproj.mjs 产出，可按需提交）----
 # VideoScopePad/VideoScopePad.xcodeproj/project.pbxproj
 
 # ---- macOS / Windows ----
@@ -20,3 +20,6 @@ desktop.ini
 
 # ---- 本地构建产物（IPA 从这里侧载，不进仓库）----
 dist/
+
+# ---- 实机报错截图（交流用，不进仓库）----
+error_report/
