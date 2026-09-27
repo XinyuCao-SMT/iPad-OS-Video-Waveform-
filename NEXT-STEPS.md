@@ -1,10 +1,46 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.4.0-srt**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.4.1-fix**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.4.1 SRT 修复版（提交 `44cef718`，tag `v1.4.1-fix`，CI run #21 全绿）
+
+实机 SRT 推流失败，面板只有一行裸错误码：
+
+```
+The operation couldn't be completed. (SRTHaishinKit.SRTConnection.Error error 1.)
+```
+
+查了 HaishinKit 2.2.5 源码后可以确定这个码的含义（记录在这里，以后不用再查）：
+
+| 码 | 分支 | 触发条件 |
+|---|---|---|
+| 0 | `invalidState` | `SRTSocket.open` 抛出的非 rejected 错误（socket 建不起来 / 超时 / 被中断），或 connect 里 generic catch |
+| 1 | **`unsupportedUri`** | `SRTSocketURL(uri)` 返回 nil —— 它**只检查** `url.scheme == "srt"`（严格相等，不做大小写/前缀容错） |
+| 2 | `failedToConnect` | socket 层 `SRTSocket.Error.rejected(reason)`，带 `SRT_REJ_*` 原因码 |
+
+也就是说 error 1 只可能来自地址本身。这一版做了：
+
+* **地址解析重写成手工解析**：先做 `folding(.widthInsensitive)` 全角折叠（中文输入法的 `：／ｓｒｔ`），
+  去掉零宽字符（200B/FEFF/200E/200F/2060）与首尾空白，剥掉 `SRT://` / `srt:` 前缀（大小写不敏感），
+  手工拆 `host[:port]?query`，再用**小写 `srt://` 重新拼装**并复核 scheme —— 从此不会再出现
+  「库认为 scheme 不对」；缺 `mode` 自动补 caller/listener，缺 `conntimeo` 补 5000ms；
+  支持 `[::1]:9000`；兼容 `srt://host:9000/live/xxx` 路径写法（当 streamid 用）。
+* **错误翻译**：三个分支各自的中文说明（并强调 SRT 走 **UDP**，防火墙要放行 UDP）；
+  `failedToConnect` 把 18 个 `SRTRejectReason` 全部翻译（badsecret=密码不对、peer=对端拒绝……
+  timeout=对端超时，地址/端口很可能不对）。
+* **诊断串 + 一键复制**：面板新增「诊断信息」框，包含输入原文、解析结果、失败阶段、错误分支、
+  libsrt 版本、`scheme/host/port/mode/streamid`、完整地址、编码参数；`StreamController.copyDiagnostics()` 复制到剪贴板。
+* **20 秒超时看门狗**：RTMP `connect+publish`、SRT `connect` 都有上限，避免界面一直停在「连接中」
+  （libsrt 的 `conntimeo` 只管 socket 层）。
+* SRT 连上但 `connected == false` 时不再假报成功。
+
+> 附：这次实机安装失败（Sideloadly `SSLEOFError developerservices2.apple.com`）与 IPA 无关 ——
+> 是 Windows 那台机器的系统代理（Clash Verge 的 127.0.0.1:7897）打断了 Apple 开发者服务的 TLS 握手，
+> 直连时该端点返回 200 正常。侧载前关掉系统代理，或给 `*.apple.com` 加 DIRECT 规则。
 
 ### v1.4.0 SRT 推流版（提交 `1c3bdb4`，tag `v1.4.0-srt`，CI run #19 全绿）
 
