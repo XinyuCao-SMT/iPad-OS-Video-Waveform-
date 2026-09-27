@@ -28,17 +28,26 @@ final class RenderCoordinator: ObservableObject {
     private weak var view: MTKView?
 
     init() {
+        // 注意：let 属性必须在所有路径上只赋值一次，
+        // 所以先在局部变量里做可能抛错的事，最后统一赋给 self。
+        var madeContext: MetalContext?
+        var madeEngine: ScopeEngine?
+        var madePlaceholder: LUTTextures?
+        var failure: String?
+
         do {
             let context = try MetalContext()
-            let engine = try ScopeEngine(context: context)
-            self.context = context
-            self.scopeEngine = engine
-            self.placeholderLUT = try LUTTextureBuilder.makePlaceholder(device: context.device)
+            madeContext = context
+            madeEngine = try ScopeEngine(context: context)
+            madePlaceholder = try LUTTextureBuilder.makePlaceholder(device: context.device)
         } catch {
-            self.context = nil
-            self.scopeEngine = nil
-            self.startupError = error.localizedDescription
+            failure = error.localizedDescription
         }
+
+        self.context = madeContext
+        self.scopeEngine = madeEngine
+        self.placeholderLUT = madePlaceholder
+        self.startupError = failure
     }
 
     var isReady: Bool { renderer != nil }
