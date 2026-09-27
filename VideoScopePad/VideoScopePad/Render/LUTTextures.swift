@@ -108,8 +108,10 @@ enum LUTTextureBuilder {
 
         data.withUnsafeBytes { raw in
             if let base = raw.baseAddress {
+                // 3D 纹理要用带 slice 的重载（slice: 0 + bytesPerImage 覆盖整个体数据）
                 texture.replace(region: region,
                                 mipmapLevel: 0,
+                                slice: 0,
                                 withBytes: base,
                                 bytesPerRow: bytesPerRow,
                                 bytesPerImage: bytesPerImage)

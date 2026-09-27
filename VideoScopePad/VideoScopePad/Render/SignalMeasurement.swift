@@ -76,7 +76,8 @@ enum SignalMeasurementBuilder {
 
     static func make(counts: [UInt32], isVideoRange: Bool) -> SignalMeasurement? {
         let bins = Int(VS_MEASURE_BINS)
-        let required = Int(VS_MEASURE_UINT_COUNT)
+        // 同样不依赖头文件里嵌套过深的 VS_MEASURE_UINT_COUNT，自己算一遍
+        let required = Int(VS_MEASURE_PLANES) * Int(VS_MEASURE_BINS) + Int(VS_MEASURE_RADIAL_BINS)
         guard counts.count >= required, bins > 1 else { return nil }
 
         // 1) 亮度平面（3）决定总量与总体读数

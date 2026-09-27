@@ -44,6 +44,9 @@ final class ScopeEngine {
 
     private let context: MetalContext
 
+    /// 测量直方图的 uint 个数（init 里算一次，回读时复用）
+    private let measureUintCount: Int
+
     /// 全局测量直方图（双缓冲：GPU 写一块时 CPU 可以读另一块）
     private var measureBuffers: [MTLBuffer] = []
     private var measureIndex = 0
@@ -51,7 +54,14 @@ final class ScopeEngine {
     init(context: MetalContext) throws {
         self.context = context
 
-        let length = Int(VS_HISTOGRAM_BYTE_SIZE)
+        // 注意：ShaderTypes.h 里的 VS_HISTOGRAM_BYTE_SIZE / VS_MEASURE_BYTE_SIZE 嵌套太深，
+        // Swift 的 Clang 导入器读不进来（Xcode 报 "cannot find in scope"），
+        // 所以这里用最内层的单值宏自己算一遍，数值与头文件完全一致。
+        let uintSize = MemoryLayout<UInt32>.size
+        self.measureUintCount = Int(VS_MEASURE_PLANES) * Int(VS_MEASURE_BINS) + Int(VS_MEASURE_RADIAL_BINS)
+
+        let length = (Int(VS_WAVEFORM_COLUMNS) * Int(VS_WAVEFORM_BINS) * Int(VS_WAVEFORM_PLANES)
+            + Int(VS_VECTORSCOPE_SIZE) * Int(VS_VECTORSCOPE_SIZE)) * uintSize
         guard let buffer = context.device.makeBuffer(length: length, options: .storageModePrivate) else {
             throw ScopeEngineError.bufferAllocationFailed
         }
@@ -59,7 +69,7 @@ final class ScopeEngine {
         histogramBuffer = buffer
 
         // 测量用的缓冲区必须是 CPU 可读的 .shared，且只有 4KB 出头，回读开销可以忽略
-        let measureLength = Int(VS_MEASURE_BYTE_SIZE)
+        let measureLength = measureUintCount * uintSize
         var buffers: [MTLBuffer] = []
         for index in 0..<2 {
             guard let measure = context.device.makeBuffer(length: measureLength,
@@ -222,7 +232,7 @@ final class ScopeEngine {
                                 threadsPerThreadgroup: MTLSize(width: 16, height: 16, depth: 1))
         encoder.endEncoding()
 
-        let count = Int(VS_MEASURE_UINT_COUNT)
+        let count = measureUintCount
         commandBuffer.addCompletedHandler { _ in
             let pointer = buffer.contents().bindMemory(to: UInt32.self, capacity: count)
             let values = Array(UnsafeBufferPointer(start: pointer, count: count))

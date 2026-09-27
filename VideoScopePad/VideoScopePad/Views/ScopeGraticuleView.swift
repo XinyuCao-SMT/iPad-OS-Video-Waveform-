@@ -62,7 +62,7 @@ struct ScopeGraticuleView: View {
             guard r <= radius * 1.8 else { continue }
             let circle = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r,
                                                 width: r * 2, height: r * 2))
-            stroke(ctx, circle, color: fraction == 0.75 ? strong : thin, width: 1)
+            stroke(&ctx, circle, color: fraction == 0.75 ? strong : thin, width: 1)
         }
 
         var cross = Path()
@@ -70,7 +70,7 @@ struct ScopeGraticuleView: View {
         cross.addLine(to: CGPoint(x: rect.maxX, y: center.y))
         cross.move(to: CGPoint(x: center.x, y: rect.minY))
         cross.addLine(to: CGPoint(x: center.x, y: rect.maxY))
-        stroke(ctx, cross, color: normal, width: 1)
+        stroke(&ctx, cross, color: normal, width: 1)
 
         // 75% 彩条目标框
         for target in Self.colorTargets75 {
@@ -78,7 +78,7 @@ struct ScopeGraticuleView: View {
             let y = center.y - CGFloat(target.value.y / 0.5) * radius * g
 
             let box = CGRect(x: x - 5, y: y - 5, width: 10, height: 10)
-            stroke(ctx, Path(box), color: Color.white.opacity(0.55), width: 1)
+            stroke(&ctx, Path(box), color: Color.white.opacity(0.55), width: 1)
             ctx.draw(text(target.name, size: 8),
                      at: CGPoint(x: x + 8, y: y - 5),
                      anchor: .leading)
@@ -91,7 +91,7 @@ struct ScopeGraticuleView: View {
         skin.move(to: center)
         skin.addLine(to: CGPoint(x: center.x + cos(angle) * length,
                                  y: center.y - sin(angle) * length))
-        stroke(ctx, skin, color: Color.orange.opacity(0.5), width: 1, dash: [4, 3])
+        stroke(&ctx, skin, color: Color.orange.opacity(0.5), width: 1, dash: [4, 3])
         ctx.draw(text("肤色", size: 8),
                  at: CGPoint(x: center.x + cos(angle) * length * 0.78,
                              y: center.y - sin(angle) * length * 0.78),
@@ -122,7 +122,7 @@ struct ScopeGraticuleView: View {
             var path = Path()
             path.move(to: CGPoint(x: rect.minX, y: yy))
             path.addLine(to: CGPoint(x: rect.maxX, y: yy))
-            stroke(ctx, path, color: Color.white.opacity(isMajor ? 0.40 : 0.14), width: 1)
+            stroke(&ctx, path, color: Color.white.opacity(isMajor ? 0.40 : 0.14), width: 1)
 
             if isMajor {
                 ctx.draw(text("\(step)", size: 8),
@@ -139,7 +139,7 @@ struct ScopeGraticuleView: View {
                 var path = Path()
                 path.move(to: CGPoint(x: xx, y: rect.minY))
                 path.addLine(to: CGPoint(x: xx, y: rect.maxY))
-                stroke(ctx, path, color: Color.white.opacity(0.32), width: 1)
+                stroke(&ctx, path, color: Color.white.opacity(0.32), width: 1)
             }
         }
 
@@ -149,7 +149,7 @@ struct ScopeGraticuleView: View {
                 var path = Path()
                 path.move(to: CGPoint(x: xx, y: rect.minY))
                 path.addLine(to: CGPoint(x: xx, y: rect.maxY))
-                stroke(ctx, path, color: Color.white.opacity(0.10), width: 1)
+                stroke(&ctx, path, color: Color.white.opacity(0.10), width: 1)
             }
         }
 
@@ -165,7 +165,7 @@ struct ScopeGraticuleView: View {
                  at: CGPoint(x: rect.minX + 26, y: rect.minY + 8),
                  anchor: .leading)
 
-        stroke(ctx, Path(rect), color: Color.white.opacity(0.26), width: 1)
+        stroke(&ctx, Path(rect), color: Color.white.opacity(0.26), width: 1)
     }
 
     // MARK: - 工具
