@@ -2,7 +2,7 @@
 //  StreamPanelView.swift
 //  VideoScopePad
 //
-//  录制 / RTMP 推流 / 读数导出 / 抓帧 的操作面板。
+//  录制 / 推流（RTMP · SRT）/ 读数导出 / 抓帧 的操作面板。
 //
 
 import SwiftUI
@@ -74,18 +74,30 @@ struct StreamPanelView: View {
         }
     }
 
-    // MARK: - RTMP 推流
+    // MARK: - 推流（RTMP / SRT）
 
     private var streamSection: some View {
-        Section("RTMP 推流（视频）") {
-            TextField("rtmp://主机:1935/应用", text: $stream.rtmpURL)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.URL)
+        Section("推流（视频）") {
+            Picker("协议", selection: $stream.transportKind) {
+                ForEach(StreamTransport.Kind.allCases) { kind in
+                    Text(kind.title).tag(kind)
+                }
+            }
+            .pickerStyle(.segmented)
 
-            TextField("流密钥 / Stream Key", text: $stream.streamKey)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            TextField(stream.transportKind.placeholder, text: Binding(
+                get: { stream.activeURL },
+                set: { stream.activeURL = $0 }
+            ))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(.URL)
+
+            if stream.transportKind.needsStreamKey {
+                TextField("流密钥 / Stream Key", text: $stream.streamKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
 
             LabeledSlider(title: "码率（Mb/s）", value: $stream.bitrateMbps, range: 1...40, format: "%.1f")
             LabeledSlider(title: "关键帧间隔（秒）", value: $stream.keyframeSeconds, range: 0.5...6, format: "%.1f")
@@ -114,10 +126,9 @@ struct StreamPanelView: View {
             }
 
             Text("""
-            用的是纯 Swift 实现（RTMP 握手 + AMF0 + FLV 封装，H.264 由 VideoToolbox 编码）。
-            地址支持 rtmp://主机:端口/应用/流密钥，也支持把流密钥单独填在下面一栏。
+            \(stream.transportKind.summary)
+            H.264 由 VideoToolbox 编码，编码结果同时给录制与推流用（HaishinKit 收到已压缩帧就直接封装，不会二次编码）。
             音频暂不支持：采集卡的 HDMI 内嵌音频不走视频设备的采集通道。
-            SRT 需要第三方库（libsrt 那套协议手写不现实），见 NEXT-STEPS.md。
             """)
                 .font(.caption)
                 .foregroundStyle(.secondary)

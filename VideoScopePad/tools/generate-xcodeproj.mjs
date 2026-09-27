@@ -153,6 +153,27 @@ const projectReleaseConfigId = nextId();
 const targetDebugConfigId = nextId();
 const targetReleaseConfigId = nextId();
 
+// MARK: - SPM 依赖（HaishinKit：RTMP + SRT）
+
+// HaishinKit 2.x 把协议拆成了独立 product，所以三个都要挂到 target 上：
+//   HaishinKit      核心（MediaMixer / 编解码设置 / Session 协议）
+//   RTMPHaishinKit  RTMP（握手 + AMF + FLV）
+//   SRTHaishinKit   SRT（自带 libsrt 的 xcframework 二进制依赖）
+// 解析包需要联网；CI 的 macOS runner 能直连 GitHub。
+const swiftPackage = {
+    name: 'HaishinKit.swift',
+    url: 'https://github.com/HaishinKit/HaishinKit.swift',
+    minimumVersion: '2.2.5',
+    products: ['HaishinKit', 'RTMPHaishinKit', 'SRTHaishinKit'],
+};
+
+const packageReferenceId = nextId();
+const packageProducts = swiftPackage.products.map(product => ({
+    product,
+    id: nextId(),
+    buildFileId: nextId(),
+}));
+
 // MARK: - pbxproj 序列化
 
 function quote(value) {
@@ -270,6 +291,9 @@ for (const item of buildFiles) {
     const comment = `${item.name} in ${item.phase}`;
     push(`\t\t${item.id} /* ${comment} */ = {isa = PBXBuildFile; fileRef = ${item.fileRefId} /* ${item.name} */; };`);
 }
+for (const item of packageProducts) {
+    push(`\t\t${item.buildFileId} /* ${item.product} in Frameworks */ = {isa = PBXBuildFile; productRef = ${item.id} /* ${item.product} */; };`);
+}
 push('/* End PBXBuildFile section */');
 push();
 
@@ -288,6 +312,9 @@ push(`\t\t${frameworksBuildPhaseId} /* Frameworks */ = {`);
 push('\t\t\tisa = PBXFrameworksBuildPhase;');
 push('\t\t\tbuildActionMask = 2147483647;');
 push('\t\t\tfiles = (');
+for (const item of packageProducts) {
+    push(`\t\t\t\t${item.buildFileId} /* ${item.product} in Frameworks */,`);
+}
 push('\t\t\t);');
 push('\t\t\trunOnlyForDeploymentPostprocessing = 0;');
 push('\t\t};');
@@ -349,6 +376,11 @@ push('\t\t\t);');
 push('\t\t\tdependencies = (');
 push('\t\t\t);');
 push(`\t\t\tname = ${projectName};`);
+push('\t\t\tpackageProductDependencies = (');
+for (const item of packageProducts) {
+    push(`\t\t\t\t${item.id} /* ${item.product} */,`);
+}
+push('\t\t\t);');
 push(`\t\t\tproductName = ${projectName};`);
 push(`\t\t\tproductReference = ${productRefId} /* ${projectName}.app */;`);
 push('\t\t\tproductType = "com.apple.product-type.application";');
@@ -380,6 +412,9 @@ push('\t\t\t\tBase,');
 push('\t\t\t\t"zh-Hans",');
 push('\t\t\t);');
 push(`\t\t\tmainGroup = ${mainGroupId};`);
+push('\t\t\tpackageReferences = (');
+push(`\t\t\t\t${packageReferenceId} /* XCRemoteSwiftPackageReference "${swiftPackage.name}" */,`);
+push('\t\t\t);');
 push(`\t\t\tproductRefGroup = ${productsGroupId} /* Products */;`);
 push('\t\t\tprojectDirPath = "";');
 push('\t\t\tprojectRoot = "";');
@@ -418,6 +453,31 @@ push('\t\t\t);');
 push('\t\t\trunOnlyForDeploymentPostprocessing = 0;');
 push('\t\t};');
 push('/* End PBXSourcesBuildPhase section */');
+push();
+
+// XCRemoteSwiftPackageReference
+push('/* Begin XCRemoteSwiftPackageReference section */');
+push(`\t\t${packageReferenceId} /* XCRemoteSwiftPackageReference "${swiftPackage.name}" */ = {`);
+push('\t\t\tisa = XCRemoteSwiftPackageReference;');
+push(`\t\t\trepositoryURL = "${swiftPackage.url}";`);
+push('\t\t\trequirement = {');
+push('\t\t\t\tkind = upToNextMajorVersion;');
+push(`\t\t\t\tminimumVersion = ${swiftPackage.minimumVersion};`);
+push('\t\t\t};');
+push('\t\t};');
+push('/* End XCRemoteSwiftPackageReference section */');
+push();
+
+// XCSwiftPackageProductDependency
+push('/* Begin XCSwiftPackageProductDependency section */');
+for (const item of packageProducts) {
+    push(`\t\t${item.id} /* ${item.product} */ = {`);
+    push('\t\t\tisa = XCSwiftPackageProductDependency;');
+    push(`\t\t\tpackage = ${packageReferenceId} /* XCRemoteSwiftPackageReference "${swiftPackage.name}" */;`);
+    push(`\t\t\tproductName = ${item.product};`);
+    push('\t\t};');
+}
+push('/* End XCSwiftPackageProductDependency section */');
 push();
 
 // XCBuildConfiguration

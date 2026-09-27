@@ -27,8 +27,8 @@
 		AB000000000000000000002B /* ScopeKernels.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002A /* ScopeKernels.metal */; };
 		AB0000000000000000000030 /* MeasurementLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002F /* MeasurementLog.swift */; };
 		AB0000000000000000000032 /* MP4Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000031 /* MP4Recorder.swift */; };
-		AB0000000000000000000034 /* RTMPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* RTMPClient.swift */; };
-		AB0000000000000000000036 /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000035 /* StreamController.swift */; };
+		AB0000000000000000000034 /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* StreamController.swift */; };
+		AB0000000000000000000036 /* StreamTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000035 /* StreamTransport.swift */; };
 		AB0000000000000000000038 /* VideoEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000037 /* VideoEncoder.swift */; };
 		AB000000000000000000003B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003A /* ContentView.swift */; };
 		AB000000000000000000003D /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003C /* ControlBar.swift */; };
@@ -38,6 +38,9 @@
 		AB0000000000000000000045 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* SettingsSheet.swift */; };
 		AB0000000000000000000047 /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* StreamPanelView.swift */; };
 		AB0000000000000000000049 /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* TopStatusBar.swift */; };
+		AB000000000000000000005A /* HaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000059 /* HaishinKit */; };
+		AB000000000000000000005C /* RTMPHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005B /* RTMPHaishinKit */; };
+		AB000000000000000000005E /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005D /* SRTHaishinKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -64,8 +67,8 @@
 		AB000000000000000000002D /* VideoScopePad-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VideoScopePad-Bridging-Header.h"; sourceTree = "<group>"; };
 		AB000000000000000000002F /* MeasurementLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementLog.swift; sourceTree = "<group>"; };
 		AB0000000000000000000031 /* MP4Recorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Recorder.swift; sourceTree = "<group>"; };
-		AB0000000000000000000033 /* RTMPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RTMPClient.swift; sourceTree = "<group>"; };
-		AB0000000000000000000035 /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
+		AB0000000000000000000033 /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
+		AB0000000000000000000035 /* StreamTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTransport.swift; sourceTree = "<group>"; };
 		AB0000000000000000000037 /* VideoEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEncoder.swift; sourceTree = "<group>"; };
 		AB000000000000000000003A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AB000000000000000000003C /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
@@ -82,6 +85,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AB000000000000000000005A /* HaishinKit in Frameworks */,
+				AB000000000000000000005C /* RTMPHaishinKit in Frameworks */,
+				AB000000000000000000005E /* SRTHaishinKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -171,8 +177,8 @@
 			children = (
 				AB000000000000000000002F /* MeasurementLog.swift */,
 				AB0000000000000000000031 /* MP4Recorder.swift */,
-				AB0000000000000000000033 /* RTMPClient.swift */,
-				AB0000000000000000000035 /* StreamController.swift */,
+				AB0000000000000000000033 /* StreamController.swift */,
+				AB0000000000000000000035 /* StreamTransport.swift */,
 				AB0000000000000000000037 /* VideoEncoder.swift */,
 			);
 			path = Stream;
@@ -224,6 +230,11 @@
 			dependencies = (
 			);
 			name = VideoScopePad;
+			packageProductDependencies = (
+				AB0000000000000000000059 /* HaishinKit */,
+				AB000000000000000000005B /* RTMPHaishinKit */,
+				AB000000000000000000005D /* SRTHaishinKit */,
+			);
 			productName = VideoScopePad;
 			productReference = AB000000000000000000004C /* VideoScopePad.app */;
 			productType = "com.apple.product-type.application";
@@ -253,6 +264,9 @@
 				"zh-Hans",
 			);
 			mainGroup = AB000000000000000000004D;
+			packageReferences = (
+				AB0000000000000000000058 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
+			);
 			productRefGroup = AB000000000000000000004E /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -297,8 +311,8 @@
 				AB000000000000000000002B /* ScopeKernels.metal in Sources */,
 				AB0000000000000000000030 /* MeasurementLog.swift in Sources */,
 				AB0000000000000000000032 /* MP4Recorder.swift in Sources */,
-				AB0000000000000000000034 /* RTMPClient.swift in Sources */,
-				AB0000000000000000000036 /* StreamController.swift in Sources */,
+				AB0000000000000000000034 /* StreamController.swift in Sources */,
+				AB0000000000000000000036 /* StreamTransport.swift in Sources */,
 				AB0000000000000000000038 /* VideoEncoder.swift in Sources */,
 				AB000000000000000000003B /* ContentView.swift in Sources */,
 				AB000000000000000000003D /* ControlBar.swift in Sources */,
@@ -312,6 +326,35 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		AB0000000000000000000058 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/HaishinKit/HaishinKit.swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.2.5;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AB0000000000000000000059 /* HaishinKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000058 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			productName = HaishinKit;
+		};
+		AB000000000000000000005B /* RTMPHaishinKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000058 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			productName = RTMPHaishinKit;
+		};
+		AB000000000000000000005D /* SRTHaishinKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000058 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			productName = SRTHaishinKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		AB0000000000000000000054 /* Debug */ = {

@@ -4,10 +4,11 @@
 //
 //  录制 / 推流的总调度：
 //     采集帧 → VideoEncoder(H.264) ─┬→ MP4Recorder（本机录制）
-//                                   └→ RTMPClient（推流）
+//                                   └→ StreamTransport（推流：RTMP / SRT，走 HaishinKit）
 //
 //  说明：
-//    · 录制与推流共用同一次编码结果（MP4 用直通写入），所以两个一起开也不会翻倍耗电
+//    · 录制与推流共用同一次编码结果（MP4 用直通写入，推流把同一份 CMSampleBuffer
+//      交给 HaishinKit，它检测到 isCompressed 就直接封装，不会二次编码）
 //    · 默认录/推的是**输入信号**（采集卡原始画面）；套 LUT 之后的画面是监看用的显示信号，
 //      录制原始信号更符合"留一份原始素材"的做法（post-LUT 录制见 NEXT-STEPS.md）
 //    · 音频暂不支持：采集卡的 HDMI 内嵌音频不走视频设备的采集通道
@@ -60,6 +61,26 @@ final class StreamController: ObservableObject {
     @Published var streamKey: String = "" {
         didSet { UserDefaults.standard.set(streamKey, forKey: "vsp.stream.key") }
     }
+    /// SRT 地址（含 ?mode=caller&streamid=… 这类参数）
+    @Published var srtURL: String = "" {
+        didSet { UserDefaults.standard.set(srtURL, forKey: "vsp.stream.srtURL") }
+    }
+    /// 推流协议：RTMP 或 SRT
+    @Published var transportKind: StreamTransport.Kind = .rtmp {
+        didSet {
+            UserDefaults.standard.set(transportKind.rawValue, forKey: "vsp.stream.kind")
+            // 协议换了，正在推的话先停掉，避免状态错乱
+            if isStreaming || isPreparing { stopStreaming() }
+        }
+    }
+
+    /// 当前协议对应的地址栏内容（界面直接绑定这个）
+    var activeURL: String {
+        get { transportKind == .rtmp ? rtmpURL : srtURL }
+        set {
+            if transportKind == .rtmp { rtmpURL = newValue } else { srtURL = newValue }
+        }
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -67,6 +88,11 @@ final class StreamController: ObservableObject {
         if let value = defaults.object(forKey: "vsp.stream.keyframe") as? Double { keyframeSeconds = value }
         if let value = defaults.string(forKey: "vsp.stream.rtmpURL") { rtmpURL = value }
         if let value = defaults.string(forKey: "vsp.stream.key") { streamKey = value }
+        if let value = defaults.string(forKey: "vsp.stream.srtURL") { srtURL = value }
+        if let raw = defaults.string(forKey: "vsp.stream.kind"),
+           let kind = StreamTransport.Kind(rawValue: raw) {
+            transportKind = kind
+        }
     }
 
     // MARK: - 内部
@@ -75,9 +101,11 @@ final class StreamController: ObservableObject {
     private var encoderSourceFormat: OSType = 0
     private var encoderWidth = 0
     private var encoderHeight = 0
+    /// 编码/推流使用的帧率（采集卡给出的声明帧率拿不到时按 60 处理）
+    private var encoderFrameRate: Double = 60
 
     private var recorder: MP4Recorder?
-    private var rtmp: RTMPClient?
+    private var transport: StreamTransport?
 
     private var startDate: Date?
     private var encodedFrameCount = 0
@@ -131,15 +159,14 @@ final class StreamController: ObservableObject {
             let created = try VideoEncoder(width: width,
                                            height: height,
                                            bitrate: bitrate,
-                                           frameRate: 60,
+                                           frameRate: Int(max(encoderFrameRate, 1)),
                                            keyframeIntervalSeconds: keyframeSeconds,
                                            sourcePixelFormat: format)
             created.onFrame = { [weak self] frame in
                 self?.handleEncodedFrame(frame)
             }
-            created.onParameterSets = { [weak self] record in
-                self?.rtmp?.sendAVCSequenceHeader(record)
-            }
+            // 参数集（SPS/PPS）由 HaishinKit 从 sampleBuffer 的 formatDescription 里自己取，
+            // 不需要我们再拼 FLV 的 AVC sequence header
             created.onError = { [weak self] message in
                 DispatchQueue.main.async { self?.lastError = message }
             }
@@ -170,10 +197,8 @@ final class StreamController: ObservableObject {
         }
 
         // 推流
-        if let rtmp, rtmp.isPublishing {
-            if let payload = VideoEncoder.avccPayload(from: frame.sampleBuffer) {
-                rtmp.sendVideoFrame(payload, isKeyframe: frame.isKeyframe, timestampMs: frame.timestampMs)
-            }
+        if let transport, transport.isPublishing {
+            transport.append(frame.sampleBuffer)
         }
     }
 
@@ -210,13 +235,24 @@ final class StreamController: ObservableObject {
         }
     }
 
-    // MARK: - 推流（RTMP）
+    // MARK: - 推流（RTMP / SRT，走 HaishinKit）
 
     func startStreaming() {
         guard !isStreaming else { return }
-        let trimmedURL = rtmpURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedURL.isEmpty else {
-            lastError = "请先填 RTMP 地址"
+
+        let url = activeURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = streamKey.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if url.isEmpty {
+            lastError = transportKind == .rtmp ? "请先填 RTMP 服务器地址" : "请先填 SRT 地址"
+            return
+        }
+        if transportKind == .rtmp, StreamTransport.parseRTMP(urlString: url, streamKey: key) == nil {
+            lastError = "RTMP 地址不完整：需要 rtmp://主机[:端口]/应用，并且填上流密钥"
+            return
+        }
+        if transportKind == .srt, StreamTransport.parseSRT(urlString: url) == nil {
+            lastError = "SRT 地址不完整：需要 srt://主机:端口"
             return
         }
 
@@ -224,34 +260,46 @@ final class StreamController: ObservableObject {
         isPreparing = true
         statusText = "连接服务器…"
 
-        let client = RTMPClient()
-        client.onStatus = { [weak self] status in
+        let created = StreamTransport(kind: transportKind)
+        created.onState = { [weak self] state, detail in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.statusText = status.text
-                if case .failed(let message) = status {
+                if !detail.isEmpty { self.statusText = detail }
+                switch state {
+                case .connecting:
+                    break
+                case .publishing:
+                    self.isStreaming = true
+                    self.isPreparing = false
+                case .failed(let message):
                     self.lastError = message
                     self.isStreaming = false
                     self.isPreparing = false
                     self.stopEncoderIfIdle()
-                }
-                if case .publishing = status {
-                    self.isStreaming = true
+                case .closed:
+                    self.isStreaming = false
                     self.isPreparing = false
                 }
             }
         }
-        client.onReadyToPublish = { [weak self] in
-            // 服务器确认后把 SPS/PPS 与关键帧重新发一遍，确保秒开
+        created.onReadyToPublish = { [weak self] in
+            // 服务器确认后强制一个关键帧，接收端秒开
             self?.encoder?.requestKeyframe()
         }
-        rtmp = client
-        client.connect(urlString: trimmedURL, streamKey: streamKey)
+        transport = created
+
+        let frameRate = Int(max(encoderFrameRate, 1))
+        created.start(urlString: url,
+                      streamKey: key,
+                      videoSize: CGSize(width: max(encoderWidth, 1280), height: max(encoderHeight, 720)),
+                      bitrate: Int(max(bitrateMbps, 0.5) * 1_000_000),
+                      frameRate: frameRate,
+                      keyframeSeconds: keyframeSeconds)
     }
 
     func stopStreaming() {
-        rtmp?.disconnect()
-        rtmp = nil
+        transport?.stop()
+        transport = nil
         isStreaming = false
         isPreparing = false
         statusText = isRecording ? "录制中" : "空闲"

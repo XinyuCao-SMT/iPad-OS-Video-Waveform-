@@ -76,6 +76,20 @@ enum ScopeLayout {
         }
     }
 
+    /// 绘图区相对「按纹理比例内缩后」的区域再缩一点，留出呼吸空间。
+    ///
+    /// 矢量图的圆环直径原本正好等于格子高度（四分割里格子高就是半屏），
+    /// 圆环上下顶到格子边缘，视觉上像是「占了半屏还多」，所以单独缩到 0.78；
+    /// 波形/Parade 是扁长的，缩太多反而浪费高度，只留很小的边。
+    static func fillFactor(for content: PaneContent) -> CGFloat {
+        switch content {
+        case .vectorscope: return 0.78
+        case .waveform: return 0.96
+        case .parade: return 0.97
+        case .picture: return 1.0
+        }
+    }
+
     /// 该内容是否需要左侧刻度栏
     static func needsGutter(_ content: PaneContent) -> Bool {
         switch content {
@@ -254,6 +268,11 @@ enum ScopeLayout {
             height = width / aspect
         }
 
+        // 再按内容的留白系数缩一圈（矢量图缩得最多，见 fillFactor）
+        let fill = fillFactor(for: content)
+        width *= fill
+        height *= fill
+
         let plot = CGRect(x: plotArea.midX - width / 2,
                           y: plotArea.midY - height / 2,
                           width: width,
@@ -277,7 +296,7 @@ enum ScopeLayout {
         let panelWidth = (box.width - gap * (count + 1)) / count
 
         // 让最「方」的那个面板决定条带高度（刻度栏要占位，所以多留一点）
-        let required = panels.map { panelWidth / plotAspect(for: content(for: $0)) + box.height * 0.06 }
+        let required = panels.map { panelWidth / plotAspect(for: content(for: $0)) / fillFactor(for: content(for: $0)) + box.height * 0.06 }
             .max() ?? box.height * 0.3
         let stripHeight = min(max(required, box.height * 0.24), box.height * 0.54)
 

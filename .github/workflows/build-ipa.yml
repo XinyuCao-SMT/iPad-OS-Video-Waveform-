@@ -94,6 +94,21 @@ jobs:
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
+      # 工程里有一个 SPM 依赖（HaishinKit：RTMP + SRT 推流，带 libsrt 的 xcframework）。
+      # 依赖解析失败和编译失败的排查方向完全不同，所以单独跑一步、单独留日志。
+      - name: 解析 Swift Package 依赖
+        working-directory: ${{ steps.locate.outputs.rel }}
+        run: |
+          set -o pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project VideoScopePad.xcodeproj \
+            -scheme VideoScopePad 2>&1 | tee resolve.log
+
+          echo "--- 已解析的包 ---"
+          ls -1 build/SourcePackages/checkouts 2>/dev/null || echo "（没有 checkouts 目录）"
+          echo "--- Package.resolved ---"
+          ls -la VideoScopePad.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved 2>/dev/null || echo "（没有 Package.resolved）"
+
       - name: 编译（未签名）
         working-directory: ${{ steps.locate.outputs.rel }}
         run: |
@@ -120,12 +135,14 @@ jobs:
             echo "把下面这段直接发给开发助手即可定位问题："
             echo ""
             echo '```'
-            grep -E "(error:|fatal error:|does not conform|cannot find|no such module)" build.log | sort -u | head -60 || echo "（没能从日志里匹配到 error: 行，请下载 build-log 工件查看完整日志）"
+            grep -E "(error:|fatal error:|does not conform|cannot find|no such module|unable to resolve|Failed to resolve)" build.log resolve.log 2>/dev/null | sort -u | head -60 || echo "（没能从日志里匹配到 error: 行，请下载 build-log 工件查看完整日志）"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "--- 错误原文 ---"
-          grep -E "(error:|fatal error:)" build.log | sort -u | head -60 || true
+          grep -E "(error:|fatal error:)" build.log 2>/dev/null | sort -u | head -60 || true
+          echo "--- 依赖解析日志尾部 ---"
+          tail -30 resolve.log 2>/dev/null || true
 
       - name: 打包未签名 IPA
         working-directory: ${{ steps.locate.outputs.rel }}
