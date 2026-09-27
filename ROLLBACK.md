@@ -2,17 +2,19 @@
 
 三个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
 
-## 三个版本
+## 四个版本
 
 | 版本 | 提交 | Tag / 分支 | 内容 | IPA |
 |---|---|---|---|---|
 | **v1.0.0 监视器版**<br>（最初的稳定版） | `385d8d0` | tag `v1.0.0-monitor`<br>分支 `legacy/v1.0.0-monitor` | UVC 监视 + 矢量示波器 + 亮度波形 + RGB Parade + `.cube` LUT + 信号幅度读数 + 冻结/调色 + 布局预设（仅画面/底部/右侧/叠加） | `dist/VideoScopePad-v1.0.0-monitor-unsigned.ipa` |
 | **v1.1.0 四分割版** | `99ad8ec` | tag `v1.1.0-quad` | 全屏/四分割可配内容、示波器侧边大号刻度（IRE/mV/%）、等效 mV 与信号信息自动显示、自动选择输入格式 | `dist/VideoScopePad-v1.1.0-quad-unsigned.ipa` |
-| **v1.2.0 看守版**<br>（最新） | `67020ef` | tag `v1.2.0-assist` | 在 v1.1.0 上增加：真峰值保持游标、超白/黑切割斑马纹、超标报警红框与振动 | `dist/VideoScopePad-v1.2.0-assist-unsigned.ipa` |
+| **v1.2.0 看守版** | `67020ef` | tag `v1.2.0-assist` | 真峰值保持游标、超白/黑切割斑马纹、超标报警红框与振动 | `dist/VideoScopePad-v1.2.0-assist-unsigned.ipa` |
+| **v1.3.0 录制推流版**<br>（最新） | `8e5773a` | tag `v1.3.0-stream` | 本机 MP4 录制（H.264 直通）、RTMP 推流（纯 Swift）、抓帧存相册、读数 CSV 导出 | `dist/VideoScopePad-v1.3.0-stream-unsigned.ipa` |
 
 > v1.0.0 对应的是**第一次云端构建成功**的那份代码（CI run #9），它没有四分割逻辑，已核对过归档内容。
-> 每个版本都用 `default.metallib` 的哈希验证过「新代码确实进了包」：
-> v1.0.0 与 v1.1.0 的 metallib 哈希相同（v1.1.0 只改了 Swift/UI），v1.2.0 的 metallib 变大且哈希不同（斑马纹着色器在包内）。
+> 每个版本都用 `default.metallib` 哈希 + 主程序字符串核对过「新代码确实进了包」：
+> v1.0.0/v1.1.0 的 metallib 相同（只改 Swift/UI），v1.2.0 变大且哈希不同（斑马纹着色器），
+> v1.3.0 的 metallib 与 v1.2.0 相同、主程序从 1588 KB 涨到 1921 KB 且出现 `Recordings`/`rtmp://`/`StreamController` 字符串。
 
 ## 三种回滚方式
 
@@ -55,25 +57,28 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | v1.0.0-monitor | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36291748106> |
 | v1.1.0-quad | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36299560754> |
 | v1.2.0-assist | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36300439675> |
+| v1.3.0-stream | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36302386663> |
 
-三个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
+四个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
 
 - v1.0.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.0.0-monitor>
 - v1.1.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.1.0-quad>
 - v1.2.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.2.0-assist>
+- v1.3.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.3.0-stream>
 
 ## 校验哈希（确认手里的是哪一版）
 
-| 文件 | 大小 | SHA256 |
+| 文件 | 大小 | SHA256（前 16 位，完整值见 `_backup\build-records.txt`） |
 |---|---|---|
-| `VideoScopePad-v1.0.0-monitor-unsigned.ipa` | 0.34 MB | `21AD96947C0250CB114F8F752920CE233A809E80CB826320DCDE9AF4FDD8C4BF` |
-| `VideoScopePad-v1.1.0-quad-unsigned.ipa` | 0.39 MB | `ED016D218EF5917D33FDC9CE0AFAA42277E607DBE1070D8660F986E723BA843B` |
-| `VideoScopePad-v1.2.0-assist-unsigned.ipa` | 0.42 MB | `4D4FA00688063CD0484B185F1702530346B9CD6734CC75C8ECF7EB8E75D6D6D0` |
+| `VideoScopePad-v1.0.0-monitor-unsigned.ipa` | 0.34 MB | `21AD96947C0250CB…` |
+| `VideoScopePad-v1.1.0-quad-unsigned.ipa` | 0.39 MB | `ED016D218EF5917D…` |
+| `VideoScopePad-v1.2.0-assist-unsigned.ipa` | 0.42 MB | `4D4FA00688063CD0…` |
+| `VideoScopePad-v1.3.0-stream-unsigned.ipa` | 0.50 MB | `52DF03D6064DC039…` |
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\dist\VideoScopePad-v1.2.0-assist-unsigned.ipa -Algorithm SHA256
+Get-FileHash .\dist\VideoScopePad-v1.3.0-stream-unsigned.ipa -Algorithm SHA256
 ```
 
 ## 说明

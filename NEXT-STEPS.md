@@ -1,10 +1,19 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.2.0-assist**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.3.0-stream**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.3.0 录制推流版（提交 `8e5773a`，tag `v1.3.0-stream`，CI run #17 全绿）
+
+* **本机录制 MP4**：VideoToolbox H.264 + AVAssetWriter 直通写入，与推流共用同一次编码（不二次编码）；文件在「文件 → 本应用 → Recordings」。录制的是**输入信号**（原始素材）——这与广播监视器的做法一致：LUT 只是监看视图。
+* **RTMP 推流（纯 Swift 实现）**：握手 → AMF0 `connect`/`createStream`/`publish` 状态机 → Set Chunk Size → FLV 视频标签（AVC sequence header 在服务器确认 publish 后发）。地址支持 `rtmp://主机:端口/应用/流密钥`，流密钥也可单独一栏。
+  ⚠️ **未对着真实服务器联调过**：编译与静态检查都过，第一次连你的服务器可能需要调一轮（面板会显示状态与错误文本）。
+* **抓帧**：把当前输入帧存进相册（需要照片写入权限）。
+* **读数 CSV 导出**：时间、峰值白/黑位/平均/动态范围（IRE 与等效 mV 同时给）、R/G/B 峰值、色度峰值、超白超黑占比、报警状态；可导出到「文件」或直接分享。
+* 退到后台自动停止录制与推流；面板参数（码率/关键帧/地址）自动持久化。
 
 ### v1.2.0 看守版（提交 `67020ef`，tag `v1.2.0-assist`，CI run #13 全绿）
 
@@ -31,19 +40,35 @@
 
 ## ⏳ 待办（都没确认过，随时可以挑）
 
+### 🔴 等你拍板：SRT 怎么接
+
+**结论：SRT 手写不现实**（它是 libsrt 那套 ARQ 重传 + 加密 + 握手，不是几百行能写对的）。查证结果：**HaishinKit 官方就是「RTMP + SRT」双协议库**（[SRTStream 文档](https://docs.haishinkit.com/swift/1.9.2/Classes/SRTStream.html)、[SRT 章节](https://deepwiki.com/HaishinKit/HaishinKit.swift/5.2-srt-streaming)、[仓库](https://github.com/HaishinKit/HaishinKit.swift)），所以 SRT 的现实路线只有两条：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A. 引入 HaishinKit（推荐）** | 在工程里加 SPM 依赖，用它的 `RTMPStream` / `SRTStream` **同时**替掉我手写的 RTMP | 多一个第三方依赖；需在 CI 里联调它的 API（2.x 是 Swift Concurrency 风格）；二进制体积增加；它自带编码管线，我要把我们的帧喂进去 |
+| **B. 保持现状 + UDP 兜底** | 保留手写 RTMP，另加一条 **MPEG-TS over UDP**（很多服务器/VLC/ffmpeg 直接能收） | **那不是 SRT**，我不会给它贴 SRT 标签；需要接受"没有 SRT" |
+
+按你的实际用途选（如果是推给 SRS / 媒体服务器，方案 A 更省事；如果只是局域网给 VLC 看，方案 B 够用）。
+
+### 推流/录制的后续
+
+* **联调 RTMP**：手写实现需要对着你的服务器跑一次，把面板上的状态/错误发我，我按报错改。
+* **post-LUT 录制/推流**：现在录/推的是输入信号；想录"套了 LUT 之后的画面"需要在渲染器里把显示纹理回读到 CVPixelBuffer（多一个渲染通道 + 缓冲池）。
+* **带示波器与 HUD 的合成截图**：现在抓帧只有画面；要连刻度与信息层一起截，需要在 Metal 合成结果上做回读，再叠加 SwiftUI 图层。
+* **音频**：采集卡的 HDMI 内嵌音频不走视频采集通道，需要单独找音频输入设备（UVC 音频或 USB 声卡）。
+* **RTMPS / 断线重连**：手写版目前只支持明文 RTMP、无自动重连。
+
 ### 画质与信号
 
 * **HDR / HLG / PQ**：在 `fsVideoBiPlanar` 之后插一段 HLG/PQ → 线性 → tone map；示波器统计放在 tone map 之后就是标准 SDR 读数。工程里已经能读出传输函数（PQ/HLG 会显示出来），但还没做映射。
 * **10bit P010 输入**：需要先确认 iPad 侧 UVC 是否真的给出 P010 格式；给出的话要走新的像素格式分支与着色器路径。
 * **YCbCr Parade**：现在有 RGB Parade，加一条 YCbCr 的只需要在 `ScopeKernels.metal` 里换一组平面。
 
-### 功能
+### 其它功能
 
-* **录音**（HDMI 内嵌音频）：加 `AVCaptureAudioDataOutput` + 电平表；采集卡音频通常也走 UVC。
 * **干净画面外送**：把不带 UI 的画面送到外接 HDMI / AirPlay（iPad 上可用外接显示器 + 独立窗口）。
-* **抓帧 / 截图**：把当前画面（含或不含示波器）存到相册，方便写报告。
-* **示波器数据导出**：把峰值/黑位/超范围统计按时间导出 CSV。
-* **峰值保持的逐通道游标**：现在画的是亮度峰值与黑位；R/G/B 各自的游标已经有了数据（`PeakHoldState` 里有），只差画出来。
+* **峰值保持的逐通道游标**：现在画的是亮度峰值与黑位；R/G/B 各自的游标已经有数据（`PeakHoldState` 里有），只差画出来。
 * **直方图面板**：RGB 三通道直方图，可以复用现有的全局测量直方图缓冲区（零额外 GPU 开销）。
 
 ### 已知限制（不是 bug，是接口边界）
