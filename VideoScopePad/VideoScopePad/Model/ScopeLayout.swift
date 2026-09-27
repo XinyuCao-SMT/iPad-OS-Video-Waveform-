@@ -65,12 +65,13 @@ struct ScopeLayoutResult: Equatable {
 
 enum ScopeLayout {
 
-    /// 面板内轨迹区的目标宽高比
+    /// 绘图区的宽高比**必须等于示波器纹理的比例**，否则轨迹会被拉伸（格子越小越明显）：
+    ///   亮度波形 = 512×256 = 2:1，RGB Parade = 1536×256 = 6:1，矢量 = 256×256 = 1:1
     static func plotAspect(for content: PaneContent) -> CGFloat {
         switch content {
         case .vectorscope: return 1.0
-        case .waveform: return 1.45
-        case .parade: return 1.6
+        case .waveform: return 2.0
+        case .parade: return 6.0
         case .picture: return 16.0 / 9.0
         }
     }
@@ -228,18 +229,19 @@ enum ScopeLayout {
                               videoUV: uvRect(videoAspect: videoAspect, target: video, mode: aspectMode))
         }
 
-        let pad = panel.width * 0.02
+        let pad = panel.width * 0.015
         var plotArea = CGRect(x: panel.minX + pad, y: panel.minY + pad,
                               width: max(panel.width - pad * 2, 1),
                               height: max(panel.height - pad * 2, 1))
         var gutter: CGRect?
 
         if needsGutter(content) {
-            let gutterWidth = min(max(panel.width * 0.17, 0.022), panel.width * 0.3)
+            // 刻度栏宽度跟格子高度挂钩（而不是宽度），这样格子再小也不会把绘图区挤没
+            let gutterWidth = min(max(panel.height * 0.09, 0.018), panel.width * 0.24)
             gutter = CGRect(x: panel.minX, y: panel.minY, width: gutterWidth, height: panel.height)
-            plotArea = CGRect(x: panel.minX + gutterWidth + pad * 0.4,
+            plotArea = CGRect(x: panel.minX + gutterWidth + pad,
                               y: panel.minY + pad,
-                              width: max(panel.width - gutterWidth - pad * 1.4, 1),
+                              width: max(panel.width - gutterWidth - pad * 2, 1),
                               height: max(panel.height - pad * 2, 1))
         }
 

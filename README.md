@@ -28,7 +28,9 @@
 | 信号幅度数值读数 | 峰值白 / 黑位 / 平均电平 / 动态范围（IRE）、R/G/B 分量峰值、色度峰值、超白超黑占比，超范围自动橙色告警；整帧全黑会提示「信号源可能没输出」 |
 | 显示通道 | 彩色 / 亮度 / 单独 R / G / B 通道 |
 | 布局 | 仅画面、底部示波器条、右侧示波器栏、示波器半透明叠加在画面上；竖屏自动适配 |
-| 其它 | 冻结画面读数、画面缩放（完整显示 / 铺满裁切）、HUD 信息层、点击画面全屏监视、防息屏 |
+| 录制 / 推流（v1.3.0） | 本机录制 **MP4**（VideoToolbox H.264 + AVAssetWriter 直通，录的是**输入信号**）、**RTMP 推流**（纯 Swift 实现，支持 `rtmp://主机:端口/应用/流密钥`）、**抓帧存相册**、**读数 CSV 导出**（IRE 与等效 mV、R/G/B 峰值、色度、超白超黑占比、报警状态） |
+| 顶部信息行 | 设备 / 分辨率 / 声明帧率 / 实测帧率 / 像素格式·量化范围 / 色彩原色·传输函数·YCbCr 矩阵 / 峰值白·黑位·平均·色度峰值 / LUT·已调色 / 丢帧 / 已确认报警 —— 全部收在最顶上一行，可横向滚动 |
+| 其它 | 冻结画面读数、画面缩放（完整显示 / 铺满裁切）、点击画面全屏监视、防息屏 |
 
 ---
 
@@ -67,8 +69,9 @@ iPad OS Software Waform/            <- 仓库根目录
       ├─ App/        VideoScopePadApp.swift · AppSettings.swift
       ├─ Capture/    CaptureController.swift（UVC 设备/格式/帧回调）· CaptureModels.swift
       ├─ Model/      ScopeModels.swift（枚举）· ScopeLayout.swift（布局唯一来源）· GeometryHelpers.swift
-      ├─ Render/     MetalContext · VideoRenderer · ScopeEngine · SignalMeasurement（幅度读数）· LUTCube · LUTTextures · LUTStore · RenderCoordinator
-      ├─ Views/      ContentView · MonitorSurface · ScopeGraticuleView · HUDOverlay · ControlBar · SettingsSheet · Controls
+      ├─ Render/     MetalContext · VideoRenderer · ScopeEngine · SignalMeasurement（幅度读数/峰值保持/报警）· LUTCube · LUTTextures · LUTStore · RenderCoordinator
+      ├─ Stream/     StreamController · VideoEncoder（VideoToolbox H.264）· RTMPClient（纯 Swift）· MP4Recorder · MeasurementLog（读数 CSV）
+      ├─ Views/      ContentView · MonitorSurface · ScopeGraticuleView · TopStatusBar（顶部信息行）· ControlBar · SettingsSheet · StreamPanelView · Controls
       ├─ Shaders/    ShaderTypes.h（Swift/Metal 共享）· DisplayShaders.metal · ScopeKernels.metal · 桥接头
       └─ Resources/  Assets.xcassets
 ```
@@ -210,7 +213,9 @@ Windows 上**无法**编译 iOS/iPadOS 应用（需要 Apple SDK 与 Metal 着�
 
 * 4K 输入：能不能进 4K 取决于采集卡与 iPad；本工程默认按 1080p60 优化（4K 下示波器会自动降采样）。
 * HDR / HLG / PQ 输入：目前按 SDR 处理（未做 HLG→SDR tone mapping），10bit P010 也没走专门管线。
-* 录制 / 截图 / 波形导出：本版没做（示波器是实时监看用的）。
+* 录制 / 截图 / 波形导出：**已做**（见第 1 节 v1.3.0 行）。注意录到的是**输入信号**（原始素材），LUT 只作用于监看视图；要录「套了 LUT 之后的画面」需要把显示纹理回读成 `CVPixelBuffer`，尚未做。
+* RTMP 推流未对着真实服务器联调过（编译与静态检查通过，首次连接可能需要按面板报错调一轮）；不支持 RTMPS 与自动重连。
+* SRT 未做：SRT 需要 libsrt 那套 ARQ 重传 + 加密，不适合手写。
 * 音频：未处理采集卡的音频（HDMI 内嵌音频不输出）。
 * 外接显示器输出（把干净画面送到 HDMI）：未做。
 * 色域：按 BT.709/sRGB 处理，未做 P3 出图。
@@ -224,7 +229,7 @@ Windows 上**无法**编译 iOS/iPadOS 应用（需要 Apple SDK 与 Metal 着�
 | 顶栏一直显示「未检测到视频输入设备」 | 采集卡没插好；用了 Lightning 的 iPad；iPadOS < 17；采集卡不是 UVC 免驱；换带供电的 Hub 试试 |
 | 有设备但一直黑屏 | 格式没协商成功 → 在格式菜单里换一个（例如换成 `1920×1080 60p · 420v`）；或信号源没输出；或 HDCP |
 | 显示「采集被系统中断」 | 采集卡被其它 App 占用（FaceTime、相机、其它采集软件），关掉它们 |
-| 画面偶尔卡一下、HUD 里「丢帧」增加 | USB 带宽/供电不足，降低帧率或分辨率；把示波器精度切到 1/4 也能减轻 GPU 负担 |
+| 画面偶尔卡一下、顶部信息行里「丢帧」增加 | USB 带宽/供电不足，降低帧率或分辨率；把示波器精度切到 1/4 也能减轻 GPU 负担 |
 | 打开 App 提示没有相机权限 | 设置 → 隐私与安全性 → 相机 → 允许「VideoScopePad」 |
 | 导入的 LUT 报错 | 只支持 `.cube`；1D 只有 `LUT_1D_SIZE` 也支持；`LUT_3D_SIZE` 建议 ≤ 65；文件编码需为 UTF-8/ASCII |
 | 编译报错找不到 `ShaderTypes.h` | 桥接头路径由 `SWIFT_OBJC_BRIDGING_HEADER` 指定（`VideoScopePad/Shaders/VideoScopePad-Bridging-Header.h`），确认工程没有被改过路径 |

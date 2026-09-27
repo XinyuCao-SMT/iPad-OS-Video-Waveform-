@@ -103,48 +103,58 @@ final class PeakHoldTracker {
         let dt = lastUpdate.map { now.timeIntervalSince($0) } ?? 0
         lastUpdate = now
 
-        // 先处理「新峰值」：上升沿立即钉住，并刷新保持计时
+        // ⚠️ 这里必须先把状态取到局部变量再写回。
+        // 之前的写法是 track(..., &state.whitePeakIRE)，而 track 内部又读 state.hasData，
+        // 属于 Swift 的独占访问违规（Simultaneous accesses …），一开「读数」就在运行时崩溃，
+        // 而且因为设置被持久化，重启后照样崩。
+        var whitePeak = state.whitePeakIRE
+        var blackFloor = state.blackFloorIRE
+        var redPeak = state.redPeakIRE
+        var greenPeak = state.greenPeakIRE
+        var bluePeak = state.bluePeakIRE
+        var hasData = state.hasData
         var raised = false
-        func track(_ newValue: Double, _ held: inout Double) {
-            if !state.hasData || newValue > held {
+
+        func trackUp(_ newValue: Double, _ held: inout Double) {
+            if !hasData || newValue > held {
                 held = newValue
                 raised = true
             }
         }
 
-        track(measurement.stableWhiteIRE, &state.whitePeakIRE)
-        track(measurement.redPeakIRE, &state.redPeakIRE)
-        track(measurement.greenPeakIRE, &state.greenPeakIRE)
-        track(measurement.bluePeakIRE, &state.bluePeakIRE)
+        trackUp(measurement.stableWhiteIRE, &whitePeak)
+        trackUp(measurement.redPeakIRE, &redPeak)
+        trackUp(measurement.greenPeakIRE, &greenPeak)
+        trackUp(measurement.bluePeakIRE, &bluePeak)
 
         // 黑位是「越低越值得钉」
-        if !state.hasData || measurement.stableBlackIRE < state.blackFloorIRE {
-            state.blackFloorIRE = measurement.stableBlackIRE
+        if !hasData || measurement.stableBlackIRE < blackFloor {
+            blackFloor = measurement.stableBlackIRE
             raised = true
         }
 
-        if !state.hasData {
-            state.hasData = true
+        if !hasData {
+            hasData = true
             holdUntil = now.addingTimeInterval(holdSeconds)
-            return state
-        }
-
-        if raised {
+        } else if raised {
             holdUntil = now.addingTimeInterval(holdSeconds)
-            return state
+        } else if let holdUntil, now < holdUntil {
+            // 保持期内不动
+        } else {
+            let step = decayPerSecond * max(dt, 0)
+            whitePeak = max(measurement.stableWhiteIRE, whitePeak - step)
+            redPeak = max(measurement.redPeakIRE, redPeak - step)
+            greenPeak = max(measurement.greenPeakIRE, greenPeak - step)
+            bluePeak = max(measurement.bluePeakIRE, bluePeak - step)
+            blackFloor = min(measurement.stableBlackIRE, blackFloor + step)
         }
 
-        // 保持期内不动；过期后按速率向当前值衰减
-        if let holdUntil, now < holdUntil {
-            return state
-        }
-
-        let step = decayPerSecond * max(dt, 0)
-        state.whitePeakIRE = max(measurement.stableWhiteIRE, state.whitePeakIRE - step)
-        state.redPeakIRE = max(measurement.redPeakIRE, state.redPeakIRE - step)
-        state.greenPeakIRE = max(measurement.greenPeakIRE, state.greenPeakIRE - step)
-        state.bluePeakIRE = max(measurement.bluePeakIRE, state.bluePeakIRE - step)
-        state.blackFloorIRE = min(measurement.stableBlackIRE, state.blackFloorIRE + step)
+        state = PeakHoldState(whitePeakIRE: whitePeak,
+                              blackFloorIRE: blackFloor,
+                              redPeakIRE: redPeak,
+                              greenPeakIRE: greenPeak,
+                              bluePeakIRE: bluePeak,
+                              hasData: hasData)
         return state
     }
 }
@@ -173,29 +183,32 @@ final class WarningLatch {
 
         let current = Set(warnings)
 
-        // 命中 +1，未命中 -1（逐渐消退，避免抖动）
-        for key in current {
-            counters[key, default: 0] += 1
-        }
-        for key in counters.keys where !current.contains(key) {
-            counters[key] = max(0, (counters[key] ?? 0) - 1)
+        // 先在快照上算好新计数，最后整体替换 —— 避免"边遍历边改字典"这种隐患写法
+        var updated: [String: Int] = [:]
+        for key in Set(counters.keys).union(current) {
+            let count = counters[key] ?? 0
+            if current.contains(key) {
+                updated[key] = count + 1
+            } else {
+                let next = max(0, count - 1)
+                if next > 0 { updated[key] = next }
+            }
         }
 
         var active: [String] = []
-        for (key, count) in counters {
+        for (key, count) in updated {
             if count >= max(raiseThreshold, 1) {
                 active.append(key)
                 if !activeWarnings.contains(key) {
                     didRaise = true
                 }
-            } else if count <= max(clearThreshold, 0) {
-                counters[key] = nil
-            } else if activeWarnings.contains(key) {
+            } else if count > max(clearThreshold, 0), activeWarnings.contains(key) {
                 // 还没消到阈值以下，保持显示
                 active.append(key)
             }
         }
 
+        counters = updated
         activeWarnings = active.sorted()
         return activeWarnings
     }

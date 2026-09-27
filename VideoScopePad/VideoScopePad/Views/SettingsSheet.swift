@@ -107,12 +107,16 @@ struct SettingsSheet: View {
 
     private var assistSection: some View {
         Section("看守辅助") {
-            Toggle("峰值保持游标", isOn: $settings.peakHoldEnabled)
-            LabeledSlider(title: "峰值保持时间（秒）", value: $settings.peakHoldSeconds, range: 0.5...15, format: "%.1f")
+            if settings.showsPeakHoldOption {
+                Toggle("峰值保持游标", isOn: $settings.peakHoldEnabled)
+                LabeledSlider(title: "峰值保持时间（秒）", value: $settings.peakHoldSeconds, range: 0.5...15, format: "%.1f")
+            }
 
-            Toggle("超白斑马纹", isOn: $settings.zebraEnabled)
-            LabeledSlider(title: "斑马纹阈值（IRE）", value: $settings.zebraThresholdIRE, range: 60...109, format: "%.0f")
-            Toggle("黑切割斑马纹（<0 IRE）", isOn: $settings.zebraBlackEnabled)
+            if settings.showsZebraOption {
+                Toggle("超白斑马纹", isOn: $settings.zebraEnabled)
+                LabeledSlider(title: "斑马纹阈值（IRE）", value: $settings.zebraThresholdIRE, range: 60...109, format: "%.0f")
+                Toggle("黑切割斑马纹（<0 IRE）", isOn: $settings.zebraBlackEnabled)
+            }
 
             Toggle("超标报警红框 + 振动", isOn: $settings.warningAlarmEnabled)
             Picker("报警确认门槛", selection: $settings.warningRaiseCount) {
@@ -120,6 +124,12 @@ struct SettingsSheet: View {
                 Text("3 次（推荐）").tag(3)
                 Text("6 次").tag(6)
                 Text("12 次（最稳）").tag(12)
+            }
+
+            if !settings.showsPeakHoldOption && !settings.showsZebraOption {
+                Text("切到带画面 / 波形格子的布局后，这里会出现对应的斑马纹与峰值保持选项。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -146,7 +156,7 @@ struct SettingsSheet: View {
                 }
             }
 
-            Toggle("显示信息层（HUD）", isOn: $settings.showHUD)
+            Toggle("顶部显示信号 / 读数信息行", isOn: $settings.showHUD)
             Toggle("监视时防止息屏", isOn: $settings.preventSleep)
         }
     }
@@ -156,15 +166,25 @@ struct SettingsSheet: View {
     private var scopeSection: some View {
         Section("示波器") {
             // 这三个开关只在「底部 / 右侧 / 叠加」预设下生效（全屏与四分割按格子内容走）
-            Group {
-                Toggle("矢量示波器", isOn: $settings.showVectorscope)
-                Toggle("波形（亮度 / RGB）", isOn: $settings.showWaveform)
-                Toggle("RGB Parade", isOn: $settings.showParade)
+            if settings.monitorLayout == .fullscreen || settings.monitorLayout == .quad {
+                Text(settings.monitorLayout == .quad
+                     ? "四分割每格的内容在画面格子里选（或控制栏按格子选）。"
+                     : "全屏内容在控制栏选：画面或任一种示波器。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Group {
+                    Toggle("矢量示波器", isOn: $settings.showVectorscope)
+                    Toggle("波形（亮度 / RGB）", isOn: $settings.showWaveform)
+                    Toggle("RGB Parade", isOn: $settings.showParade)
+                }
             }
 
-            Picker("波形模式", selection: $settings.waveformMode) {
-                ForEach(WaveformMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
+            if settings.showsWaveformModeOption {
+                Picker("波形模式", selection: $settings.waveformMode) {
+                    ForEach(WaveformMode.allCases) { mode in
+                        Text(mode.title).tag(mode)
+                    }
                 }
             }
 
@@ -182,9 +202,11 @@ struct SettingsSheet: View {
 
             Toggle("显示信号幅度数值读数", isOn: $settings.showMeasurement)
 
-            Picker("侧边刻度单位", selection: $settings.scaleUnit) {
-                ForEach(ScaleUnit.allCases) { unit in
-                    Text(unit.title).tag(unit)
+            if settings.showsScaleUnitOption {
+                Picker("侧边刻度单位", selection: $settings.scaleUnit) {
+                    ForEach(ScaleUnit.allCases) { unit in
+                        Text(unit.title).tag(unit)
+                    }
                 }
             }
 
@@ -199,9 +221,15 @@ struct SettingsSheet: View {
 
             // ViewBuilder 最多 10 个子视图，用 Group 分组
             Group {
-                LabeledSlider(title: "轨迹亮度", value: $settings.scopeIntensity, range: 0.2...3, format: "%.2f")
-                LabeledSlider(title: "矢量图放大", value: $settings.vectorscopeGain, range: 0.5...4, format: "%.2f")
-                LabeledSlider(title: "叠加模式不透明度", value: $settings.scopeOpacity, range: 0.3...1, format: "%.2f")
+                if settings.showsAnyScopePane {
+                    LabeledSlider(title: "轨迹亮度", value: $settings.scopeIntensity, range: 0.2...3, format: "%.2f")
+                }
+                if settings.showsVectorscopeGainOption {
+                    LabeledSlider(title: "矢量图放大", value: $settings.vectorscopeGain, range: 0.5...4, format: "%.2f")
+                }
+                if settings.monitorLayout == .overlay {
+                    LabeledSlider(title: "叠加模式不透明度", value: $settings.scopeOpacity, range: 0.3...1, format: "%.2f")
+                }
 
                 Picker("轨迹颜色", selection: $settings.scopeColorIndex) {
                     Text("绿色").tag(0)

@@ -100,6 +100,19 @@ struct ContentView: View {
                 ChipLabel(title: "UVC 已连接", systemImage: "cable.connector", tint: .green)
             }
 
+            // 信号 / 读数 / 状态信息全部收在这一行里，不再画在画面上
+            if settings.showHUD && coordinatorReady {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    TopInfoChips(capture: capture,
+                                 settings: settings,
+                                 lutStore: lutStore,
+                                 measurement: coordinator.measurementHub)
+                        .frame(height: 30)
+                }
+                .frame(height: 30)
+                .layoutPriority(-1)
+            }
+
             Spacer(minLength: 4)
 
             // 录制/推流入口 + 录制指示灯
@@ -187,13 +200,6 @@ struct ContentView: View {
                     // 超标报警：红色外框
                     if settings.warningAlarmEnabled {
                         AlarmBorderOverlay(measurement: coordinator.measurementHub)
-                    }
-
-                    if settings.showHUD {
-                        HUDOverlay(capture: capture,
-                                   settings: settings,
-                                   lutStore: lutStore,
-                                   measurement: coordinator.measurementHub)
                     }
                 }
             }

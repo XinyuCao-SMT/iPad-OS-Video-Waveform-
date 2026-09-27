@@ -89,9 +89,16 @@ struct ControlBar: View {
 
                 contentPickers
 
-                waveformModeMenu
-                ScaleUnitPicker(unit: $settings.scaleUnit)
-                assistMenu
+                // 只有当前布局里确实有波形/矢量格子时，才显示对应的二级菜单
+                Group {
+                    if settings.showsWaveformModeOption {
+                        waveformModeMenu
+                    }
+                    if settings.showsScaleUnitOption {
+                        ScaleUnitPicker(unit: $settings.scaleUnit)
+                    }
+                    assistMenu
+                }
 
                 Button {
                     settings.scopeSource = settings.scopeSource == .preLUT ? .postLUT : .preLUT
@@ -150,27 +157,31 @@ struct ControlBar: View {
         .frame(height: 32)
     }
 
-    /// 看守辅助：峰值保持 / 斑马纹 / 超标报警
+    /// 看守辅助：只显示当前布局用得上的项
     private var assistMenu: some View {
         Menu {
-            Button {
-                settings.peakHoldEnabled.toggle()
-            } label: {
-                Label("峰值保持游标", systemImage: settings.peakHoldEnabled ? "checkmark" : "waveform.path")
+            if settings.showsPeakHoldOption {
+                Button {
+                    settings.peakHoldEnabled.toggle()
+                } label: {
+                    Label("峰值保持游标", systemImage: settings.peakHoldEnabled ? "checkmark" : "waveform.path")
+                }
             }
 
-            Button {
-                settings.zebraEnabled.toggle()
-            } label: {
-                Label("超白斑马纹（>" + String(format: "%.0f", settings.zebraThresholdIRE) + " IRE）",
-                      systemImage: settings.zebraEnabled ? "checkmark" : "square.dashed")
-            }
+            if settings.showsZebraOption {
+                Button {
+                    settings.zebraEnabled.toggle()
+                } label: {
+                    Label("超白斑马纹（>" + String(format: "%.0f", settings.zebraThresholdIRE) + " IRE）",
+                          systemImage: settings.zebraEnabled ? "checkmark" : "square.dashed")
+                }
 
-            Button {
-                settings.zebraBlackEnabled.toggle()
-            } label: {
-                Label("黑切割斑马纹（<0 IRE）",
-                      systemImage: settings.zebraBlackEnabled ? "checkmark" : "square.dashed")
+                Button {
+                    settings.zebraBlackEnabled.toggle()
+                } label: {
+                    Label("黑切割斑马纹（<0 IRE）",
+                          systemImage: settings.zebraBlackEnabled ? "checkmark" : "square.dashed")
+                }
             }
 
             Button {

@@ -54,33 +54,38 @@ struct ScopeGraticuleView: View {
                                content: content,
                                pane: pane)
                 }
-
-                drawLiveReadout(context: &context,
-                                pane: pane,
-                                panel: pane.panel.scaled(to: size),
-                                content: content)
             }
         }
         .allowsHitTesting(false)
     }
 
-    // MARK: - 侧边刻度栏（要大、要清楚）
+    // MARK: - 侧边刻度栏（随格子大小自适应）
 
     private func drawGutter(context: inout GraphicsContext,
                             gutter: CGRect,
                             plot: CGRect,
                             content: ScopePanelKind,
                             pane: PaneLayout) {
-        guard gutter.width > 12, gutter.height > 20 else { return }
+        guard gutter.width > 10, gutter.height > 18 else { return }
 
         let unit = settings.scaleUnit
         let values = unit.tickValues()
-        let tickRight = gutter.maxX - 3
-        let numberAnchorX = gutter.maxX - 8
 
-        // 单位名（画在刻度栏顶部）
-        context.draw(label(unit.shortTitle, size: 11, weight: .bold, opacity: 0.95),
-                     at: CGPoint(x: gutter.midX, y: gutter.minY + 10))
+        // 字号跟着刻度栏宽度走：格子小就自动变小（<=7pt 就不再画数字，只留刻度线）
+        let fontSize = min(max(gutter.width * 0.30, 7), 12)
+        let showNumbers = gutter.width >= 22
+        let tickRight = gutter.maxX - 3
+        let numberAnchorX = gutter.maxX - max(fontSize * 0.5, 4)
+
+        // 单位名（刻度栏够宽才画）
+        if gutter.width >= 30 {
+            context.draw(label(unit.shortTitle,
+                               size: min(fontSize, 11),
+                               weight: .bold,
+                               opacity: 0.95),
+                         at: CGPoint(x: gutter.midX, y: gutter.minY + fontSize),
+                         anchor: .center)
+        }
 
         for value in values {
             let ire = ireFromTick(value, unit: unit)
@@ -89,7 +94,6 @@ struct ScopeGraticuleView: View {
 
             let major = unit.isMajorTick(value)
 
-            // 刻度短横线
             var tick = Path()
             tick.move(to: CGPoint(x: tickRight - (major ? 9 : 5), y: y))
             tick.addLine(to: CGPoint(x: tickRight, y: y))
@@ -97,10 +101,10 @@ struct ScopeGraticuleView: View {
                            with: .color(.white.opacity(major ? 0.75 : 0.35)),
                            style: StrokeStyle(lineWidth: major ? 1.5 : 1))
 
-            guard major else { continue }
+            guard showNumbers, isTickLabelVisible(value, unit: unit, plotHeight: plot.height) else { continue }
 
             context.draw(label(unit.format(value),
-                               size: 12,
+                               size: fontSize,
                                weight: .semibold,
                                opacity: 0.95,
                                monospaced: true),
@@ -109,39 +113,25 @@ struct ScopeGraticuleView: View {
         }
 
         // 通道名（Parade 三列在底部标注）
-        if content == .parade {
+        if content == .parade, plot.width > 120 {
             let columnWidth = plot.width / 3
             for (index, name) in ["R", "G", "B"].enumerated() {
-                context.draw(label(name, size: 12, weight: .bold, opacity: 0.9),
+                context.draw(label(name, size: max(fontSize - 1, 8), weight: .bold, opacity: 0.9),
                              at: CGPoint(x: plot.minX + columnWidth * (CGFloat(index) + 0.5),
-                                         y: plot.maxY - 11))
+                                         y: plot.maxY - max(fontSize, 9)))
             }
         }
     }
 
-    /// 格子右上角的实时读数（数值标识）
-    private func drawLiveReadout(context: inout GraphicsContext,
-                                 pane: PaneLayout,
-                                 panel: CGRect,
-                                 content: ScopePanelKind) {
-        guard let value = measurement.value else { return }
+    /// 绘图区越矮，标注越稀，避免数字互相叠住
+    private func isTickLabelVisible(_ value: Double, unit: ScaleUnit, plotHeight: CGFloat) -> Bool {
+        if plotHeight >= 240 { return true }
+        if plotHeight >= 130 { return unit.isMajorTick(value) }
 
-        let text: String
-        switch content {
-        case .waveform, .parade:
-            text = String(format: "▲ %@    ▼ %@",
-                          settings.scaleUnit.formatPrecise(value.stableWhiteIRE),
-                          settings.scaleUnit.formatPrecise(value.stableBlackIRE))
-        case .vectorscope:
-            text = String(format: "色度峰值 %.0f%%   平均 %@",
-                          value.peakSaturationPercent,
-                          settings.scaleUnit.formatPrecise(value.averageIRE))
-        }
-
-        let point = CGPoint(x: panel.minX + 8, y: panel.minY + 12)
-        context.draw(label(text, size: 11, weight: .semibold, opacity: 0.92, monospaced: true),
-                     at: point,
-                     anchor: .leading)
+        let values = unit.tickValues()
+        guard let first = values.first, let last = values.last else { return false }
+        let middle = values[values.count / 2]
+        return value == first || value == middle || value == last
     }
 
     // MARK: - 峰值保持游标
@@ -184,6 +174,10 @@ struct ScopeGraticuleView: View {
         let radius = min(rect.width, rect.height) / 2
         let g = CGFloat(max(gain, 0.25))
 
+        // 字号跟着圆的大小走，格子小的时候自动变小、并减少标注
+        let fontSize = min(max(radius / 9, 6.5), 11)
+        let showRingLabels = radius >= 70
+
         let thin = Color.white.opacity(0.18)
         let normal = Color.white.opacity(0.32)
         let strong = Color.white.opacity(0.52)
@@ -195,14 +189,15 @@ struct ScopeGraticuleView: View {
                                                 width: r * 2, height: r * 2))
             stroke(&ctx, circle, color: fraction == 0.75 ? strong : thin, width: 1)
 
-            // 圆环百分比标注（画在竖直轴上方，比之前更大更明显）
-            ctx.draw(label(String(format: "%.0f%%", fraction * 100),
-                           size: 10,
-                           weight: .semibold,
-                           opacity: 0.7,
-                           monospaced: true),
-                     at: CGPoint(x: center.x + 12, y: center.y - r),
-                     anchor: .leading)
+            if showRingLabels {
+                ctx.draw(label(String(format: "%.0f%%", fraction * 100),
+                               size: fontSize,
+                               weight: .semibold,
+                               opacity: 0.7,
+                               monospaced: true),
+                         at: CGPoint(x: center.x + fontSize * 0.9, y: center.y - r),
+                         anchor: .leading)
+            }
         }
 
         var cross = Path()
@@ -217,30 +212,38 @@ struct ScopeGraticuleView: View {
             let x = center.x + CGFloat(target.value.x / 0.5) * radius * g
             let y = center.y - CGFloat(target.value.y / 0.5) * radius * g
 
-            let box = CGRect(x: x - 5.5, y: y - 5.5, width: 11, height: 11)
-            stroke(&ctx, Path(box), color: Color.white.opacity(0.6), width: 1)
-            ctx.draw(label(target.name, size: 10, weight: .bold, opacity: 0.9),
-                     at: CGPoint(x: x + 9, y: y - 6),
-                     anchor: .leading)
+            let box = max(radius * 0.045, 4)
+            stroke(&ctx, Path(CGRect(x: x - box, y: y - box, width: box * 2, height: box * 2)),
+                   color: Color.white.opacity(0.6),
+                   width: 1)
+            if radius >= 60 {
+                ctx.draw(label(target.name, size: fontSize, weight: .bold, opacity: 0.9),
+                         at: CGPoint(x: x + box + 3, y: y - fontSize * 0.6),
+                         anchor: .leading)
+            }
         }
 
         // 肤色线（I 轴约 123°，广播标准刻度）
-        let angle = CGFloat(123.0 * Double.pi / 180.0)
-        let length = radius * g * 0.9
-        var skin = Path()
-        skin.move(to: center)
-        skin.addLine(to: CGPoint(x: center.x + cos(angle) * length,
-                                 y: center.y - sin(angle) * length))
-        stroke(&ctx, skin, color: Color.orange.opacity(0.55), width: 1.2, dash: [4, 3])
-        ctx.draw(label("肤色", size: 10, weight: .semibold, opacity: 0.8),
-                 at: CGPoint(x: center.x + cos(angle) * length * 0.8,
-                             y: center.y - sin(angle) * length * 0.8),
-                 anchor: .leading)
+        if radius >= 60 {
+            let angle = CGFloat(123.0 * Double.pi / 180.0)
+            let length = radius * g * 0.9
+            var skin = Path()
+            skin.move(to: center)
+            skin.addLine(to: CGPoint(x: center.x + cos(angle) * length,
+                                     y: center.y - sin(angle) * length))
+            stroke(&ctx, skin, color: Color.orange.opacity(0.55), width: 1.2, dash: [4, 3])
+            ctx.draw(label("肤色", size: fontSize, weight: .semibold, opacity: 0.8),
+                     at: CGPoint(x: center.x + cos(angle) * length * 0.8,
+                                 y: center.y - sin(angle) * length * 0.8),
+                     anchor: .leading)
+        }
 
-        ctx.draw(label("B-Y", size: 10, weight: .semibold, opacity: 0.6),
-                 at: CGPoint(x: rect.maxX - 18, y: center.y - 9))
-        ctx.draw(label("R-Y", size: 10, weight: .semibold, opacity: 0.6),
-                 at: CGPoint(x: center.x + 24, y: rect.minY + 10))
+        if radius >= 80 {
+            ctx.draw(label("B-Y", size: fontSize, weight: .semibold, opacity: 0.6),
+                     at: CGPoint(x: rect.maxX - fontSize * 1.8, y: center.y - fontSize * 0.9))
+            ctx.draw(label("R-Y", size: fontSize, weight: .semibold, opacity: 0.6),
+                     at: CGPoint(x: center.x + fontSize * 2.2, y: rect.minY + fontSize))
+        }
     }
 
     // MARK: - 波形刻度

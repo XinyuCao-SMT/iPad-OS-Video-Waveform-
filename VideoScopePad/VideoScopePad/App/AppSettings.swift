@@ -250,6 +250,25 @@ final class AppSettings: ObservableObject {
         return list
     }
 
+    // MARK: - 「当前布局里有没有这类格子」—— 用来决定二级设置是否显示
+
+    var showsPicturePane: Bool { needsPicture }
+    var showsAnyScopePane: Bool { !requiredScopes.isEmpty }
+    var showsWaveformPane: Bool { requiredScopes.contains(.waveform) }
+    var showsVectorscopePane: Bool { requiredScopes.contains(.vectorscope) }
+    var showsParadePane: Bool { requiredScopes.contains(.parade) }
+
+    /// 波形模式（亮度 / RGB 叠加）只在有波形格子时才有意义
+    var showsWaveformModeOption: Bool { showsWaveformPane }
+    /// 刻度单位只在有波形或 RGB 格子时才有意义（矢量图用的是百分比）
+    var showsScaleUnitOption: Bool { showsWaveformPane || showsParadePane }
+    /// 矢量图放大只在有矢量格子时才有意义
+    var showsVectorscopeGainOption: Bool { showsVectorscopePane }
+    /// 峰值保持游标只画在波形 / RGB 上
+    var showsPeakHoldOption: Bool { showsWaveformPane || showsParadePane }
+    /// 斑马纹只作用于画面
+    var showsZebraOption: Bool { showsPicturePane }
+
     var gradeIsNeutral: Bool {
         abs(exposure) < 0.001
             && abs(contrast - 1) < 0.001

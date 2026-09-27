@@ -33,11 +33,11 @@
 		AB000000000000000000003B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003A /* ContentView.swift */; };
 		AB000000000000000000003D /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003C /* ControlBar.swift */; };
 		AB000000000000000000003F /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003E /* Controls.swift */; };
-		AB0000000000000000000041 /* HUDOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* HUDOverlay.swift */; };
-		AB0000000000000000000043 /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* MonitorSurface.swift */; };
-		AB0000000000000000000045 /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* ScopeGraticuleView.swift */; };
-		AB0000000000000000000047 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* SettingsSheet.swift */; };
-		AB0000000000000000000049 /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* StreamPanelView.swift */; };
+		AB0000000000000000000041 /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* MonitorSurface.swift */; };
+		AB0000000000000000000043 /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* ScopeGraticuleView.swift */; };
+		AB0000000000000000000045 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* SettingsSheet.swift */; };
+		AB0000000000000000000047 /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* StreamPanelView.swift */; };
+		AB0000000000000000000049 /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* TopStatusBar.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,11 +70,11 @@
 		AB000000000000000000003A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		AB000000000000000000003C /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
 		AB000000000000000000003E /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
-		AB0000000000000000000040 /* HUDOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HUDOverlay.swift; sourceTree = "<group>"; };
-		AB0000000000000000000042 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
-		AB0000000000000000000044 /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
-		AB0000000000000000000046 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
-		AB0000000000000000000048 /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000040 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
+		AB0000000000000000000042 /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000044 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		AB0000000000000000000046 /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000048 /* TopStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopStatusBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -184,11 +184,11 @@
 				AB000000000000000000003A /* ContentView.swift */,
 				AB000000000000000000003C /* ControlBar.swift */,
 				AB000000000000000000003E /* Controls.swift */,
-				AB0000000000000000000040 /* HUDOverlay.swift */,
-				AB0000000000000000000042 /* MonitorSurface.swift */,
-				AB0000000000000000000044 /* ScopeGraticuleView.swift */,
-				AB0000000000000000000046 /* SettingsSheet.swift */,
-				AB0000000000000000000048 /* StreamPanelView.swift */,
+				AB0000000000000000000040 /* MonitorSurface.swift */,
+				AB0000000000000000000042 /* ScopeGraticuleView.swift */,
+				AB0000000000000000000044 /* SettingsSheet.swift */,
+				AB0000000000000000000046 /* StreamPanelView.swift */,
+				AB0000000000000000000048 /* TopStatusBar.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -303,11 +303,11 @@
 				AB000000000000000000003B /* ContentView.swift in Sources */,
 				AB000000000000000000003D /* ControlBar.swift in Sources */,
 				AB000000000000000000003F /* Controls.swift in Sources */,
-				AB0000000000000000000041 /* HUDOverlay.swift in Sources */,
-				AB0000000000000000000043 /* MonitorSurface.swift in Sources */,
-				AB0000000000000000000045 /* ScopeGraticuleView.swift in Sources */,
-				AB0000000000000000000047 /* SettingsSheet.swift in Sources */,
-				AB0000000000000000000049 /* StreamPanelView.swift in Sources */,
+				AB0000000000000000000041 /* MonitorSurface.swift in Sources */,
+				AB0000000000000000000043 /* ScopeGraticuleView.swift in Sources */,
+				AB0000000000000000000045 /* SettingsSheet.swift in Sources */,
+				AB0000000000000000000047 /* StreamPanelView.swift in Sources */,
+				AB0000000000000000000049 /* TopStatusBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
