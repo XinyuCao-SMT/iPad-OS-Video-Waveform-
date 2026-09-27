@@ -119,6 +119,22 @@ final class RTMPClient {
 
     // MARK: - 底层收发
 
+    /// C0（版本 3）+ C1（时间 + 零 + 1528 字节随机）
+    private func sendHandshake() {
+        var c1 = Data()
+        c1.append(contentsOf: [0, 0, 0, 0])                 // time
+        c1.append(contentsOf: [0, 0, 0, 0])                 // zero
+        var random = Data(count: 1528)
+        for index in 0..<random.count {
+            random[index] = UInt8.random(in: 0...255)
+        }
+        c1.append(random)
+
+        var handshake = Data([0x03])                        // C0
+        handshake.append(c1)                                // C1
+        send(handshake, label: "发送 C0+C1")
+    }
+
     private func send(_ data: Data, label: String) {
         guard let connection else { return }
         connection.send(content: data, completion: .contentProcessed { [weak self] error in

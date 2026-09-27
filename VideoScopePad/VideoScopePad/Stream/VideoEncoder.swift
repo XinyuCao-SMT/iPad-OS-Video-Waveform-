@@ -50,6 +50,8 @@ final class VideoEncoder {
     private let height: Int
     private var firstPresentationTime: CMTime?
     private var parameterSetsSent = false
+    /// 下一帧强制关键帧（服务器确认 publish 后重新发一次，保证秒开）
+    private var forceKeyframeOnce = false
 
     init(width: Int,
          height: Int,
@@ -61,11 +63,6 @@ final class VideoEncoder {
         self.height = max(height, 16)
 
         var created: VTCompressionSession?
-        let callback: VTCompressionSessionOutputCallback = { refCon, _, status, flags, sampleBuffer in
-            guard let refCon else { return }
-            let encoder = Unmanaged<VideoEncoder>.fromOpaque(refCon).takeUnretainedValue()
-            encoder.handleEncodedFrame(status: status, flags: flags, sampleBuffer: sampleBuffer)
-        }
 
         // 按采集卡实际给的像素格式配置，省掉一次 CPU 色彩转换
         let pixelAttributes: [String: Any] = [
@@ -75,6 +72,8 @@ final class VideoEncoder {
             kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()
         ]
 
+        // 注意：回调直接写成内联闭包 —— VTCompressionSessionOutputCallback 这个类型名没有导入到 Swift，
+        // 但非捕获闭包可以隐式转成它需要的 C 函数指针。
         let status = VTCompressionSessionCreate(allocator: kCFAllocatorDefault,
                                                width: Int32(self.width),
                                                height: Int32(self.height),
@@ -82,7 +81,15 @@ final class VideoEncoder {
                                                encoderSpecification: nil,
                                                imageBufferAttributes: pixelAttributes as CFDictionary,
                                                compressedDataAllocator: nil,
-                                               outputCallback: callback,
+                                               outputCallback: { refCon, _, status, flags, sampleBuffer in
+                                                   guard let refCon else { return }
+                                                   let encoder = Unmanaged<VideoEncoder>
+                                                       .fromOpaque(refCon)
+                                                       .takeUnretainedValue()
+                                                   encoder.handleEncodedFrame(status: status,
+                                                                              flags: flags,
+                                                                              sampleBuffer: sampleBuffer)
+                                               },
                                                refcon: Unmanaged.passUnretained(self).toOpaque(),
                                                compressionSessionOut: &created)
 
@@ -119,11 +126,18 @@ final class VideoEncoder {
         self.session = nil
     }
 
-    /// 送一帧进去（BGR A 像素缓冲）
+    /// 送一帧进去（格式与创建编码器时声明的一致）
     func encode(_ pixelBuffer: CVPixelBuffer, presentationTime: CMTime) {
         guard let session else { return }
         if firstPresentationTime == nil {
             firstPresentationTime = presentationTime
+        }
+
+        // 强制关键帧是「每帧属性」，不是会話属性：走 frameProperties 传进去
+        var frameProperties: CFDictionary?
+        if forceKeyframeOnce {
+            forceKeyframeOnce = false
+            frameProperties = [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
         }
 
         var flags: VTEncodeInfoFlags = []
@@ -131,7 +145,7 @@ final class VideoEncoder {
                                                     imageBuffer: pixelBuffer,
                                                     presentationTimeStamp: presentationTime,
                                                     duration: .invalid,
-                                                    frameProperties: nil,
+                                                    frameProperties: frameProperties,
                                                     sourceFrameRefcon: nil,
                                                     infoFlagsOut: &flags)
         if status != noErr {
@@ -140,8 +154,7 @@ final class VideoEncoder {
     }
 
     func requestKeyframe() {
-        guard let session else { return }
-        VTSessionSetProperty(session, key: kVTCompressionPropertyKey_ForceKeyFrame, value: kCFBooleanTrue)
+        forceKeyframeOnce = true
     }
 
     // MARK: - 回调
