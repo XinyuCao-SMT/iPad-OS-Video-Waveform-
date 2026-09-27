@@ -11,7 +11,8 @@ import Foundation
 // MARK: - 监视器布局
 
 enum MonitorLayoutPreset: String, CaseIterable, Identifiable {
-    case monitorOnly
+    case fullscreen
+    case quad
     case bottomStrip
     case rightColumn
     case overlay
@@ -20,19 +21,162 @@ enum MonitorLayoutPreset: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .monitorOnly: return "仅画面"
+        case .fullscreen: return "全屏（内容可选）"
+        case .quad: return "四分割"
         case .bottomStrip: return "底部示波器"
         case .rightColumn: return "右侧示波器"
         case .overlay: return "叠加在画面上"
         }
     }
 
+    var shortTitle: String {
+        switch self {
+        case .fullscreen: return "全屏"
+        case .quad: return "四分割"
+        case .bottomStrip: return "底部"
+        case .rightColumn: return "右侧"
+        case .overlay: return "叠加"
+        }
+    }
+
     var symbolName: String {
         switch self {
-        case .monitorOnly: return "rectangle"
+        case .fullscreen: return "rectangle.inset.filled"
+        case .quad: return "square.grid.2x2"
         case .bottomStrip: return "rectangle.bottomthird.inset.filled"
         case .rightColumn: return "rectangle.rightthird.inset.filled"
         case .overlay: return "square.on.square"
+        }
+    }
+
+    /// 全屏与四分割之间可以一键来回切
+    var toggled: MonitorLayoutPreset {
+        switch self {
+        case .fullscreen: return .quad
+        case .quad: return .fullscreen
+        default: return .fullscreen
+        }
+    }
+}
+
+/// 一个「格子」里放什么内容
+enum PaneContent: String, CaseIterable, Identifiable {
+    case picture
+    case vectorscope
+    case waveform
+    case parade
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .picture: return "实时画面"
+        case .vectorscope: return "矢量示波器"
+        case .waveform: return "亮度波形"
+        case .parade: return "RGB 波形"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .picture: return "画面"
+        case .vectorscope: return "矢量"
+        case .waveform: return "波形"
+        case .parade: return "RGB"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .picture: return "video"
+        case .vectorscope: return "circle.grid.cross"
+        case .waveform: return "waveform"
+        case .parade: return "chart.bar.doc.horizontal"
+        }
+    }
+
+    /// 画面之外的内容对应的示波器种类
+    var scopeKind: ScopePanelKind? {
+        switch self {
+        case .picture: return nil
+        case .vectorscope: return .vectorscope
+        case .waveform: return .waveform
+        case .parade: return .parade
+        }
+    }
+}
+
+/// 波形/矢量图侧边刻度的显示单位
+///
+/// 说明：UVC 交给我们的是已经数字化并做过钳位/增益的码流，
+/// **采集卡输入端的真实模拟电压读不到**。这里的 mV 是按广播规范换算的等效电平：
+/// 100 IRE（视频范围码值 235）= 700 mV，即 7 mV/IRE，这也是数字波形监视器标 mV 刻度的标准做法。
+enum ScaleUnit: String, CaseIterable, Identifiable {
+    case ire
+    case millivolt
+    case percent
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .ire: return "IRE"
+        case .millivolt: return "mV（等效）"
+        case .percent: return "%"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .ire: return "IRE"
+        case .millivolt: return "mV"
+        case .percent: return "%"
+        }
+    }
+
+    /// 每 100 IRE 对应的等效毫伏数（广播规范）
+    static let millivoltPerHundredIRE: Double = 700
+
+    /// 把 IRE 换算成当前单位
+    func value(fromIRE ire: Double) -> Double {
+        switch self {
+        case .ire: return ire
+        case .millivolt: return ire / 100 * Self.millivoltPerHundredIRE
+        case .percent: return ire
+        }
+    }
+
+    /// 刻度轴上要标注的位置（单位：当前单位）
+    func tickValues() -> [Double] {
+        switch self {
+        case .ire, .percent:
+            return [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        case .millivolt:
+            return [0, 70, 140, 210, 280, 350, 420, 490, 560, 630, 700]
+        }
+    }
+
+    /// 主要刻度（画粗线、写大字）
+    func isMajorTick(_ value: Double) -> Bool {
+        switch self {
+        case .ire, .percent: return value.truncatingRemainder(dividingBy: 25) == 0
+        case .millivolt: return (value / 70).rounded() == value / 70 && Int(value) % 175 == 0
+        }
+    }
+
+    func format(_ value: Double) -> String {
+        switch self {
+        case .ire, .percent: return String(format: "%.0f", value)
+        case .millivolt: return String(format: "%.0f", value)
+        }
+    }
+
+    /// 小数形式的读数（数值面板用）
+    func formatPrecise(_ ire: Double) -> String {
+        switch self {
+        case .ire: return String(format: "%.1f IRE", ire)
+        case .millivolt: return String(format: "%.0f mV", value(fromIRE: ire))
+        case .percent: return String(format: "%.1f%%", ire)
         }
     }
 }

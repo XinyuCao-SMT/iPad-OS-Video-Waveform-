@@ -20,6 +20,7 @@ struct SettingsSheet: View {
         NavigationStack {
             Form {
                 inputSection
+                manualFormatSection
                 displaySection
                 scopeSection
                 gradeSection
@@ -39,13 +40,29 @@ struct SettingsSheet: View {
     // MARK: - 输入
 
     private var inputSection: some View {
-        Section("输入信号") {
-            LabeledContent("设备", value: deviceName)
-            LabeledContent("格式", value: formatName)
-            LabeledContent("像素格式", value: capture.stats.pixelFormatText)
-            LabeledContent("色彩矩阵", value: capture.stats.colorMatrixTitle)
-            LabeledContent("实测帧率", value: String(format: "%.1f fps", capture.stats.fps))
-            LabeledContent("丢帧", value: "\(capture.stats.droppedFrames)")
+        Section("输入信号（强制显示实测信息）") {
+            // ViewBuilder 最多 10 个子视图，用 Group 分组
+            Group {
+                LabeledContent("设备", value: deviceName)
+                LabeledContent("分辨率", value: capture.signal.resolutionText)
+                LabeledContent("声明帧率", value: capture.signal.frameRateText + "p")
+                LabeledContent("实测帧率", value: String(format: "%.1f fps", capture.stats.fps))
+                LabeledContent("像素格式", value: capture.signal.pixelFormat)
+                LabeledContent("量化范围", value: capture.signal.rangeText)
+                LabeledContent("色彩原色", value: capture.signal.primaries)
+                LabeledContent("传输函数", value: capture.signal.transfer)
+                LabeledContent("YCbCr 矩阵", value: capture.signal.matrix)
+                LabeledContent("丢帧", value: "\(capture.stats.droppedFrames)")
+            }
+
+            Toggle("自动选择输入格式（推荐）", isOn: $settings.autoFormat)
+
+            Text("""
+            自动模式会自己挑最合适的格式（1080p 优先、帧率高的优先、未压缩优先），不需要手动选分辨率与帧率。
+            上面显示的分辨率 / 帧率是**实际收到的流**；如果采集卡做了帧率转换，信号源本身的帧率无法通过 UVC 读出。
+            """)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Button {
                 capture.refresh()
@@ -53,6 +70,36 @@ struct SettingsSheet: View {
                 Label("刷新设备与格式", systemImage: "arrow.clockwise")
             }
         }
+    }
+
+    /// 高级：手动指定输入格式（默认收起来，避免日常误操作）
+    private var manualFormatSection: some View {
+        Section("高级：手动指定输入格式") {
+            Picker("当前格式", selection: manualFormatBinding) {
+                ForEach(capture.formats.prefix(60)) { format in
+                    Text(format.displayName).tag(format.id)
+                }
+            }
+            .disabled(capture.formats.isEmpty)
+
+            Button {
+                settings.autoFormat = true
+                capture.useAutomaticFormat()
+            } label: {
+                Label("恢复自动跟随输入信号", systemImage: "wand.and.stars")
+            }
+        }
+    }
+
+    private var manualFormatBinding: Binding<String> {
+        Binding(
+            get: { capture.selectedFormatID ?? capture.formats.first?.id ?? "" },
+            set: { newValue in
+                guard !newValue.isEmpty else { return }
+                settings.autoFormat = false
+                capture.select(formatID: newValue)
+            }
+        )
     }
 
     // MARK: - 显示
@@ -86,9 +133,12 @@ struct SettingsSheet: View {
 
     private var scopeSection: some View {
         Section("示波器") {
-            Toggle("矢量示波器", isOn: $settings.showVectorscope)
-            Toggle("波形（亮度 / RGB）", isOn: $settings.showWaveform)
-            Toggle("RGB Parade", isOn: $settings.showParade)
+            // 这三个开关只在「底部 / 右侧 / 叠加」预设下生效（全屏与四分割按格子内容走）
+            Group {
+                Toggle("矢量示波器", isOn: $settings.showVectorscope)
+                Toggle("波形（亮度 / RGB）", isOn: $settings.showWaveform)
+                Toggle("RGB Parade", isOn: $settings.showParade)
+            }
 
             Picker("波形模式", selection: $settings.waveformMode) {
                 ForEach(WaveformMode.allCases) { mode in
@@ -110,10 +160,17 @@ struct SettingsSheet: View {
 
             Toggle("显示信号幅度数值读数", isOn: $settings.showMeasurement)
 
+            Picker("侧边刻度单位", selection: $settings.scaleUnit) {
+                ForEach(ScaleUnit.allCases) { unit in
+                    Text(unit.title).tag(unit)
+                }
+            }
+
             Text("""
             数值读数取自与示波器相同的取样点（当前：\(settings.scopeSource.title)），每秒更新约 10 次，
             给出峰值白、黑位、平均电平、R/G/B 分量峰值、色度峰值，以及超白/超黑的像素占比。
-            它测的是数字化之后的码值幅度，采集卡内部的模拟电平（0.7Vpp / 同步头）无法通过 UVC 读取。
+            刻度单位可切 IRE / mV / %：mV 是按广播规范换算的等效电平（100 IRE = 700 mV）。
+            真实模拟电压（0.7Vpp / 同步头）不通过 UVC 暴露，任何 iPad 应用都读不到。
             """)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -135,6 +192,12 @@ struct SettingsSheet: View {
                     settings.resetScopeSettings()
                 } label: {
                     Label("复位示波器设置", systemImage: "arrow.uturn.backward")
+                }
+
+                Button {
+                    settings.resetPaneContents()
+                } label: {
+                    Label("复位格子内容", systemImage: "square.grid.2x2")
                 }
             }
         }

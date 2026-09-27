@@ -351,8 +351,10 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else { return }
         encoder.label = "合成输出"
 
-        let panels = settings.enabledPanels
+        let panes = layout.panes
+        let panelAlpha = layout.isOverlay ? Float(scopeSettings.panelOpacity) : 1.0
 
+        // 1) 画面格子（每个 picture 格子都画一次实时画面）
         if let displaySource {
             var uniforms = makeRenderUniforms(sourceInfo: lastSourceInfo,
                                              displayMode: settings.displayMode,
@@ -362,25 +364,36 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
             encoder.setFragmentTexture(displaySource, index: Int(VSTextureIndexSource))
             encoder.setFragmentBytes(&uniforms, length: MemoryLayout<VSRenderUniforms>.stride,
                                      index: Int(VSBufferIndexRenderUniforms))
-            encodeQuad(encoder: encoder, rect: layout.monitorRect, uv: layout.monitorUV)
-        }
 
-        if !panels.isEmpty {
-            encoder.setRenderPipelineState(context.pipelines.solidColor)
-            let alpha = layout.isOverlay ? Float(scopeSettings.panelOpacity) : 1.0
-            for kind in panels {
-                guard let plot = layout.plots[kind] else { continue }
-                var color = SIMD4<Float>(0.05, 0.052, 0.06, alpha)
-                encoder.setFragmentBytes(&color, length: MemoryLayout<SIMD4<Float>>.stride,
-                                         index: Int(VSBufferIndexRenderUniforms))
-                encodeQuad(encoder: encoder, rect: plot, uv: fullRect)
+            for pane in panes where pane.content == .picture {
+                guard let video = pane.video else { continue }
+                encodeQuad(encoder: encoder, rect: video, uv: pane.videoUV ?? fullRect)
             }
         }
 
+        // 2) 示波器格子的底：整个格子铺一层暗色，刻度栏再压深一点，保证数字看得清
+        if !panes.isEmpty {
+            encoder.setRenderPipelineState(context.pipelines.solidColor)
+            for pane in panes where pane.content.scopeKind != nil {
+                var color = SIMD4<Float>(0.05, 0.052, 0.06, panelAlpha)
+                encoder.setFragmentBytes(&color, length: MemoryLayout<SIMD4<Float>>.stride,
+                                         index: Int(VSBufferIndexRenderUniforms))
+                encodeQuad(encoder: encoder, rect: pane.panel, uv: fullRect)
+
+                if let gutter = pane.gutter {
+                    var gutterColor = SIMD4<Float>(0.10, 0.105, 0.12, panelAlpha)
+                    encoder.setFragmentBytes(&gutterColor, length: MemoryLayout<SIMD4<Float>>.stride,
+                                             index: Int(VSBufferIndexRenderUniforms))
+                    encodeQuad(encoder: encoder, rect: gutter, uv: fullRect)
+                }
+            }
+        }
+
+        // 3) 示波器轨迹
         if hasScopes && displaySource != nil {
             encoder.setRenderPipelineState(context.pipelines.scopeTrace)
-            for kind in panels {
-                guard let plot = layout.plots[kind] else { continue }
+            for pane in panes {
+                guard let kind = pane.content.scopeKind, let plot = pane.plot else { continue }
                 let texture = scopeEngine.texture(for: kind, waveformMode: settings.waveformMode)
 
                 var scopeUniforms = VSScopeUniforms()
@@ -425,7 +438,7 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
     private func makeScopeSettings() -> ScopeRenderSettings {
         var value = ScopeRenderSettings()
-        value.enabled = Set(settings.enabledPanels)
+        value.enabled = settings.requiredScopes
         value.waveformMode = settings.waveformMode
         value.quality = settings.scopeQuality
         value.vectorscopeGain = settings.vectorscopeGain

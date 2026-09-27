@@ -153,4 +153,83 @@ enum CaptureFormatHelper {
         }
         return .bt709
     }
+
+    // MARK: - 信号信息（从格式描述里读出来的原色 / 传输函数 / 矩阵）
+
+    private static func extensionString(_ formatDescription: CMFormatDescription,
+                                        _ key: CFString) -> String? {
+        CMFormatDescriptionGetExtension(formatDescription, extensionKey: key) as? String
+    }
+
+    static func primariesName(_ formatDescription: CMFormatDescription) -> String {
+        guard let value = extensionString(formatDescription,
+                                         kCMFormatDescriptionExtension_ColorPrimaries) else {
+            return "未声明"
+        }
+        if value == (kCMFormatDescriptionColorPrimaries_ITU_R_709_2 as String) { return "BT.709" }
+        if value == (kCMFormatDescriptionColorPrimaries_ITU_R_2020 as String) { return "BT.2020" }
+        if value == (kCMFormatDescriptionColorPrimaries_SMPTE_C as String) { return "SMPTE-C" }
+        if value == (kCMFormatDescriptionColorPrimaries_EBU_3213 as String) { return "BT.601 (EBU)" }
+        return value
+    }
+
+    static func transferName(_ formatDescription: CMFormatDescription) -> String {
+        guard let value = extensionString(formatDescription,
+                                         kCMFormatDescriptionExtension_TransferFunction) else {
+            return "未声明"
+        }
+        if value == (kCMFormatDescriptionTransferFunction_ITU_R_709_2 as String) { return "BT.709" }
+        if value == (kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String) { return "PQ (HDR10)" }
+        if value == (kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String) { return "HLG" }
+        if value == (kCMFormatDescriptionTransferFunction_sRGB as String) { return "sRGB" }
+        if value == (kCMFormatDescriptionTransferFunction_Linear as String) { return "线性" }
+        return value
+    }
+
+    static func matrixName(_ formatDescription: CMFormatDescription) -> String {
+        guard let value = extensionString(formatDescription,
+                                         kCMFormatDescriptionExtension_YCbCrMatrix) else {
+            return "未声明"
+        }
+        if value == (kCMFormatDescriptionYCbCrMatrix_ITU_R_709_2 as String) { return "BT.709" }
+        if value == (kCMFormatDescriptionYCbCrMatrix_ITU_R_601_4 as String) { return "BT.601" }
+        if value == (kCMFormatDescriptionYCbCrMatrix_ITU_R_2020 as String) { return "BT.2020" }
+        return value
+    }
+}
+
+/// 输入信号的描述信息（能读到的都放这里，供界面「强制显示」）
+struct SignalDescriptor: Equatable {
+    var width: Int = 0
+    var height: Int = 0
+    /// 配置时声明的帧率
+    var declaredFrameRate: Double = 0
+    /// 实际收到的帧尺寸（跟随像素缓冲，可能和声明不同）
+    var actualWidth: Int = 0
+    var actualHeight: Int = 0
+    var pixelFormat: String = "-"
+    var primaries: String = "未声明"
+    var transfer: String = "未声明"
+    var matrix: String = "未声明"
+    var isFullRange = false
+    /// 是否走的是双平面 YUV 直通（没有经过 BGRA 转换）
+    var usesBiPlanar = true
+
+    var resolutionText: String {
+        let w = actualWidth > 0 ? actualWidth : width
+        let h = actualHeight > 0 ? actualHeight : height
+        return w > 0 && h > 0 ? "\(w)×\(h)" : "—"
+    }
+
+    var frameRateText: String {
+        guard declaredFrameRate > 0 else { return "—" }
+        if abs(declaredFrameRate - declaredFrameRate.rounded()) < 0.01 {
+            return "\(Int(declaredFrameRate.rounded()))"
+        }
+        return String(format: "%.2f", declaredFrameRate)
+    }
+
+    var rangeText: String { isFullRange ? "全范围" : "视频范围" }
+
+    var colorSpaceText: String { "\(primaries) · \(transfer) · \(matrix)" }
 }

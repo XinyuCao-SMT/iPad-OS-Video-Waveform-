@@ -4,6 +4,9 @@
 //
 //  单位空间 <-> 视图坐标的换算辅助。
 //
+//  注：ScopeLayoutResult / PaneLayout 的 Equatable 在 ScopeLayout.swift 里由编译器合成
+//  （同文件声明，避免跨文件的合成限制），所以这里不再手动实现 ==。
+//
 
 import CoreGraphics
 
@@ -14,14 +17,5 @@ extension CGRect {
                y: minY * size.height,
                width: width * size.width,
                height: height * size.height)
-    }
-}
-
-extension ScopeLayoutResult: Equatable {
-    static func == (lhs: ScopeLayoutResult, rhs: ScopeLayoutResult) -> Bool {
-        lhs.monitorRect == rhs.monitorRect
-            && lhs.monitorUV == rhs.monitorUV
-            && lhs.plots == rhs.plots
-            && lhs.isOverlay == rhs.isOverlay
     }
 }

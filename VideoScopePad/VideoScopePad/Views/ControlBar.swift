@@ -73,11 +73,22 @@ struct ControlBar: View {
     private var rowView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                scopeToggle(.vectorscope, isOn: $settings.showVectorscope)
-                scopeToggle(.waveform, isOn: $settings.showWaveform)
-                scopeToggle(.parade, isOn: $settings.showParade)
+                // 一键在「全屏 ⇄ 四分割」之间来回切
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        settings.monitorLayout = settings.monitorLayout.toggled
+                    }
+                } label: {
+                    ChipLabel(title: settings.monitorLayout.shortTitle,
+                              systemImage: settings.monitorLayout.symbolName,
+                              isActive: true)
+                }
+                .buttonStyle(.plain)
+
+                contentPickers
 
                 waveformModeMenu
+                ScaleUnitPicker(unit: $settings.scaleUnit)
 
                 Button {
                     settings.scopeSource = settings.scopeSource == .preLUT ? .postLUT : .preLUT
@@ -134,6 +145,52 @@ struct ControlBar: View {
             .frame(height: 32)
         }
         .frame(height: 32)
+    }
+
+    /// 全屏 / 四分割 时的内容选择；旧预设时显示示波器开关
+    @ViewBuilder
+    private var contentPickers: some View {
+        switch settings.monitorLayout {
+        case .fullscreen:
+            PaneContentPicker(title: "全屏", selection: $settings.fullscreenContent)
+
+        case .quad:
+            ForEach(0..<4, id: \.self) { index in
+                PaneContentPicker(title: quadSlotTitle(index), selection: quadBinding(index))
+            }
+
+        default:
+            Group {
+                scopeToggle(.vectorscope, isOn: $settings.showVectorscope)
+                scopeToggle(.waveform, isOn: $settings.showWaveform)
+                scopeToggle(.parade, isOn: $settings.showParade)
+            }
+        }
+    }
+
+    private func quadSlotTitle(_ index: Int) -> String {
+        switch index {
+        case 0: return "左上"
+        case 1: return "右上"
+        case 2: return "左下"
+        default: return "右下"
+        }
+    }
+
+    private func quadBinding(_ index: Int) -> Binding<PaneContent> {
+        Binding(
+            get: {
+                let list = settings.normalizedQuadContents
+                return index < list.count ? list[index] : .picture
+            },
+            set: { newValue in
+                var list = settings.normalizedQuadContents
+                if index < list.count {
+                    list[index] = newValue
+                    settings.quadContents = list
+                }
+            }
+        )
     }
 
     private var gradeRow: some View {

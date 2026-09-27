@@ -34,6 +34,10 @@ final class AppSettings: ObservableObject {
         static let showHUD = prefix + "showHUD"
         static let scopeColor = prefix + "scopeColor"
         static let showMeasurement = prefix + "showMeasurement"
+        static let fullscreenContent = prefix + "fullscreenContent"
+        static let quadContents = prefix + "quadContents"
+        static let scaleUnit = prefix + "scaleUnit"
+        static let autoFormat = prefix + "autoFormat"
     }
 
     // MARK: - 监视器
@@ -109,6 +113,32 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(scopeColorIndex, forKey: Key.scopeColor) }
     }
 
+    // MARK: - 全屏 / 四分割内容
+
+    /// 全屏时显示什么（画面 or 任一种示波器）
+    @Published var fullscreenContent: PaneContent = .picture {
+        didSet { UserDefaults.standard.set(fullscreenContent.rawValue, forKey: Key.fullscreenContent) }
+    }
+
+    /// 四分割每一格显示什么（顺序：左上、右上、左下、右下）
+    @Published var quadContents: [PaneContent] = [.picture, .vectorscope, .waveform, .parade] {
+        didSet {
+            let encoded = quadContents.map { $0.rawValue }.joined(separator: ",")
+            UserDefaults.standard.set(encoded, forKey: Key.quadContents)
+        }
+    }
+
+    /// 波形 / 矢量示波器侧边刻度的单位
+    @Published var scaleUnit: ScaleUnit = .ire {
+        didSet { UserDefaults.standard.set(scaleUnit.rawValue, forKey: Key.scaleUnit) }
+    }
+
+    /// 自动选择输入格式（默认开）：
+    /// 打开后不需要手动挑分辨率和帧率，程序自己选最合适的一个，并把手动选择降级成高级选项。
+    @Published var autoFormat = true {
+        didSet { UserDefaults.standard.set(autoFormat, forKey: Key.autoFormat) }
+    }
+
     // MARK: - LUT 与调色
 
     @Published var lutEnabled = true {
@@ -137,12 +167,43 @@ final class AppSettings: ObservableObject {
 
     // MARK: - 派生值
 
+    /// 旧预设（底部 / 右侧 / 叠加）里要显示的示波器
     var enabledPanels: [ScopePanelKind] {
         var panels: [ScopePanelKind] = []
         if showVectorscope { panels.append(.vectorscope) }
         if showWaveform { panels.append(.waveform) }
         if showParade { panels.append(.parade) }
         return panels
+    }
+
+    /// 当前布局实际需要统计的示波器：
+    /// 全屏 / 四分割按格子内容决定，其余预设按开关决定。
+    var requiredScopes: Set<ScopePanelKind> {
+        switch monitorLayout {
+        case .fullscreen:
+            if let kind = fullscreenContent.scopeKind { return [kind] }
+            return []
+        case .quad:
+            return Set(quadContents.compactMap { $0.scopeKind })
+        default:
+            return Set(enabledPanels)
+        }
+    }
+
+    /// 当前布局是否需要显示实时画面
+    var needsPicture: Bool {
+        switch monitorLayout {
+        case .fullscreen: return fullscreenContent == .picture
+        case .quad: return quadContents.contains(.picture)
+        default: return true
+        }
+    }
+
+    /// 传给 ScopeLayout 的四分割内容（保证 4 个）
+    var normalizedQuadContents: [PaneContent] {
+        var list = Array(quadContents.prefix(4))
+        while list.count < 4 { list.append(.picture) }
+        return list
     }
 
     var gradeIsNeutral: Bool {
@@ -165,13 +226,24 @@ final class AppSettings: ObservableObject {
     init() {
         let defaults = UserDefaults.standard
 
-        monitorLayout = MonitorLayoutPreset(rawValue: defaults.string(forKey: Key.monitorLayout) ?? "") ?? .bottomStrip
+        monitorLayout = MonitorLayoutPreset(rawValue: defaults.string(forKey: Key.monitorLayout) ?? "") ?? .fullscreen
         aspectMode = AspectMode(rawValue: defaults.string(forKey: Key.aspectMode) ?? "") ?? .fit
         displayMode = DisplayMode(rawValue: defaults.string(forKey: Key.displayMode) ?? "") ?? .color
         scopeSource = ScopeSource(rawValue: defaults.string(forKey: Key.scopeSource) ?? "") ?? .postLUT
         waveformMode = WaveformMode(rawValue: defaults.string(forKey: Key.waveformMode) ?? "") ?? .luma
         scopeQuality = ScopeQuality(rawValue: defaults.string(forKey: Key.scopeQuality) ?? "") ?? .half
+        fullscreenContent = PaneContent(rawValue: defaults.string(forKey: Key.fullscreenContent) ?? "") ?? .picture
+        scaleUnit = ScaleUnit(rawValue: defaults.string(forKey: Key.scaleUnit) ?? "") ?? .ire
 
+        // 四分割内容：存成 "picture,vectorscope,waveform,parade"
+        if let raw = defaults.string(forKey: Key.quadContents) {
+            let parts = raw.split(separator: ",").compactMap { PaneContent(rawValue: String($0)) }
+            if parts.count == 4 {
+                quadContents = parts
+            }
+        }
+
+        autoFormat = Self.bool(defaults, Key.autoFormat, true)
         showVectorscope = Self.bool(defaults, Key.showVectorscope, true)
         showWaveform = Self.bool(defaults, Key.showWaveform, true)
         showParade = Self.bool(defaults, Key.showParade, false)
@@ -215,5 +287,12 @@ final class AppSettings: ObservableObject {
         scopeOpacity = 0.82
         scopeQuality = .half
         scopeColorIndex = 0
+        scaleUnit = .ire
+    }
+
+    /// 复位全屏 / 四分割的内容
+    func resetPaneContents() {
+        fullscreenContent = .picture
+        quadContents = [.picture, .vectorscope, .waveform, .parade]
     }
 }

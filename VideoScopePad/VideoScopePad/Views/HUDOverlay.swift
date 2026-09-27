@@ -56,19 +56,22 @@ struct HUDOverlay: View {
                     Text(settings.scopeSource == .postLUT ? "LUT 后" : "LUT 前")
                         .font(.system(size: 10))
                         .foregroundStyle(.white.opacity(0.45))
+                    Text(settings.scaleUnit == .millivolt ? "等效 mV" : settings.scaleUnit.shortTitle)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.55))
                 }
 
                 divider
 
                 // ViewBuilder 最多 10 个子视图，用 Group 分组
                 Group {
-                    row("峰值白", String(format: "%.1f IRE", value.stableWhiteIRE),
+                    row("峰值白", settings.scaleUnit.formatPrecise(value.stableWhiteIRE),
                         warn: value.stableWhiteIRE > 103)
-                    row("最高码值", String(format: "%.1f IRE", value.peakWhiteIRE), warn: false)
-                    row("黑位", String(format: "%.1f IRE", value.stableBlackIRE),
+                    row("最高码值", settings.scaleUnit.formatPrecise(value.peakWhiteIRE), warn: false)
+                    row("黑位", settings.scaleUnit.formatPrecise(value.stableBlackIRE),
                         warn: value.stableBlackIRE < -2 || value.stableBlackIRE > 8)
-                    row("平均", String(format: "%.1f IRE", value.averageIRE), warn: false)
-                    row("动态范围", String(format: "%.0f IRE", value.dynamicRangeIRE), warn: false)
+                    row("平均", settings.scaleUnit.formatPrecise(value.averageIRE), warn: false)
+                    row("动态范围", settings.scaleUnit.formatPrecise(value.dynamicRangeIRE), warn: false)
                 }
 
                 divider
@@ -76,7 +79,9 @@ struct HUDOverlay: View {
                 Group {
                     row("R / G / B",
                         String(format: "%.0f / %.0f / %.0f",
-                               value.redPeakIRE, value.greenPeakIRE, value.bluePeakIRE),
+                               settings.scaleUnit.value(fromIRE: value.redPeakIRE),
+                               settings.scaleUnit.value(fromIRE: value.greenPeakIRE),
+                               settings.scaleUnit.value(fromIRE: value.bluePeakIRE)),
                         warn: max(value.redPeakIRE, max(value.greenPeakIRE, value.bluePeakIRE)) > 103)
                     row("色度峰值", String(format: "%.0f%%", value.peakSaturationPercent),
                         warn: value.peakSaturationPercent > 105)
@@ -131,15 +136,20 @@ struct HUDOverlay: View {
                           tint: .green)
 
                 if capture.stats.isRunning {
-                    ChipLabel(title: formatText)
-                    ChipLabel(title: String(format: "%.1f fps", capture.stats.fps),
+                    ChipLabel(title: signalResolutionText)
+                    ChipLabel(title: "实测 " + String(format: "%.1f fps", capture.stats.fps),
                               isActive: capture.stats.fps > 1)
                 }
             }
 
             HStack(spacing: 6) {
                 if capture.stats.isRunning {
-                    ChipLabel(title: "\(capture.stats.pixelFormatText) · \(capture.stats.colorMatrixTitle)")
+                    // 强制显示输入信号信息：像素格式 · 量化范围 · 原色/传输/矩阵
+                    ChipLabel(title: "\(capture.signal.pixelFormat) · \(capture.signal.rangeText)")
+                    ChipLabel(title: capture.signal.colorSpaceText)
+                    if capture.signal.declaredFrameRate > 0 {
+                        ChipLabel(title: "声明 " + capture.signal.frameRateText + "p")
+                    }
                 }
 
                 if settings.lutEnabled, let detail = lutStore.detailText {
@@ -165,6 +175,11 @@ struct HUDOverlay: View {
 
     private var deviceName: String {
         capture.devices.first { $0.id == capture.selectedDeviceID }?.name ?? "未选择设备"
+    }
+
+    /// 优先用实际收到的帧尺寸（采集卡换输入时会变）
+    private var signalResolutionText: String {
+        capture.signal.resolutionText
     }
 
     private var formatText: String {

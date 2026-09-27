@@ -65,6 +65,15 @@ struct ContentView: View {
         .onChange(of: settings.preventSleep) { _, _ in
             applyIdleTimer()
         }
+        .onChange(of: settings.autoFormat) { _, newValue in
+            syncAutoFormat(preferred: newValue)
+        }
+        .onChange(of: capture.autoFormatEnabled) { _, newValue in
+            // 用户手动选了格式 → 关掉自动；界面开关跟着同步
+            if settings.autoFormat != newValue {
+                settings.autoFormat = newValue
+            }
+        }
         .onReceive(settings.objectWillChange.receive(on: DispatchQueue.main)) { _ in
             coordinator.requestRedraw()
         }
@@ -124,7 +133,9 @@ struct ContentView: View {
                                              videoSize: capture.videoSize,
                                              preset: settings.monitorLayout,
                                              aspectMode: settings.aspectMode,
-                                             panels: settings.enabledPanels)
+                                             fullscreenContent: settings.fullscreenContent,
+                                             quadContents: settings.normalizedQuadContents,
+                                             legacyPanels: settings.enabledPanels)
 
             ZStack {
                 if coordinatorReady {
@@ -145,8 +156,14 @@ struct ContentView: View {
                 if coordinatorReady {
                     ScopeGraticuleView(layout: layout,
                                        settings: settings,
+                                       measurement: coordinator.measurementHub,
                                        videoRange: capture.isVideoRange)
                         .allowsHitTesting(false)
+
+                    // 每个格子右上角的内容选择菜单（点它切换这一格显示什么）
+                    PaneChromeOverlay(layout: layout,
+                                      settings: settings,
+                                      containerSize: geo.size)
 
                     if settings.showHUD {
                         HUDOverlay(capture: capture,
@@ -177,9 +194,19 @@ struct ContentView: View {
     private func handleAppear() {
         coordinator.attach(settings: settings, capture: capture, lutStore: lutStore)
         coordinatorReady = coordinator.isReady
+        // 把「自动选格式」偏好交给采集层（默认开启：不用手挑分辨率和帧率）
+        capture.autoFormatEnabled = settings.autoFormat
         capture.start()
         hasStarted = true
         applyIdleTimer()
+    }
+
+    private func syncAutoFormat(preferred: Bool) {
+        if preferred {
+            capture.useAutomaticFormat()
+        } else {
+            capture.autoFormatEnabled = false
+        }
     }
 
     private func handleScenePhase(_ phase: ScenePhase) {

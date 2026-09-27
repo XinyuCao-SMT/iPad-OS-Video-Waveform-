@@ -49,6 +49,14 @@ final class CaptureController: NSObject, ObservableObject {
     @Published private(set) var isAuthorized = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
     @Published private(set) var hasExternalDevice = false
 
+    /// 输入信号描述（分辨率 / 帧率 / 像素格式 / 原色 / 传输函数 / 矩阵 / 量化范围）
+    @Published private(set) var signal = SignalDescriptor()
+
+    /// 自动选择输入格式（默认开）：不再需要手动挑分辨率和帧率
+    @Published var autoFormatEnabled = true {
+        didSet { setAutoFormat(autoFormatEnabled) }
+    }
+
     /// 每一帧回调（在 videoQueue 上）——零拷贝 CVPixelBuffer
     var onFrame: ((CVPixelBuffer) -> Void)?
 
@@ -72,6 +80,7 @@ final class CaptureController: NSObject, ObservableObject {
     private var frameCounter = 0
     private var droppedCounter = 0
     private var wantsRunning = false
+    private var autoFormat = true
 
     // 仅主线程访问
     private var statsTimer: Timer?
@@ -163,9 +172,24 @@ final class CaptureController: NSObject, ObservableObject {
 
     func select(formatID: String) {
         selectedFormatID = formatID
+        // 手动指定格式 = 退出自动模式（界面上的开关也会跟着变）
+        autoFormatEnabled = false
         sessionQueue.async { [weak self] in
             guard let self else { return }
             self.sessionFormatID = formatID
+            self.session.stopRunning()
+            self.configureLocked()
+            self.startRunningLocked()
+        }
+    }
+
+    /// 回到「自动跟随输入信号」模式：重新挑一个最合适的格式
+    func useAutomaticFormat() {
+        autoFormatEnabled = true
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.loadFormatsLocked(deviceID: self.sessionDeviceID,
+                                   preferredFormatID: self.sessionFormatID)
             self.session.stopRunning()
             self.configureLocked()
             self.startRunningLocked()
@@ -246,6 +270,14 @@ final class CaptureController: NSObject, ObservableObject {
         }
         let list = Self.makeFormatList(for: device)
         sessionFormats = list
+
+        // 自动模式：直接取排好序的第一个（1080p 优先、帧率高的优先、未压缩优先），
+        // 用户不需要在界面上挑分辨率和帧率。
+        if currentAutoFormat() {
+            sessionFormatID = list.first?.id
+            return
+        }
+
         if let preferredFormatID, list.contains(where: { $0.id == preferredFormatID }) {
             sessionFormatID = preferredFormatID
         } else {
@@ -335,12 +367,54 @@ final class CaptureController: NSObject, ObservableObject {
         }
 
         if let format {
+            // 信号信息从「设备当前实际生效的格式描述」里读，
+            // 这样即使采集卡自己重新协商了格式，显示出来的也是真实值。
+            let activeDescription = device.activeFormat.formatDescription
+            let dimensions = CMVideoFormatDescriptionGetDimensions(activeDescription)
+            let descriptor = SignalDescriptor(
+                width: Int(dimensions.width),
+                height: Int(dimensions.height),
+                declaredFrameRate: format.frameRate,
+                actualWidth: Int(dimensions.width),
+                actualHeight: Int(dimensions.height),
+                pixelFormat: format.pixelFormatText,
+                primaries: CaptureFormatHelper.primariesName(activeDescription),
+                transfer: CaptureFormatHelper.transferName(activeDescription),
+                matrix: CaptureFormatHelper.matrixName(activeDescription),
+                isFullRange: !format.isVideoRange,
+                usesBiPlanar: format.usesBiPlanar
+            )
+
             DispatchQueue.main.async {
                 self.videoSize = CGSize(width: format.width, height: format.height)
                 self.colorMatrix = format.colorMatrix
                 self.isVideoRange = format.isVideoRange
+                self.signal = descriptor
             }
         }
+    }
+
+    /// 记录实际收到的帧尺寸（跟随像素缓冲，采集卡换输入时会变）
+    private func noteActualFrameSize(width: Int, height: Int) {
+        guard width > 0, height > 0 else { return }
+        DispatchQueue.main.async {
+            guard self.signal.actualWidth != width || self.signal.actualHeight != height else { return }
+            self.signal.actualWidth = width
+            self.signal.actualHeight = height
+            self.videoSize = CGSize(width: width, height: height)
+        }
+    }
+
+    private func setAutoFormat(_ value: Bool) {
+        counterLock.lock()
+        autoFormat = value
+        counterLock.unlock()
+    }
+
+    private func currentAutoFormat() -> Bool {
+        counterLock.lock()
+        defer { counterLock.unlock() }
+        return autoFormat
     }
 
     private func startRunningLocked() {
@@ -549,6 +623,10 @@ extension CaptureController: AVCaptureVideoDataOutputSampleBufferDelegate {
         counterLock.lock()
         frameCounter += 1
         counterLock.unlock()
+
+        // 采集卡换输入信号时，实际帧尺寸会变 —— 顺手记录下来（无变化时不会触发界面更新）
+        noteActualFrameSize(width: CVPixelBufferGetWidth(pixelBuffer),
+                            height: CVPixelBufferGetHeight(pixelBuffer))
 
         onFrame?(pixelBuffer)
     }
