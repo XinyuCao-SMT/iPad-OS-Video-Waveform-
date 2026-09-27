@@ -29,6 +29,9 @@ final class RenderCoordinator: ObservableObject {
     private let warningLatch = WarningLatch()
     private var lastAlarmHaptic: Date?
 
+    /// 录制 / 推流 / 抓帧 / 读数导出
+    let stream = StreamController()
+
     private var placeholderLUT: LUTTextures?
     private var settings: AppSettings?
     private weak var view: MTKView?
@@ -84,9 +87,10 @@ final class RenderCoordinator: ObservableObject {
         self.renderer = renderer
         view?.delegate = renderer
 
-        capture.onFrame = { [weak self] pixelBuffer in
+        capture.onFrame = { [weak self] pixelBuffer, presentationTime in
             guard let self else { return }
             self.renderer?.submit(pixelBuffer: pixelBuffer)
+            self.stream.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
             DispatchQueue.main.async { [weak self] in
                 self?.view?.setNeedsDisplay()
             }
@@ -123,6 +127,9 @@ final class RenderCoordinator: ObservableObject {
                                         raiseThreshold: settings.warningRaiseCount,
                                         clearThreshold: 0)
         measurementHub.activeWarnings = active
+
+        // 读数 CSV 记录（开关在推流面板里）
+        stream.noteMeasurement(measurement, activeWarnings: active)
 
         if warningLatch.didRaise {
             triggerAlarmFeedback()

@@ -57,8 +57,8 @@ final class CaptureController: NSObject, ObservableObject {
         didSet { setAutoFormat(autoFormatEnabled) }
     }
 
-    /// 每一帧回调（在 videoQueue 上）——零拷贝 CVPixelBuffer
-    var onFrame: ((CVPixelBuffer) -> Void)?
+    /// 每一帧回调（在 videoQueue 上）——零拷贝 CVPixelBuffer + 呈现时间戳
+    var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
     let session = AVCaptureSession()
 
@@ -628,7 +628,7 @@ extension CaptureController: AVCaptureVideoDataOutputSampleBufferDelegate {
         noteActualFrameSize(width: CVPixelBufferGetWidth(pixelBuffer),
                             height: CVPixelBufferGetHeight(pixelBuffer))
 
-        onFrame?(pixelBuffer)
+        onFrame?(pixelBuffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
     }
 
     func captureOutput(_ output: AVCaptureOutput,

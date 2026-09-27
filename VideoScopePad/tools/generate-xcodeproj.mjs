@@ -175,6 +175,7 @@ const commonSettings = {
     INFOPLIST_KEY_CFBundleDisplayName: 'VideoScopePad',
     INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: 'YES',
     INFOPLIST_KEY_NSCameraUsageDescription: '需要访问外接 UVC 采集卡来显示画面、示波器与做 LUT 预览。',
+    INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '用于把抓帧的画面保存到相册。',
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: 'YES',
     INFOPLIST_KEY_UIFileSharingEnabled: 'YES',
     INFOPLIST_KEY_UILaunchScreen_Generation: 'YES',

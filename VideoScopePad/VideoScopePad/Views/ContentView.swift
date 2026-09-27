@@ -18,6 +18,7 @@ struct ContentView: View {
 
     @State private var showSettings = false
     @State private var showLUTImporter = false
+    @State private var showStreamPanel = false
     @State private var uiHidden = false
     @State private var coordinatorReady = false
     @State private var hasStarted = false
@@ -59,6 +60,9 @@ struct ContentView: View {
                           lutStore: lutStore,
                           showLUTImporter: $showLUTImporter)
         }
+        .sheet(isPresented: $showStreamPanel) {
+            StreamPanelView(stream: coordinator.stream, capture: capture)
+        }
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
@@ -97,6 +101,20 @@ struct ContentView: View {
             }
 
             Spacer(minLength: 4)
+
+            // 录制/推流入口 + 录制指示灯
+            if coordinatorReady {
+                Button {
+                    showStreamPanel = true
+                } label: {
+                    ChipLabel(title: coordinator.stream.isRecording || coordinator.stream.isStreaming
+                              ? "录制/推流中" : "录制/推流",
+                              systemImage: coordinator.stream.isRecording ? "record.circle.fill" : "paperplane",
+                              isActive: coordinator.stream.isRecording || coordinator.stream.isStreaming,
+                              tint: coordinator.stream.isRecording ? .red : .blue)
+                }
+                .buttonStyle(.plain)
+            }
 
             Button {
                 settings.freeze.toggle()
@@ -222,6 +240,8 @@ struct ContentView: View {
                 capture.resume()
             }
         case .background:
+            // 退到后台时采集会停，录制/推流必须一起收尾，否则文件会坏、推流会假死
+            coordinator.stream.stopAll()
             capture.pause()
         default:
             break

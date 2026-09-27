@@ -153,6 +153,14 @@ jobs:
             /usr/libexec/PlistBuddy -c 'Add :NSCameraUsageDescription string "Camera access is required to display the UVC capture card signal."' "$PLIST"
           fi
 
+          # 抓帧要写相册，同样需要用途说明，缺了会闪退
+          if /usr/libexec/PlistBuddy -c 'Print :NSPhotoLibraryAddUsageDescription' "$PLIST" >/dev/null 2>&1; then
+            echo "NSPhotoLibraryAddUsageDescription: 已存在 ✓"
+          else
+            echo "::warning::Info.plist 缺少 NSPhotoLibraryAddUsageDescription，已在打包前补上"
+            /usr/libexec/PlistBuddy -c 'Add :NSPhotoLibraryAddUsageDescription string "Save grabbed frames to the photo library."' "$PLIST"
+          fi
+
           rm -rf Payload VideoScopePad-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
