@@ -59,16 +59,9 @@ final class StreamController: ObservableObject {
     @Published var keyframeSeconds: Double = 2 {
         didSet { UserDefaults.standard.set(keyframeSeconds, forKey: "vsp.stream.keyframe") }
     }
-    @Published var rtmpURL: String = "" {
-        didSet { UserDefaults.standard.set(rtmpURL, forKey: "vsp.stream.rtmpURL") }
-    }
-    @Published var streamKey: String = "" {
-        didSet { UserDefaults.standard.set(streamKey, forKey: "vsp.stream.key") }
-    }
-    /// SRT 地址（含 ?mode=caller&streamid=… 这类参数）
-    @Published var srtURL: String = "" {
-        didSet { UserDefaults.standard.set(srtURL, forKey: "vsp.stream.srtURL") }
-    }
+
+    // MARK: 推流协议
+
     /// 推流协议：RTMP 或 SRT
     @Published var transportKind: StreamTransport.Kind = .rtmp {
         didSet {
@@ -78,25 +71,211 @@ final class StreamController: ObservableObject {
         }
     }
 
-    /// 当前协议对应的地址栏内容（界面直接绑定这个）
-    var activeURL: String {
-        get { transportKind == .rtmp ? rtmpURL : srtURL }
-        set {
-            if transportKind == .rtmp { rtmpURL = newValue } else { srtURL = newValue }
-        }
+    // MARK: RTMP 地址（拆成各栏填，避免手打完整 URL 被符号坑到）
+
+    @Published var rtmpHost: String = "" {
+        didSet { UserDefaults.standard.set(rtmpHost, forKey: "vsp.stream.rtmp.host") }
     }
+    @Published var rtmpPort: String = "" {
+        didSet { UserDefaults.standard.set(rtmpPort, forKey: "vsp.stream.rtmp.port") }
+    }
+    @Published var rtmpApp: String = "" {
+        didSet { UserDefaults.standard.set(rtmpApp, forKey: "vsp.stream.rtmp.app") }
+    }
+    @Published var rtmpSecure = false {
+        didSet { UserDefaults.standard.set(rtmpSecure, forKey: "vsp.stream.rtmp.secure") }
+    }
+    @Published var streamKey: String = "" {
+        didSet { UserDefaults.standard.set(streamKey, forKey: "vsp.stream.key") }
+    }
+
+    // MARK: SRT 地址（同样拆开）
+
+    @Published var srtHost: String = "" {
+        didSet { UserDefaults.standard.set(srtHost, forKey: "vsp.stream.srt.host") }
+    }
+    @Published var srtPort: String = "" {
+        didSet { UserDefaults.standard.set(srtPort, forKey: "vsp.stream.srt.port") }
+    }
+    @Published var srtMode: SRTModeOption = .caller {
+        didSet { UserDefaults.standard.set(srtMode.rawValue, forKey: "vsp.stream.srt.mode") }
+    }
+    @Published var srtStreamID: String = "" {
+        didSet { UserDefaults.standard.set(srtStreamID, forKey: "vsp.stream.srt.streamid") }
+    }
+    @Published var srtLatency: String = "" {
+        didSet { UserDefaults.standard.set(srtLatency, forKey: "vsp.stream.srt.latency") }
+    }
+    @Published var srtPassphrase: String = "" {
+        didSet { UserDefaults.standard.set(srtPassphrase, forKey: "vsp.stream.srt.passphrase") }
+    }
+    /// 加密位数：0 = 不加密（只在填了密码时有效）
+    @Published var srtKeyLength: Int = 16 {
+        didSet { UserDefaults.standard.set(srtKeyLength, forKey: "vsp.stream.srt.keylen") }
+    }
+    @Published var srtConnectTimeout: String = "" {
+        didSet { UserDefaults.standard.set(srtConnectTimeout, forKey: "vsp.stream.srt.conntimeo") }
+    }
+
+    /// 「粘贴完整地址自动填入」用的临时输入（不持久化）
+    @Published var importText: String = ""
+    @Published private(set) var importMessage: String?
 
     init() {
         let defaults = UserDefaults.standard
         if let value = defaults.object(forKey: "vsp.stream.bitrate") as? Double { bitrateMbps = value }
         if let value = defaults.object(forKey: "vsp.stream.keyframe") as? Double { keyframeSeconds = value }
-        if let value = defaults.string(forKey: "vsp.stream.rtmpURL") { rtmpURL = value }
-        if let value = defaults.string(forKey: "vsp.stream.key") { streamKey = value }
-        if let value = defaults.string(forKey: "vsp.stream.srtURL") { srtURL = value }
         if let raw = defaults.string(forKey: "vsp.stream.kind"),
            let kind = StreamTransport.Kind(rawValue: raw) {
             transportKind = kind
         }
+
+        // 兼容 v1.3/v1.4 的旧键（那时是「一整条 URL」）
+        if let legacyKey = defaults.string(forKey: "vsp.stream.key") { streamKey = legacyKey }
+        let legacyRTMP = defaults.string(forKey: "vsp.stream.rtmpURL") ?? ""
+        let legacySRT = defaults.string(forKey: "vsp.stream.srtURL") ?? ""
+
+        rtmpHost = defaults.string(forKey: "vsp.stream.rtmp.host") ?? ""
+        rtmpPort = defaults.string(forKey: "vsp.stream.rtmp.port") ?? ""
+        rtmpApp = defaults.string(forKey: "vsp.stream.rtmp.app") ?? ""
+        rtmpSecure = defaults.bool(forKey: "vsp.stream.rtmp.secure")
+
+        srtHost = defaults.string(forKey: "vsp.stream.srt.host") ?? ""
+        srtPort = defaults.string(forKey: "vsp.stream.srt.port") ?? ""
+        if let raw = defaults.string(forKey: "vsp.stream.srt.mode"),
+           let mode = SRTModeOption(rawValue: raw) {
+            srtMode = mode
+        }
+        srtStreamID = defaults.string(forKey: "vsp.stream.srt.streamid") ?? ""
+        srtLatency = defaults.string(forKey: "vsp.stream.srt.latency") ?? ""
+        srtPassphrase = defaults.string(forKey: "vsp.stream.srt.passphrase") ?? ""
+        if defaults.object(forKey: "vsp.stream.srt.keylen") != nil {
+            srtKeyLength = defaults.integer(forKey: "vsp.stream.srt.keylen")
+        }
+        srtConnectTimeout = defaults.string(forKey: "vsp.stream.srt.conntimeo") ?? ""
+
+        // 旧设置迁移：把一整条 URL 拆到各栏里
+        if rtmpHost.isEmpty, !legacyRTMP.isEmpty,
+           let endpoint = RTMPEndpoint.parse(urlString: legacyRTMP, streamKey: streamKey) {
+            rtmpHost = endpoint.host
+            rtmpPort = String(endpoint.port)
+            rtmpApp = endpoint.app
+            rtmpSecure = endpoint.secure
+            if streamKey.isEmpty { streamKey = endpoint.streamName }
+        }
+        if srtHost.isEmpty, !legacySRT.isEmpty, let endpoint = SRTEndpoint.parse(urlString: legacySRT) {
+            srtHost = endpoint.host
+            srtPort = String(endpoint.port)
+            srtMode = endpoint.mode
+            srtStreamID = endpoint.streamID ?? ""
+            srtLatency = endpoint.latency.map(String.init) ?? ""
+            srtPassphrase = endpoint.passphrase ?? ""
+            if let bits = endpoint.keyLength { srtKeyLength = bits }
+        }
+    }
+
+    // MARK: - 地址预览与校验（界面直接显示）
+
+    /// 当前协议、当前各栏拼出来的 endpoint（拼不出来就是 nil）
+    var currentRTMPEndpoint: RTMPEndpoint? {
+        RTMPEndpoint.make(host: rtmpHost,
+                          port: rtmpPort,
+                          app: rtmpApp,
+                          streamKey: streamKey,
+                          secure: rtmpSecure)
+    }
+
+    var currentSRTEndpoint: SRTEndpoint? {
+        SRTEndpoint.make(host: srtHost,
+                         port: srtPort,
+                         mode: srtMode,
+                         streamID: srtStreamID,
+                         latency: srtLatency,
+                         passphrase: srtPassphrase,
+                         keyLength: srtKeyLength,
+                         connectTimeout: srtConnectTimeout)
+    }
+
+    /// 界面上的「将连接」预览
+    var addressPreview: String {
+        switch transportKind {
+        case .rtmp:
+            return currentRTMPEndpoint?.display ?? "（还没填全：需要服务器地址 + 流密钥）"
+        case .srt:
+            return currentSRTEndpoint?.display ?? "（还没填全：需要主机名或 IP；端口要 1–65535 的数字）"
+        }
+    }
+
+    /// 地址栏的问题（有问题时界面标红提示）
+    var addressProblem: String? {
+        switch transportKind {
+        case .rtmp:
+            let host = rtmpHost.trimmingCharacters(in: .whitespacesAndNewlines)
+            if host.isEmpty { return "请填服务器地址（主机名或 IP）" }
+            if currentRTMPEndpoint == nil {
+                if streamKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return "请填流密钥，或者把完整地址（rtmp://主机/应用/流密钥）粘进「服务器地址」栏"
+                }
+                return "端口要是 1–65535 之间的数字"
+            }
+            return nil
+        case .srt:
+            if srtMode != .listener, srtHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "请填主机名或 IP（监听模式可以留空）"
+            }
+            if EndpointSanitizer.port(srtPort, default: 9710) == nil {
+                return "端口要是 1–65535 之间的数字"
+            }
+            if EndpointSanitizer.optionalInt(srtLatency, range: 20...8000) == nil,
+               !srtLatency.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "延迟要是 20–8000 之间的整数（毫秒），留空则不设置"
+            }
+            if EndpointSanitizer.optionalInt(srtConnectTimeout, range: 1000...60000) == nil,
+               !srtConnectTimeout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return "连接超时要是 1000–60000 之间的整数（毫秒），留空则用 5000"
+            }
+            if currentSRTEndpoint == nil { return "地址拼装失败，请检查主机与端口" }
+            return nil
+        }
+    }
+
+    /// 把「粘贴完整地址」那一栏解析到各栏里
+    func importAddress() {
+        let text = importText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            importMessage = "先粘贴一条完整地址"
+            return
+        }
+        switch transportKind {
+        case .rtmp:
+            guard let endpoint = RTMPEndpoint.parse(urlString: text, streamKey: streamKey) else {
+                importMessage = "解析失败：RTMP 地址形如 rtmp://主机:1935/应用/流密钥"
+                return
+            }
+            rtmpHost = endpoint.host
+            rtmpPort = String(endpoint.port)
+            rtmpApp = endpoint.app
+            rtmpSecure = endpoint.secure
+            streamKey = endpoint.streamName
+            importMessage = "已填入：\(endpoint.display)"
+        case .srt:
+            guard let endpoint = SRTEndpoint.parse(urlString: text) else {
+                importMessage = "解析失败：SRT 地址形如 srt://主机:9000?mode=caller&streamid=live/test"
+                return
+            }
+            srtHost = endpoint.host
+            srtPort = String(endpoint.port)
+            srtMode = endpoint.mode
+            srtStreamID = endpoint.streamID ?? ""
+            srtLatency = endpoint.latency.map(String.init) ?? ""
+            srtPassphrase = endpoint.passphrase ?? ""
+            if let bits = endpoint.keyLength { srtKeyLength = bits }
+            importMessage = "已填入：\(endpoint.display)"
+        }
+    }
+
+    func clearImportMessage() {
+        importMessage = nil
     }
 
     // MARK: - 内部
@@ -244,19 +423,8 @@ final class StreamController: ObservableObject {
     func startStreaming() {
         guard !isStreaming else { return }
 
-        let url = activeURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = streamKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if url.isEmpty {
-            lastError = transportKind == .rtmp ? "请先填 RTMP 服务器地址" : "请先填 SRT 地址"
-            return
-        }
-        if transportKind == .rtmp, StreamTransport.parseRTMP(urlString: url, streamKey: key) == nil {
-            lastError = "RTMP 地址不完整：需要 rtmp://主机[:端口]/应用，并且填上流密钥"
-            return
-        }
-        if transportKind == .srt, StreamTransport.parseSRT(urlString: url) == nil {
-            lastError = "SRT 地址不完整：需要 srt://主机:端口"
+        if let problem = addressProblem {
+            lastError = problem
             return
         }
 
@@ -267,8 +435,9 @@ final class StreamController: ObservableObject {
         diagnosticsTitle = ""
 
         let created = StreamTransport(kind: transportKind,
-                                      inputURL: url,
-                                      streamKey: key,
+                                      rtmp: currentRTMPEndpoint,
+                                      srt: currentSRTEndpoint,
+                                      rawInput: addressPreview,
                                       videoSize: CGSize(width: max(encoderWidth, 1280), height: max(encoderHeight, 720)),
                                       bitrate: Int(max(bitrateMbps, 0.5) * 1_000_000),
                                       frameRate: Int(max(encoderFrameRate, 1)),

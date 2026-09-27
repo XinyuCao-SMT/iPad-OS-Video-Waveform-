@@ -85,19 +85,14 @@ struct StreamPanelView: View {
             }
             .pickerStyle(.segmented)
 
-            TextField(stream.transportKind.placeholder, text: Binding(
-                get: { stream.activeURL },
-                set: { stream.activeURL = $0 }
-            ))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .keyboardType(.URL)
-
-            if stream.transportKind.needsStreamKey {
-                TextField("流密钥 / Stream Key", text: $stream.streamKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
+            if stream.transportKind == .rtmp {
+                rtmpFields
+            } else {
+                srtFields
             }
+
+            addressPreviewRow
+            importRow
 
             LabeledSlider(title: "码率（Mb/s）", value: $stream.bitrateMbps, range: 1...40, format: "%.1f")
             LabeledSlider(title: "关键帧间隔（秒）", value: $stream.keyframeSeconds, range: 0.5...6, format: "%.1f")
@@ -115,6 +110,7 @@ struct StreamPanelView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(stream.isStreaming ? .red : .accentColor)
+                .disabled(!(stream.isStreaming || stream.isPreparing) && stream.addressProblem != nil)
 
                 Spacer()
 
@@ -139,7 +135,128 @@ struct StreamPanelView: View {
         }
     }
 
-    /// 失败诊断：把「输入原文 / 解析结果 / 错误分支 / libsrt 版本」都列出来，可一键复制
+    // MARK: 地址分栏填写（避免手打完整 URL 被符号坑到）
+
+    private var rtmpFields: some View {
+        Group {
+            TextField("服务器地址（主机名或 IP）", text: $stream.rtmpHost)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+
+            HStack {
+                TextField("端口（默认 1935）", text: $stream.rtmpPort)
+                    .keyboardType(.numberPad)
+                TextField("应用（默认 live）", text: $stream.rtmpApp)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+            }
+
+            TextField("流密钥 / Stream Key", text: $stream.streamKey)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            Toggle("使用 RTMPS 加密（端口默认 443）", isOn: $stream.rtmpSecure)
+        }
+    }
+
+    private var srtFields: some View {
+        Group {
+            TextField(stream.srtMode == .listener ? "主机名或 IP（监听模式可留空）" : "主机名或 IP",
+                      text: $stream.srtHost)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+
+            TextField("端口（默认 9710）", text: $stream.srtPort)
+                .keyboardType(.numberPad)
+
+            Picker("模式", selection: $stream.srtMode) {
+                ForEach(SRTModeOption.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(stream.srtMode.detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            TextField("串流标识 streamid（不填就不带这个参数）", text: $stream.srtStreamID)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
+            DisclosureGroup("高级（延迟 / 密码 / 连接超时）") {
+                TextField("延迟 latency（毫秒，20–8000，留空不设置）", text: $stream.srtLatency)
+                    .keyboardType(.numberPad)
+
+                SecureField("密码 passphrase（服务器要求加密时填）", text: $stream.srtPassphrase)
+
+                if !stream.srtPassphrase.isEmpty {
+                    Picker("加密位数", selection: $stream.srtKeyLength) {
+                        Text("16 位").tag(16)
+                        Text("24 位").tag(24)
+                        Text("32 位").tag(32)
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                TextField("连接超时 conntimeo（毫秒，留空用 5000）", text: $stream.srtConnectTimeout)
+                    .keyboardType(.numberPad)
+
+                Text("串流标识的写法各服务器不同：SRS 常用 live/xxx，OBS / MediaMTX 常用 publish:live/xxx。值里不要带 & 号。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var addressPreviewRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("将连接") {
+                Text(stream.addressPreview)
+                    .font(.system(.caption, design: .monospaced))
+                    .multilineTextAlignment(.trailing)
+                    .textSelection(.enabled)
+            }
+            if let problem = stream.addressProblem {
+                Text(problem)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
+    private var importRow: some View {
+        DisclosureGroup("或：粘贴完整地址自动填入上面各栏") {
+            TextField(stream.transportKind == .rtmp ? "rtmp://主机:1935/应用/流密钥"
+                                                    : "srt://主机:9000?mode=caller&streamid=live/test",
+                      text: $stream.importText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .font(.system(.footnote, design: .monospaced))
+
+            Button {
+                stream.importAddress()
+            } label: {
+                Label("解析并填入", systemImage: "arrow.down.doc")
+            }
+
+            if let message = stream.importMessage {
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            Text("全角字符（：／ｓｒｔ）、零宽字符、漏写 srt:// 都会被自动处理，不用手改。")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 失败诊断：把「填的各栏 / 实际使用的地址 / 错误分支 / libsrt 版本」都列出来，可一键复制
     private var diagnosticsBox: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {

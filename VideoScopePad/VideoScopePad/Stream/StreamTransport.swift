@@ -5,10 +5,8 @@
 //  推流传输层：RTMP 与 SRT 都交给 **HaishinKit**（SPM 依赖，2.2.5）——
 //  RTMP 走 RTMPHaishinKit，SRT 走 SRTHaishinKit（内含 libsrt 的 xcframework）。
 //
-//  为什么换成 HaishinKit：
-//    · RTMP 我先手写过一版（握手 + AMF0 + FLV 封装），能编译但没对真实服务器联调过；
-//    · SRT 是 libsrt 那套 ARQ 重传 + 加密 + 握手，不是几百行能写对的，必须用库。
-//    HaishinKit 两个协议都实现，而且支持 `rtmps://`，省掉自己维护协议栈。
+//  本文件只负责「连接 + 发帧 + 报错」，地址怎么来的（表单拼装 or 粘贴解析）
+//  由 StreamEndpoint.swift 负责。
 //
 //  重要：**我们不让 HaishinKit 编码**
 //    它的 `RTMPStream.append(_:)` / `SRTStream.append(_:)` 在 sampleBuffer 的
@@ -19,12 +17,12 @@
 //                                            └→ StreamTransport（推流）
 //    一次编码，两处共用；也避免了 MediaMixer 那一层额外的离屏渲染。
 //
-//  失败诊断（v1.4.1 起）：
+//  失败诊断：
 //    HaishinKit 的 SRTConnection.Error / RTMPConnection.Error 都是没有 LocalizedError 的
 //    Swift 枚举，直接显示 localizedDescription 只会得到
 //    「The operation couldn't be completed. (SRTHaishinKit.SRTConnection.Error error 1.)」
-//    这种裸错误码。所以这里把每个分支翻译成中文，并把「用户输入的原文 / 解析出来的 URL 与
-//    scheme / libsrt 版本 / NSError 的 domain 与 code」一起写进 diagnostics，界面可一键复制。
+//    这种裸错误码。所以这里把每个分支翻译成中文，并把「填的各栏 / 实际使用的地址 /
+//    libsrt 版本 / NSError 的 domain 与 code」写进 diagnostics，界面可一键复制。
 //
 //  音频仍然不支持：UVC 采集卡的 HDMI 内嵌音频不走视频设备的采集通道。
 //
@@ -53,22 +51,12 @@ final class StreamTransport {
             }
         }
 
-        var placeholder: String {
-            switch self {
-            case .rtmp: return "rtmp://主机:1935/应用"
-            case .srt:  return "srt://主机:9000?mode=caller"
-            }
-        }
-
-        /// 这个协议是否需要单独的「流密钥」栏（RTMP 要，SRT 把 streamid 写在地址里）
-        var needsStreamKey: Bool { self == .rtmp }
-
         var summary: String {
             switch self {
             case .rtmp:
-                return "RTMP（由 HaishinKit 实现）：地址写 rtmp://主机:端口/应用，流密钥单独一栏；rtmps:// 也支持。"
+                return "RTMP（HaishinKit 实现）：填服务器地址、端口、应用名与流密钥即可，勾上加密走 rtmps://。"
             case .srt:
-                return "SRT（由 HaishinKit + libsrt 实现）：地址写 srt://主机:端口，串流标识用参数 streamid（不同服务器写法不同：SRS 常用 streamid=live/xxx，OBS/MediaMTX 常用 streamid=publish:live/xxx）。默认端口 9710；本 App 会自动补 mode=caller 与 conntimeo=5000。"
+                return "SRT（HaishinKit + libsrt 实现）：填主机、端口和模式即可，串流标识与密码按服务器要求填。SRT 走 UDP，防火墙要放行 UDP；本 App 会自动补 mode 与 conntimeo。"
             }
         }
     }
@@ -99,8 +87,9 @@ final class StreamTransport {
     private var publishing = false
 
     let kind: Kind
-    private let inputURL: String
-    private let streamKey: String
+    private let rtmp: RTMPEndpoint?
+    private let srt: SRTEndpoint?
+    private let rawInput: String
     private let videoSize: CGSize
     private let bitrate: Int
     private let frameRate: Int
@@ -114,18 +103,19 @@ final class StreamTransport {
 
     private var resolvedTargetText = "(未解析)"
     private var phase = "初始化"
-    private var lastStatusText = ""
 
     init(kind: Kind,
-         inputURL: String,
-         streamKey: String,
+         rtmp: RTMPEndpoint?,
+         srt: SRTEndpoint?,
+         rawInput: String,
          videoSize: CGSize,
          bitrate: Int,
          frameRate: Int,
          keyframeSeconds: Double) {
         self.kind = kind
-        self.inputURL = inputURL
-        self.streamKey = streamKey
+        self.rtmp = rtmp
+        self.srt = srt
+        self.rawInput = rawInput
         self.videoSize = videoSize
         self.bitrate = bitrate
         self.frameRate = frameRate
@@ -135,172 +125,6 @@ final class StreamTransport {
     var isPublishing: Bool {
         lock.lock(); defer { lock.unlock() }
         return publishing
-    }
-
-    // MARK: - RTMP 地址解析
-
-    struct RTMPTarget {
-        /// 传给 RTMPConnection.connect 的命令：rtmp://主机:端口/应用
-        var connectCommand: String
-        /// 传给 RTMPStream.publish 的流名
-        var streamName: String
-        /// 显示用
-        var display: String
-    }
-
-    /// 接受 rtmp://主机[:端口]/应用[/流名]；流密钥栏填了就优先用它。
-    static func parseRTMP(urlString: String, streamKey: String) -> RTMPTarget? {
-        var text = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        // 同上：全角字符（中文输入法）先折成半角
-        text = text.folding(options: [.widthInsensitive], locale: nil)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var secure = false
-        for prefix in ["rtmps://", "rtmp://"] where text.lowercased().hasPrefix(prefix) {
-            secure = (prefix == "rtmps://")
-            text.removeFirst(prefix.count)
-            break
-        }
-
-        let parts = text.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        guard let hostPart = parts.first, !hostPart.isEmpty else { return nil }
-
-        var host = hostPart
-        var port: UInt16 = secure ? 443 : 1935
-        if let colon = hostPart.lastIndex(of: ":") {
-            host = String(hostPart[hostPart.startIndex..<colon])
-            if let parsed = UInt16(hostPart[hostPart.index(after: colon)...]) {
-                port = parsed
-            }
-        }
-
-        var app = "live"
-        var stream = streamKey.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if parts.count >= 3 {
-            app = parts[1]
-            if stream.isEmpty {
-                stream = parts.dropFirst(2).joined(separator: "/")
-            }
-        } else if parts.count == 2, stream.isEmpty {
-            stream = parts[1]
-        }
-
-        guard !host.isEmpty, !stream.isEmpty else { return nil }
-
-        let scheme = secure ? "rtmps" : "rtmp"
-        let command = "\(scheme)://\(host):\(port)/\(app)"
-        return RTMPTarget(connectCommand: command,
-                          streamName: stream,
-                          display: "\(command)/\(stream)")
-    }
-
-    // MARK: - SRT 地址解析
-
-    struct SRTTarget {
-        var url: URL
-        var host: String
-        var port: Int?
-        var mode: String
-        var streamID: String?
-        var display: String
-    }
-
-    /// 把用户输入变成**保证 scheme 是 `srt`** 的 URL。
-    ///
-    /// 为什么要自己拼：HaishinKit 的 `SRTSocketURL` 只做一件事 ——
-    /// `guard url.scheme == "srt"`，不满足就直接抛出 `SRTConnection.Error.unsupportedUri`
-    /// （在界面上表现为 `... error 1.` 这种裸错误码）。它**不会**帮你补前缀、也不认大小写不同的
-    /// scheme，所以这里统一：去掉不可见字符 → 剥掉已有前缀 → 手工拼 `host:port?query` →
-    /// 用小写 `srt://` 重新组装，并顺手补上 `mode` 与 `conntimeo` 默认值。
-    static func parseSRT(urlString: String) -> SRTTarget? {
-        var text = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        // 中文输入法很容易打出全角字符（：／ｓｒｔ１９２…），统一折成半角再解析
-        text = text.folding(options: [.widthInsensitive], locale: nil)
-        // 从聊天软件/备忘录粘贴时常带这些零宽字符，它们既不是空白也没法进 URL
-        for junk in ["\u{200B}", "\u{FEFF}", "\u{200E}", "\u{200F}", "\u{2060}"] {
-            text = text.replacingOccurrences(of: junk, with: "")
-        }
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-
-        var body = text
-        if let range = body.range(of: "srt://", options: [.caseInsensitive, .anchored]) {
-            body = String(body[range.upperBound...])
-        } else if let range = body.range(of: "srt:", options: [.caseInsensitive, .anchored]) {
-            body = String(body[range.upperBound...])
-            if body.hasPrefix("//") { body.removeFirst(2) }
-        }
-
-        var query = ""
-        if let mark = body.firstIndex(of: "?") {
-            query = String(body[body.index(after: mark)...])
-            body = String(body[..<mark])
-        }
-        // srt://host:port/live/xxx 这种「路径写法」在 SRT 里没有语法意义，
-        // 但不少人会这么粘地址；这里把路径当 streamid 用（SRS 一类服务器正好是这个约定）。
-        var pathStreamID = ""
-        if let slash = body.firstIndex(of: "/") {
-            pathStreamID = String(body[body.index(after: slash)...])
-            body = String(body[..<slash])
-        }
-
-        var host = ""
-        var port: Int?
-        if body.hasPrefix("[") {
-            if let close = body.firstIndex(of: "]") {
-                host = String(body[body.index(after: body.startIndex)..<close])
-                let rest = body[body.index(after: close)...]
-                if rest.hasPrefix(":") { port = Int(rest.dropFirst()) }
-            }
-        } else if let colon = body.lastIndex(of: ":") {
-            host = String(body[..<colon]).trimmingCharacters(in: .whitespaces)
-            port = Int(String(body[body.index(after: colon)...]).trimmingCharacters(in: .whitespaces))
-        } else {
-            host = body.trimmingCharacters(in: .whitespaces)
-        }
-
-        guard !host.isEmpty || port != nil else { return nil }
-
-        // query 参数：HaishinKit 是按名字匹配 SRTSocketOption 的，未知参数会被忽略
-        var pairs: [(String, String)] = []
-        var seen: Set<String> = []
-        for chunk in query.split(separator: "&") {
-            let pieces = chunk.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            let name = String(pieces.first ?? "")
-            guard !name.isEmpty, !seen.contains(name) else { continue }
-            let value = pieces.count > 1 ? String(pieces[1]) : ""
-            pairs.append((name, value))
-            seen.insert(name)
-        }
-
-        let mode = pairs.first { $0.0 == "mode" }?.1 ?? (host.isEmpty ? "listener" : "caller")
-        if !seen.contains("mode") { pairs.append(("mode", mode)) }
-        // 地址里写的路径（host:port/xxx）当 streamid 用
-        if !seen.contains("streamid"), !pathStreamID.isEmpty {
-            pairs.append(("streamid", pathStreamID))
-            seen.insert("streamid")
-        }
-        // conntimeo 是「连接超时（毫秒）」，默认 3 秒对跨网/跨机房偏短，这里放宽到 5 秒
-        if !seen.contains("conntimeo") { pairs.append(("conntimeo", "5000")) }
-
-        let rebuilt = pairs.map { "\($0.0)=\($0.1)" }.joined(separator: "&")
-        var urlText = "srt://"
-        urlText += host
-        if let port { urlText += ":\(port)" }
-        if !rebuilt.isEmpty { urlText += "?" + rebuilt }
-
-        guard let url = URL(string: urlText) else { return nil }
-        // scheme 是我们自己拼的小写 srt，这里再核一次（万一被系统改写）
-        guard url.scheme?.lowercased() == "srt" else { return nil }
-
-        return SRTTarget(url: url,
-                         host: host,
-                         port: port,
-                         mode: mode,
-                         streamID: pairs.first { $0.0 == "streamid" }?.1,
-                         display: urlText)
     }
 
     // MARK: - 开始 / 停止
@@ -325,13 +149,13 @@ final class StreamTransport {
     }
 
     private func startRTMP(settings: VideoCodecSettings) {
-        guard let remote = Self.parseRTMP(urlString: inputURL, streamKey: streamKey) else {
+        guard let remote = rtmp else {
             let message = "RTMP 地址不完整"
             phase = "地址解析失败"
             resolvedTargetText = "(解析失败)"
             report(.failed(message),
-                   "需要 rtmp://主机[:端口]/应用 这样的地址，并且填上流密钥",
-                   diagnostics: diagnosticsText(error: message, detail: "地址解析返回 nil"))
+                   "请填服务器地址，并填上流密钥（应用名可以留空，默认 live）",
+                   diagnostics: diagnosticsText(error: message, detail: "各栏拼装不出可用地址；输入：\(rawInput)"))
             return
         }
 
@@ -380,19 +204,21 @@ final class StreamTransport {
     }
 
     private func startSRT(settings: VideoCodecSettings) {
-        guard let remote = Self.parseSRT(urlString: inputURL) else {
+        guard let remote = srt else {
             let message = "SRT 地址不完整"
             phase = "地址解析失败"
             resolvedTargetText = "(解析失败)"
             report(.failed(message),
-                   "需要 srt://主机:端口 这样的地址，例如 srt://192.168.1.10:9000?mode=caller",
-                   diagnostics: diagnosticsText(error: message, detail: "地址解析返回 nil；原始输入：\(inputURL)"))
+                   "请填主机名或 IP（监听模式只需端口），端口要 1–65535 之间的数字",
+                   diagnostics: diagnosticsText(error: message, detail: "各栏拼装不出可用地址；输入：\(rawInput)"))
             return
         }
 
         resolvedTargetText = remote.display
         phase = "连接服务器"
-        let targetText = "\(remote.host.isEmpty ? "(监听模式)" : remote.host)\(remote.port.map { ":\($0)" } ?? "")"
+        let targetText = remote.host.isEmpty
+            ? "监听端口 \(remote.port)"
+            : "\(remote.host):\(remote.port)"
         report(.connecting, "连接 \(remote.display) …（libsrt \(SRTConnection.version)）")
 
         let connection = SRTConnection()
@@ -430,7 +256,8 @@ final class StreamTransport {
                 await MainActor.run {
                     self.phase = "已发送"
                     self.startSRTPolling()
-                    self.markPublishing("SRT 已发送到 \(targetText)\(remote.streamID.map { "（streamid=\($0)）" } ?? "")")
+                    let streamIDSuffix = remote.streamID.map { "（streamid=\($0)）" } ?? ""
+                    self.markPublishing("SRT 已发送到 \(targetText)\(streamIDSuffix)")
                 }
             } catch {
                 await MainActor.run {
@@ -456,7 +283,7 @@ final class StreamTransport {
                     if !connected {
                         self.markStopped("SRT 连接已断开")
                     } else if ready == .publishing {
-                        self.lastStatusText = "SRT 发送中"
+                        // 保持 publishing 状态即可，不刷界面
                     }
                 }
             }
@@ -483,10 +310,10 @@ final class StreamTransport {
         statusTask?.cancel()
         statusTask = nil
 
-        let rtmp = rtmpStream
-        let rtmpC = rtmpConnection
-        let srt = srtStream
-        let srtC = srtConnection
+        let rtmpStreamRef = rtmpStream
+        let rtmpConnectionRef = rtmpConnection
+        let srtStreamRef = srtStream
+        let srtConnectionRef = srtConnection
 
         rtmpStream = nil
         rtmpConnection = nil
@@ -499,10 +326,10 @@ final class StreamTransport {
         lock.unlock()
 
         Task {
-            if let rtmp { try? await rtmp.close() }
-            if let rtmpC { try? await rtmpC.close() }
-            if let srt { await srt.close() }
-            if let srtC { await srtC.close() }
+            if let rtmpStreamRef { try? await rtmpStreamRef.close() }
+            if let rtmpConnectionRef { try? await rtmpConnectionRef.close() }
+            if let srtStreamRef { await srtStreamRef.close() }
+            if let srtConnectionRef { await srtConnectionRef.close() }
         }
     }
 
@@ -518,7 +345,6 @@ final class StreamTransport {
         }
         lock.unlock()
 
-        lastStatusText = detail
         onState?(.publishing, detail)
         onReadyToPublish?()
     }
@@ -528,12 +354,10 @@ final class StreamTransport {
         publishing = false
         target = nil
         lock.unlock()
-        lastStatusText = detail
-        onState?(.failed(detail), "推流已停止（采集还在继续，填好地址可以重新开始）")
+        onState?(.failed(detail), "推流已停止（采集还在继续，改好设置可以重新开始）")
     }
 
     private func report(_ state: State, _ detail: String, diagnostics: String? = nil) {
-        lastStatusText = detail
         onState?(state, detail)
         if let diagnostics {
             onDiagnostics?(diagnostics)
@@ -593,15 +417,15 @@ final class StreamTransport {
         if let srtError = error as? SRTConnection.Error {
             switch srtError {
             case .invalidState:
-                return "连不上服务器：SRT 套接字建立失败或被中断。SRT 走的是 **UDP**（不是 TCP），请确认地址/端口、服务器已在运行、防火墙放行 UDP。"
+                return "连不上服务器：SRT 套接字建立失败或被中断。SRT 走的是 **UDP**（不是 TCP），请确认主机/端口、服务器已在运行、防火墙放行 UDP。"
             case .unsupportedUri(let uri):
-                return "地址被库拒绝：'\(uri?.absoluteString ?? "nil")'（scheme=\(uri?.scheme ?? "nil")）。正常情况下本 App 已经强制写成小写 srt://，出现这个请把诊断信息发我。"
+                return "地址被库拒绝：'\(uri?.absoluteString ?? "nil")'（scheme=\(uri?.scheme ?? "nil")）。正常情况下本 App 拼出来的地址一定是小写 srt://，出现这个请把诊断信息发我。"
             case .failedToConnect(let reason):
                 return "服务器无法建立/拒绝连接：\(describe(reason))"
             }
         }
         if error is TimeoutError {
-            return error.localizedDescription + "。检查 IP/端口是否正确、服务器是否在监听 UDP、以及是否有防火墙/NAT 拦截。"
+            return error.localizedDescription + "。检查主机/端口是否正确、服务器是否在监听 UDP、以及是否有防火墙/NAT 拦截。"
         }
         let ns = error as NSError
         return "\(ns.domain) error \(ns.code)：\(error.localizedDescription)"
@@ -620,7 +444,7 @@ final class StreamTransport {
         switch reason {
         case .unknown:    return "未知原因（可能是对端没有监听该端口）"
         case .system:     return "对端系统错误"
-        case .peer:       return "对端拒绝（常见于 streamid 不对、或服务器不允许推流）"
+        case .peer:       return "对端拒绝（常见于串流标识 streamid 不对、或服务器不允许推流）"
         case .resource:   return "对端资源不足"
         case .rogue:      return "被对端判定为异常连接"
         case .backlog:    return "服务器连接队列已满"
@@ -629,12 +453,12 @@ final class StreamTransport {
         case .version:    return "SRT 版本不兼容"
         case .rdvcookie:  return "握手 cookie 校验失败"
         case .badsecret:  return "密码（passphrase）不对"
-        case .unsecure:   return "对端要求加密，但本次是明文"
+        case .unsecure:   return "对端要求加密，但本次是明文（请填密码）"
         case .messageapi: return "消息模式不匹配"
         case .congestion: return "网络拥塞被拒"
         case .filter:     return "被对端的过滤器拒绝"
         case .group:      return "组播/组配置问题"
-        case .timeout:    return "对端超时（地址或端口很可能不对）"
+        case .timeout:    return "对端超时（主机或端口很可能不对）"
         case .crypto:     return "加密参数不匹配"
         @unknown default: return "未知拒绝原因（\(reason.rawValue)）"
         }
@@ -649,25 +473,35 @@ final class StreamTransport {
         lines.append("=== VideoScopePad 推流诊断 ===")
         lines.append("时间: \(formatter.string(from: Date()))")
         lines.append("协议: \(kind.title)")
-        lines.append("输入原文: \(inputURL.isEmpty ? "(空)" : inputURL)")
-        if kind == .rtmp, !streamKey.isEmpty {
-            lines.append("流密钥: \(streamKey)")
+        if !rawInput.isEmpty {
+            lines.append("地址输入: \(rawInput)")
         }
-        lines.append("解析结果: \(resolvedTargetText)")
         lines.append("失败阶段: \(phase)")
         lines.append("错误: \(error)")
         lines.append("说明: \(detail)")
-        if kind == .srt {
-            lines.append("libsrt 版本: \(SRTConnection.version)")
-            if let remote = Self.parseSRT(urlString: inputURL) {
-                lines.append("  scheme=\(remote.url.scheme ?? "nil")")
-                lines.append("  host=\(remote.host.isEmpty ? "(空)" : remote.host)  port=\(remote.port.map(String.init) ?? "(默认 9710)")")
-                lines.append("  mode=\(remote.mode)  streamid=\(remote.streamID ?? "(未设置)")")
-                lines.append("  完整地址=\(remote.url.absoluteString)")
+
+        switch kind {
+        case .rtmp:
+            if let remote = rtmp {
+                lines.append("实际连接: \(remote.connectCommand)")
+                lines.append("  主机=\(remote.host)  端口=\(remote.port)  应用=\(remote.app)  加密=\(remote.secure ? "是" : "否")")
+                lines.append("  流名=\(remote.streamName)")
             } else {
-                lines.append("  地址仍无法解析（原始输入里可能有不合法字符）")
+                lines.append("  各栏拼装不出可用地址（主机为空，或流密钥为空）")
+            }
+        case .srt:
+            lines.append("libsrt 版本: \(SRTConnection.version)")
+            if let remote = srt {
+                lines.append("实际连接: \(remote.display)")
+                lines.append("  主机=\(remote.host.isEmpty ? "(监听模式，不需填)" : remote.host)  端口=\(remote.port)")
+                lines.append("  模式=\(remote.mode.shortName)  串流标识=\(remote.streamID ?? "(未填)")")
+                lines.append("  延迟=\(remote.latency.map { "\($0)ms" } ?? "(未填)")  加密=\(remote.isEncrypted ? "passphrase/\(remote.keyLength ?? 16) 位" : "无")")
+                lines.append("  连接超时=\(remote.connectTimeout ?? 5000)ms")
+            } else {
+                lines.append("  各栏拼装不出可用地址（主机为空，或端口不是 1–65535 的数字）")
             }
         }
+
         lines.append("视频: \(Int(videoSize.width))x\(Int(videoSize.height)) @\(frameRate)fps, \(bitrate / 1_000_000) Mb/s, 关键帧 \(keyframeSeconds)s")
         lines.append("编码: VideoToolbox H.264（AVCC 直通，HaishinKit 不再二次编码）")
         return lines.joined(separator: "\n")
