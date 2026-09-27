@@ -236,6 +236,25 @@ for (const [name, where] of declarations) {
     }
 }
 
+// 检查「源文件是否都进了 Xcode 工程」。
+// .xcodeproj 是由 tools/generate-xcodeproj.mjs 扫目录生成的：新增 .swift 之后如果忘了重新生成，
+// 编译时只会报一堆莫名其妙的 "cannot find type 'X' in scope"，很费一轮 CI。
+const pbxprojPath = path.join(rootDir, 'VideoScopePad.xcodeproj', 'project.pbxproj');
+if (fs.existsSync(pbxprojPath)) {
+    const pbxproj = fs.readFileSync(pbxprojPath, 'utf8');
+    let missing = 0;
+    for (const file of files) {
+        const name = path.basename(file);
+        if (!pbxproj.includes(`/* ${name} */`)) {
+            console.log(`[工程] ${path.relative(rootDir, file)} 没有出现在 project.pbxproj 里 —— 需要重新跑 node tools/generate-xcodeproj.mjs`);
+            missing += 1;
+        }
+    }
+    if (missing > 0) problems += missing;
+} else {
+    console.log('[工程] 找不到 VideoScopePad.xcodeproj/project.pbxproj，跳过「源文件是否进工程」检查');
+}
+
 console.log(problems === 0
-    ? `检查完成：${files.length} 个文件，括号配平且没有跨文件重名。`
+    ? `检查完成：${files.length} 个文件，括号配平、没有跨文件重名、且都在 Xcode 工程里。`
     : `检查完成：发现 ${problems} 个可疑点。`);
