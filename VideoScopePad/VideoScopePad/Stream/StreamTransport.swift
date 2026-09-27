@@ -152,6 +152,9 @@ final class StreamTransport {
     static func parseRTMP(urlString: String, streamKey: String) -> RTMPTarget? {
         var text = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return nil }
+        // 同上：全角字符（中文输入法）先折成半角
+        text = text.folding(options: [.widthInsensitive], locale: nil)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
 
         var secure = false
         for prefix in ["rtmps://", "rtmp://"] where text.lowercased().hasPrefix(prefix) {
@@ -213,6 +216,8 @@ final class StreamTransport {
     /// 用小写 `srt://` 重新组装，并顺手补上 `mode` 与 `conntimeo` 默认值。
     static func parseSRT(urlString: String) -> SRTTarget? {
         var text = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 中文输入法很容易打出全角字符（：／ｓｒｔ１９２…），统一折成半角再解析
+        text = text.folding(options: [.widthInsensitive], locale: nil)
         // 从聊天软件/备忘录粘贴时常带这些零宽字符，它们既不是空白也没法进 URL
         for junk in ["\u{200B}", "\u{FEFF}", "\u{200E}", "\u{200F}", "\u{2060}"] {
             text = text.replacingOccurrences(of: junk, with: "")
