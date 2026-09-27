@@ -15,6 +15,8 @@ struct ControlBar: View {
 
     @Binding var showSettings: Bool
     @Binding var showLUTImporter: Bool
+    /// 清报警与峰值游标（由 ContentView 接到协调器上）
+    var onClearAlarms: () -> Void = {}
 
     @State private var showGrade = false
 
@@ -89,6 +91,7 @@ struct ControlBar: View {
 
                 waveformModeMenu
                 ScaleUnitPicker(unit: $settings.scaleUnit)
+                assistMenu
 
                 Button {
                     settings.scopeSource = settings.scopeSource == .preLUT ? .postLUT : .preLUT
@@ -145,6 +148,51 @@ struct ControlBar: View {
             .frame(height: 32)
         }
         .frame(height: 32)
+    }
+
+    /// 看守辅助：峰值保持 / 斑马纹 / 超标报警
+    private var assistMenu: some View {
+        Menu {
+            Button {
+                settings.peakHoldEnabled.toggle()
+            } label: {
+                Label("峰值保持游标", systemImage: settings.peakHoldEnabled ? "checkmark" : "waveform.path")
+            }
+
+            Button {
+                settings.zebraEnabled.toggle()
+            } label: {
+                Label("超白斑马纹（>" + String(format: "%.0f", settings.zebraThresholdIRE) + " IRE）",
+                      systemImage: settings.zebraEnabled ? "checkmark" : "square.dashed")
+            }
+
+            Button {
+                settings.zebraBlackEnabled.toggle()
+            } label: {
+                Label("黑切割斑马纹（<0 IRE）",
+                      systemImage: settings.zebraBlackEnabled ? "checkmark" : "square.dashed")
+            }
+
+            Button {
+                settings.warningAlarmEnabled.toggle()
+            } label: {
+                Label("超标报警红框",
+                      systemImage: settings.warningAlarmEnabled ? "checkmark" : "exclamationmark.triangle")
+            }
+
+            Divider()
+
+            Button {
+                onClearAlarms()
+            } label: {
+                Label("清报警与峰值游标", systemImage: "arrow.counterclockwise")
+            }
+        } label: {
+            ChipLabel(title: "辅助",
+                      systemImage: "sparkles",
+                      isActive: settings.peakHoldEnabled || settings.zebraEnabled
+                          || settings.zebraBlackEnabled || settings.warningAlarmEnabled)
+        }
     }
 
     /// 全屏 / 四分割 时的内容选择；旧预设时显示示波器开关

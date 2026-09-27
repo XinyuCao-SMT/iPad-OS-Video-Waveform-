@@ -74,6 +74,24 @@ struct MenuSectionTitle: View {
     }
 }
 
+// MARK: - 报警红框
+
+/// 超标报警的红色外框：只在有「已确认」的报警时出现。
+/// 单独观察 hub，避免让整个监视界面跟着 10Hz 重建。
+struct AlarmBorderOverlay: View {
+    @ObservedObject var measurement: MeasurementHub
+
+    private var isAlarming: Bool { !measurement.activeWarnings.isEmpty }
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(Color.red.opacity(isAlarming ? 0.9 : 0), lineWidth: 4)
+            .animation(.easeInOut(duration: 0.15), value: isAlarming)
+            .allowsHitTesting(false)
+            .padding(2)
+    }
+}
+
 // MARK: - 内容 / 单位选择器
 
 struct PaneContentPicker: View {

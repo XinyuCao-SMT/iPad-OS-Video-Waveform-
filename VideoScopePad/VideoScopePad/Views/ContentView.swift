@@ -42,7 +42,8 @@ struct ContentView: View {
                                capture: capture,
                                lutStore: lutStore,
                                showSettings: $showSettings,
-                               showLUTImporter: $showLUTImporter)
+                               showLUTImporter: $showLUTImporter,
+                               onClearAlarms: { coordinator.clearAlarmsAndPeaks() })
                 }
             }
         }
@@ -164,6 +165,11 @@ struct ContentView: View {
                     PaneChromeOverlay(layout: layout,
                                       settings: settings,
                                       containerSize: geo.size)
+
+                    // 超标报警：红色外框
+                    if settings.warningAlarmEnabled {
+                        AlarmBorderOverlay(measurement: coordinator.measurementHub)
+                    }
 
                     if settings.showHUD {
                         HUDOverlay(capture: capture,

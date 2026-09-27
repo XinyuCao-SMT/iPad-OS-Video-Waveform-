@@ -23,6 +23,7 @@ struct SettingsSheet: View {
                 manualFormatSection
                 displaySection
                 scopeSection
+                assistSection
                 gradeSection
                 lutSection
                 aboutSection
@@ -100,6 +101,27 @@ struct SettingsSheet: View {
                 capture.select(formatID: newValue)
             }
         )
+    }
+
+    // MARK: - 看守辅助（峰值保持 / 斑马纹 / 报警）
+
+    private var assistSection: some View {
+        Section("看守辅助") {
+            Toggle("峰值保持游标", isOn: $settings.peakHoldEnabled)
+            LabeledSlider(title: "峰值保持时间（秒）", value: $settings.peakHoldSeconds, range: 0.5...15, format: "%.1f")
+
+            Toggle("超白斑马纹", isOn: $settings.zebraEnabled)
+            LabeledSlider(title: "斑马纹阈值（IRE）", value: $settings.zebraThresholdIRE, range: 60...109, format: "%.0f")
+            Toggle("黑切割斑马纹（<0 IRE）", isOn: $settings.zebraBlackEnabled)
+
+            Toggle("超标报警红框 + 振动", isOn: $settings.warningAlarmEnabled)
+            Picker("报警确认门槛", selection: $settings.warningRaiseCount) {
+                Text("1 次（最灵敏）").tag(1)
+                Text("3 次（推荐）").tag(3)
+                Text("6 次").tag(6)
+                Text("12 次（最稳）").tag(12)
+            }
+        }
     }
 
     // MARK: - 显示

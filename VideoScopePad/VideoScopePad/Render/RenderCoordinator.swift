@@ -12,6 +12,7 @@ import Combine
 import Foundation
 import MetalKit
 import SwiftUI
+import UIKit
 
 final class RenderCoordinator: ObservableObject {
 
@@ -22,6 +23,11 @@ final class RenderCoordinator: ObservableObject {
 
     /// 信号幅度数值读数（独立发布，避免 10Hz 刷新带动整个监视器界面重建）
     let measurementHub = MeasurementHub()
+
+    /// 峰值保持 / 报警锁存的状态机（只在测量回调里更新）
+    private let peakHold = PeakHoldTracker()
+    private let warningLatch = WarningLatch()
+    private var lastAlarmHaptic: Date?
 
     private var placeholderLUT: LUTTextures?
     private var settings: AppSettings?
@@ -68,9 +74,11 @@ final class RenderCoordinator: ObservableObject {
             FrameSourceInfo(colorMatrix: capture?.colorMatrix ?? .bt709,
                             isVideoRange: capture?.isVideoRange ?? true)
         }
-        renderer.onMeasurement = { [weak hub = measurementHub] measurement in
+        renderer.onMeasurement = { [weak self] measurement in
             DispatchQueue.main.async {
-                hub?.value = measurement
+                guard let self else { return }
+                self.measurementHub.value = measurement
+                self.applyTracking(measurement)
             }
         }
         self.renderer = renderer
@@ -86,6 +94,56 @@ final class RenderCoordinator: ObservableObject {
 
         lutStore.configure(device: context.device, placeholder: placeholderLUT)
         requestRedraw()
+    }
+
+    // MARK: - 峰值保持 / 报警（主线程，由测量回调驱动）
+
+    private func applyTracking(_ measurement: SignalMeasurement) {
+        guard let settings else { return }
+
+        // 峰值保持
+        if settings.peakHoldEnabled {
+            measurementHub.peakHold = peakHold.update(with: measurement,
+                                                      holdSeconds: settings.peakHoldSeconds)
+        } else if measurementHub.peakHold.hasData {
+            peakHold.reset()
+            measurementHub.peakHold = PeakHoldState()
+        }
+
+        // 超标报警（边沿触发）
+        guard settings.warningAlarmEnabled else {
+            if !measurementHub.activeWarnings.isEmpty {
+                warningLatch.reset()
+                measurementHub.activeWarnings = []
+            }
+            return
+        }
+
+        let active = warningLatch.update(with: measurement.warnings,
+                                        raiseThreshold: settings.warningRaiseCount,
+                                        clearThreshold: 0)
+        measurementHub.activeWarnings = active
+
+        if warningLatch.didRaise {
+            triggerAlarmFeedback()
+        }
+    }
+
+    /// 只在报警「确认」的那一下给一次触感，不逐帧震
+    private func triggerAlarmFeedback() {
+        let now = Date()
+        if let last = lastAlarmHaptic, now.timeIntervalSince(last) < 2 { return }
+        lastAlarmHaptic = now
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.warning)
+    }
+
+    /// 手动清掉报警与峰值游标
+    func clearAlarmsAndPeaks() {
+        warningLatch.reset()
+        peakHold.reset()
+        measurementHub.activeWarnings = []
+        measurementHub.peakHold = PeakHoldState()
     }
 
     func attach(view: MTKView) {

@@ -38,6 +38,13 @@ final class AppSettings: ObservableObject {
         static let quadContents = prefix + "quadContents"
         static let scaleUnit = prefix + "scaleUnit"
         static let autoFormat = prefix + "autoFormat"
+        static let peakHoldEnabled = prefix + "peakHoldEnabled"
+        static let peakHoldSeconds = prefix + "peakHoldSeconds"
+        static let zebraEnabled = prefix + "zebraEnabled"
+        static let zebraThreshold = prefix + "zebraThreshold"
+        static let zebraBlackEnabled = prefix + "zebraBlackEnabled"
+        static let warningAlarmEnabled = prefix + "warningAlarmEnabled"
+        static let warningRaiseCount = prefix + "warningRaiseCount"
     }
 
     // MARK: - 监视器
@@ -137,6 +144,43 @@ final class AppSettings: ObservableObject {
     /// 打开后不需要手动挑分辨率和帧率，程序自己选最合适的一个，并把手动选择降级成高级选项。
     @Published var autoFormat = true {
         didSet { UserDefaults.standard.set(autoFormat, forKey: Key.autoFormat) }
+    }
+
+    // MARK: - 峰值保持 / 斑马纹 / 报警
+
+    /// 峰值保持：把一段时间内的最高 / 最低电平用游标钉在波形图上
+    @Published var peakHoldEnabled = true {
+        didSet { UserDefaults.standard.set(peakHoldEnabled, forKey: Key.peakHoldEnabled) }
+    }
+
+    /// 峰值保持时间（秒）：这段时间内不动，之后按 12 IRE/秒 衰减
+    @Published var peakHoldSeconds: Double = 3 {
+        didSet { UserDefaults.standard.set(peakHoldSeconds, forKey: Key.peakHoldSeconds) }
+    }
+
+    /// 超白斑马纹（超过阈值的区域打斜纹）
+    @Published var zebraEnabled = false {
+        didSet { UserDefaults.standard.set(zebraEnabled, forKey: Key.zebraEnabled) }
+    }
+
+    /// 斑马纹阈值（IRE）
+    @Published var zebraThresholdIRE: Double = 100 {
+        didSet { UserDefaults.standard.set(zebraThresholdIRE, forKey: Key.zebraThreshold) }
+    }
+
+    /// 黑切割斑马纹（低于 0 IRE 的区域打蓝色斜纹）
+    @Published var zebraBlackEnabled = false {
+        didSet { UserDefaults.standard.set(zebraBlackEnabled, forKey: Key.zebraBlackEnabled) }
+    }
+
+    /// 超标报警：连续命中若干次后确认，确认时给出红色边框（可选振动）
+    @Published var warningAlarmEnabled = true {
+        didSet { UserDefaults.standard.set(warningAlarmEnabled, forKey: Key.warningAlarmEnabled) }
+    }
+
+    /// 连续命中多少次才算「确认」（10Hz 采样，3 次约 0.3 秒）
+    @Published var warningRaiseCount: Int = 3 {
+        didSet { UserDefaults.standard.set(warningRaiseCount, forKey: Key.warningRaiseCount) }
     }
 
     // MARK: - LUT 与调色
@@ -244,6 +288,13 @@ final class AppSettings: ObservableObject {
         }
 
         autoFormat = Self.bool(defaults, Key.autoFormat, true)
+        peakHoldEnabled = Self.bool(defaults, Key.peakHoldEnabled, true)
+        zebraEnabled = Self.bool(defaults, Key.zebraEnabled, false)
+        zebraBlackEnabled = Self.bool(defaults, Key.zebraBlackEnabled, false)
+        warningAlarmEnabled = Self.bool(defaults, Key.warningAlarmEnabled, true)
+        peakHoldSeconds = Self.double(defaults, Key.peakHoldSeconds, 3)
+        zebraThresholdIRE = Self.double(defaults, Key.zebraThreshold, 100)
+        warningRaiseCount = defaults.object(forKey: Key.warningRaiseCount) as? Int ?? 3
         showVectorscope = Self.bool(defaults, Key.showVectorscope, true)
         showWaveform = Self.bool(defaults, Key.showWaveform, true)
         showParade = Self.bool(defaults, Key.showParade, false)

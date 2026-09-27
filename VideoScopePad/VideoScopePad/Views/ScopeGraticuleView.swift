@@ -40,8 +40,10 @@ struct ScopeGraticuleView: View {
                                      rect: plot,
                                      columns: 1,
                                      labels: settings.waveformMode == .luma ? ["Y"] : ["RGB"])
+                        drawPeakHold(&layer, rect: plot)
                     case .parade:
                         drawWaveform(&layer, rect: plot, columns: 3, labels: ["R", "G", "B"])
+                        drawPeakHold(&layer, rect: plot)
                     }
                 }
 
@@ -140,6 +142,39 @@ struct ScopeGraticuleView: View {
         context.draw(label(text, size: 11, weight: .semibold, opacity: 0.92, monospaced: true),
                      at: point,
                      anchor: .leading)
+    }
+
+    // MARK: - 峰值保持游标
+
+    /// 把保持住的最高 / 最低电平用虚线钉在波形上（数值跟着刻度单位走）
+    private func drawPeakHold(_ ctx: inout GraphicsContext, rect: CGRect) {
+        guard settings.peakHoldEnabled else { return }
+        let state = measurement.peakHold
+        guard state.hasData else { return }
+
+        let unit = settings.scaleUnit
+        let rows: [(value: Double, color: Color, name: String)] = [
+            (state.whitePeakIRE, Color.yellow.opacity(0.9), "峰值"),
+            (state.blackFloorIRE, Color.cyan.opacity(0.9), "黑位")
+        ]
+
+        for row in rows {
+            let y = yPosition(forIRE: row.value, in: rect)
+            guard y >= rect.minY - 1, y <= rect.maxY + 1 else { continue }
+
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+            stroke(&ctx, path, color: row.color, width: 1.2, dash: [5, 3])
+
+            ctx.draw(label(row.name + " " + unit.formatPrecise(row.value),
+                           size: 11,
+                           weight: .semibold,
+                           opacity: 0.95,
+                           monospaced: true),
+                     at: CGPoint(x: rect.maxX - 6, y: y - 11),
+                     anchor: .trailing)
+        }
     }
 
     // MARK: - 矢量示波器刻度

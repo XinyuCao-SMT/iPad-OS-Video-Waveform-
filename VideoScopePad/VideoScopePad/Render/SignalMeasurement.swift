@@ -65,6 +65,140 @@ struct SignalMeasurement: Equatable {
 /// 数值读数的发布槽（独立于 RenderCoordinator，避免 10Hz 刷新带动整个界面重建）
 final class MeasurementHub: ObservableObject {
     @Published var value: SignalMeasurement?
+    /// 峰值保持游标（钉住一段时间内的最高/最低电平）
+    @Published var peakHold = PeakHoldState()
+    /// 已经「确认」的报警（连续命中若干次才算，避免逐帧闪烁）
+    @Published var activeWarnings: [String] = []
+}
+
+// MARK: - 峰值保持
+
+struct PeakHoldState: Equatable {
+    var whitePeakIRE: Double = 0
+    var blackFloorIRE: Double = 0
+    var redPeakIRE: Double = 0
+    var greenPeakIRE: Double = 0
+    var bluePeakIRE: Double = 0
+    var hasData = false
+}
+
+/// 峰值保持：新的最高值立即更新（instant attack），保持一段时间后按速率衰减。
+final class PeakHoldTracker {
+
+    private(set) var state = PeakHoldState()
+    private var lastUpdate: Date?
+    private var holdUntil: Date?
+    /// 每秒衰减多少 IRE
+    private let decayPerSecond: Double = 12
+
+    func reset() {
+        state = PeakHoldState()
+        lastUpdate = nil
+        holdUntil = nil
+    }
+
+    @discardableResult
+    func update(with measurement: SignalMeasurement, holdSeconds: Double) -> PeakHoldState {
+        let now = Date()
+        let dt = lastUpdate.map { now.timeIntervalSince($0) } ?? 0
+        lastUpdate = now
+
+        // 先处理「新峰值」：上升沿立即钉住，并刷新保持计时
+        var raised = false
+        func track(_ newValue: Double, _ held: inout Double) {
+            if !state.hasData || newValue > held {
+                held = newValue
+                raised = true
+            }
+        }
+
+        track(measurement.stableWhiteIRE, &state.whitePeakIRE)
+        track(measurement.redPeakIRE, &state.redPeakIRE)
+        track(measurement.greenPeakIRE, &state.greenPeakIRE)
+        track(measurement.bluePeakIRE, &state.bluePeakIRE)
+
+        // 黑位是「越低越值得钉」
+        if !state.hasData || measurement.stableBlackIRE < state.blackFloorIRE {
+            state.blackFloorIRE = measurement.stableBlackIRE
+            raised = true
+        }
+
+        if !state.hasData {
+            state.hasData = true
+            holdUntil = now.addingTimeInterval(holdSeconds)
+            return state
+        }
+
+        if raised {
+            holdUntil = now.addingTimeInterval(holdSeconds)
+            return state
+        }
+
+        // 保持期内不动；过期后按速率向当前值衰减
+        if let holdUntil, now < holdUntil {
+            return state
+        }
+
+        let step = decayPerSecond * max(dt, 0)
+        state.whitePeakIRE = max(measurement.stableWhiteIRE, state.whitePeakIRE - step)
+        state.redPeakIRE = max(measurement.redPeakIRE, state.redPeakIRE - step)
+        state.greenPeakIRE = max(measurement.greenPeakIRE, state.greenPeakIRE - step)
+        state.bluePeakIRE = max(measurement.bluePeakIRE, state.bluePeakIRE - step)
+        state.blackFloorIRE = min(measurement.stableBlackIRE, state.blackFloorIRE + step)
+        return state
+    }
+}
+
+// MARK: - 超标报警（边沿触发）
+
+/// 报警锁存：同一个问题连续命中 N 次才「确认」，确认后持续显示，连续消失 M 次才解除。
+/// 这样既不会逐帧闪烁，也不会漏掉一闪而过的超范围。
+final class WarningLatch {
+
+    private(set) var activeWarnings: [String] = []
+    /// 本次更新是否出现了新的「确认」事件（用于振动提醒，只在边沿触发一次）
+    private(set) var didRaise = false
+
+    private var counters: [String: Int] = [:]
+
+    func reset() {
+        activeWarnings = []
+        counters = [:]
+        didRaise = false
+    }
+
+    @discardableResult
+    func update(with warnings: [String], raiseThreshold: Int, clearThreshold: Int) -> [String] {
+        didRaise = false
+
+        let current = Set(warnings)
+
+        // 命中 +1，未命中 -1（逐渐消退，避免抖动）
+        for key in current {
+            counters[key, default: 0] += 1
+        }
+        for key in counters.keys where !current.contains(key) {
+            counters[key] = max(0, (counters[key] ?? 0) - 1)
+        }
+
+        var active: [String] = []
+        for (key, count) in counters {
+            if count >= max(raiseThreshold, 1) {
+                active.append(key)
+                if !activeWarnings.contains(key) {
+                    didRaise = true
+                }
+            } else if count <= max(clearThreshold, 0) {
+                counters[key] = nil
+            } else if activeWarnings.contains(key) {
+                // 还没消到阈值以下，保持显示
+                active.append(key)
+            }
+        }
+
+        activeWarnings = active.sorted()
+        return activeWarnings
+    }
 }
 
 enum SignalMeasurementBuilder {

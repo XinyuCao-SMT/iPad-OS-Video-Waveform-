@@ -107,6 +107,9 @@ typedef struct VSRenderUniforms {
     vector_float4   lutParams;      // x: 强度 y: 3D尺寸 z: 1D尺寸 w: 是否启用(1/0)
     vector_float4   lutDomain;      // x: domainMin y: domainMax
     vector_float4   flags;          // x: 显示模式 y: 源是否为双平面(yuv)
+    // 斑马纹（只作用于显示通道，绝不影响示波器统计）
+    // x: 高光阈值(0-1 码值) y: 高光斑马开关 z: 黑切割阈值(0-1) w: 黑斑马开关
+    vector_float4   zebra;
 } VSRenderUniforms;
 
 typedef struct VSScopeUniforms {

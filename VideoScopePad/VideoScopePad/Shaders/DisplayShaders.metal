@@ -155,6 +155,25 @@ fragment float4 fsDisplay(VSVertexOut in [[stage_in]],
         c = float4(c.b, c.b, c.b, 1.0);
     }
 
+    // 斑马纹：只在这里（显示通道）叠加，不进示波器/幅度读数的统计链路。
+    // 用屏幕坐标（[[position]] 是 drawable 像素坐标）画 45° 斜纹，跟画面内容无关，所以缩放到任何布局都一样粗。
+    if (u.zebra.y > 0.5 || u.zebra.w > 0.5) {
+        float luma = dot(c.rgb, u.primaryWeights);
+        float period = 10.0;
+        float stripe = step(0.5, fract((in.position.x + in.position.y) / period));
+
+        bool overWhite = (u.zebra.y > 0.5) && (luma >= u.zebra.x);
+        bool underBlack = (u.zebra.w > 0.5) && (luma <= u.zebra.z);
+
+        if (overWhite) {
+            // 超白：斜纹用醒目黄色
+            c = float4(mix(c.rgb, float3(1.0, 0.92, 0.1), stripe * 0.85), 1.0);
+        } else if (underBlack) {
+            // 黑切割：斜纹用蓝色区分
+            c = float4(mix(c.rgb, float3(0.2, 0.55, 1.0), stripe * 0.85), 1.0);
+        }
+    }
+
     return float4(c.rgb, 1.0);
 }
 

@@ -485,6 +485,19 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                                           lut?.domainMax.x ?? 1,
                                           0, 0)
         uniforms.flags = SIMD4<Float>(Float(displayMode.shaderValue), 0, 0, 0)
+
+        // 斑马纹参数（只在 fsDisplay 里生效，不进示波器统计）
+        let videoRange = sourceInfo.isVideoRange
+        uniforms.zebra = SIMD4<Float>(codeValue(fromIRE: settings.zebraThresholdIRE, videoRange: videoRange),
+                                      settings.zebraEnabled ? 1 : 0,
+                                      codeValue(fromIRE: 0, videoRange: videoRange),
+                                      settings.zebraBlackEnabled ? 1 : 0)
         return uniforms
+    }
+
+    /// IRE → 0-1 码值（和 ShaderTypes.h 里 zebra.x / zebra.z 的约定一致）
+    private func codeValue(fromIRE ire: Double, videoRange: Bool) -> Float {
+        let code = videoRange ? (16 + ire / 100 * 219) : (ire / 100 * 255)
+        return Float(min(max(code / 255, 0), 1))
     }
 }

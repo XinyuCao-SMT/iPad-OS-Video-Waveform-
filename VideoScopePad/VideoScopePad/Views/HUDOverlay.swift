@@ -90,15 +90,17 @@ struct HUDOverlay: View {
                         warn: value.aboveWhitePercent > 0.05 || value.belowBlackPercent > 0.05)
                 }
 
-                if !value.warnings.isEmpty {
+                if !warningText.isEmpty {
                     divider
                     HStack(spacing: 4) {
-                        Image(systemName: "exclamationmark.triangle.fill")
+                        Image(systemName: measurement.activeWarnings.isEmpty
+                              ? "exclamationmark.triangle.fill"
+                              : "exclamationmark.octagon.fill")
                             .font(.system(size: 10))
-                        Text(value.warnings.joined(separator: " · "))
-                            .font(.system(size: 11, weight: .medium))
+                        Text(warningText)
+                            .font(.system(size: 11, weight: .semibold))
                     }
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(measurement.activeWarnings.isEmpty ? Color.orange : Color.red)
                 }
             }
             .padding(.horizontal, 9)
@@ -112,6 +114,14 @@ struct HUDOverlay: View {
         Rectangle()
             .fill(Color.white.opacity(0.14))
             .frame(height: 1)
+    }
+
+    /// 报警文案：优先显示「已确认」的（边沿触发锁存），否则显示当前瞬时的
+    private var warningText: String {
+        if !measurement.activeWarnings.isEmpty {
+            return "已确认：" + measurement.activeWarnings.joined(separator: " · ")
+        }
+        return (measurement.value?.warnings ?? []).joined(separator: " · ")
     }
 
     private func row(_ title: String, _ value: String, warn: Bool) -> some View {
