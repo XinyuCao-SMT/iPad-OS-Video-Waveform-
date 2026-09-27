@@ -28,7 +28,7 @@
 | 信号幅度数值读数 | 峰值白 / 黑位 / 平均电平 / 动态范围（IRE）、R/G/B 分量峰值、色度峰值、超白超黑占比，超范围自动橙色告警；整帧全黑会提示「信号源可能没输出」 |
 | 显示通道 | 彩色 / 亮度 / 单独 R / G / B 通道 |
 | 布局 | 仅画面、底部示波器条、右侧示波器栏、示波器半透明叠加在画面上；竖屏自动适配 |
-| 录制 / 推流（v1.3.0） | 本机录制 **MP4**（VideoToolbox H.264 + AVAssetWriter 直通，录的是**输入信号**）、**RTMP 推流**（纯 Swift 实现，支持 `rtmp://主机:端口/应用/流密钥`）、**抓帧存相册**、**读数 CSV 导出**（IRE 与等效 mV、R/G/B 峰值、色度、超白超黑占比、报警状态） |
+| 录制 / 推流（v1.4.0） | 本机录制 **MP4**（VideoToolbox H.264 + AVAssetWriter 直通，录的是**输入信号**）、**RTMP / RTMPS / SRT 推流**（由 [HaishinKit](https://github.com/HaishinKit/HaishinKit.swift) 2.2.5 实现，RTMP 写 `rtmp://主机[:端口]/应用` + 流密钥，SRT 写 `srt://主机:端口?mode=caller[&streamid=…]`）、**抓帧存相册**、**读数 CSV 导出**（IRE 与等效 mV、R/G/B 峰值、色度、超白超黑占比、报警状态） |
 | 顶部信息行 | 设备 / 分辨率 / 声明帧率 / 实测帧率 / 像素格式·量化范围 / 色彩原色·传输函数·YCbCr 矩阵 / 峰值白·黑位·平均·色度峰值 / LUT·已调色 / 丢帧 / 已确认报警 —— 全部收在最顶上一行，可横向滚动 |
 | 其它 | 冻结画面读数、画面缩放（完整显示 / 铺满裁切）、点击画面全屏监视、防息屏 |
 
@@ -70,7 +70,7 @@ iPad OS Software Waform/            <- 仓库根目录
       ├─ Capture/    CaptureController.swift（UVC 设备/格式/帧回调）· CaptureModels.swift
       ├─ Model/      ScopeModels.swift（枚举）· ScopeLayout.swift（布局唯一来源）· GeometryHelpers.swift
       ├─ Render/     MetalContext · VideoRenderer · ScopeEngine · SignalMeasurement（幅度读数/峰值保持/报警）· LUTCube · LUTTextures · LUTStore · RenderCoordinator
-      ├─ Stream/     StreamController · VideoEncoder（VideoToolbox H.264）· RTMPClient（纯 Swift）· MP4Recorder · MeasurementLog（读数 CSV）
+      ├─ Stream/     StreamController（录制/推流调度）· StreamTransport（HaishinKit：RTMP/SRT）· VideoEncoder（VideoToolbox H.264）· MP4Recorder · MeasurementLog（读数 CSV）
       ├─ Views/      ContentView · MonitorSurface · ScopeGraticuleView · TopStatusBar（顶部信息行）· ControlBar · SettingsSheet · StreamPanelView · Controls
       ├─ Shaders/    ShaderTypes.h（Swift/Metal 共享）· DisplayShaders.metal · ScopeKernels.metal · 桥接头
       └─ Resources/  Assets.xcassets
@@ -85,6 +85,10 @@ iPad OS Software Waform/            <- 仓库根目录
 ```bash
 open VideoScopePad/VideoScopePad.xcodeproj
 ```
+
+> 工程有一个 **Swift Package 依赖**（HaishinKit：RTMP/SRT 推流）。第一次打开/编译时 Xcode 会自动解析并拉取
+> （`HaishinKit 2.2.5` + 它的 `Logboard`，还要下载 libsrt 的 xcframework），**这一步需要联网**，大约一两分钟。
+> 依赖声明写在 `VideoScopePad/tools/generate-xcodeproj.mjs`，改版本或加包都在那里改再重新生成工程。
 
 1. 选中 target **VideoScopePad** → *Signing & Capabilities* → 勾上 **Automatically manage signing**，选自己的 Apple ID Team。
 2. 顶部设备选你的 iPad（先用数据线连上并在 iPad 上「信任此电脑」）。
@@ -214,8 +218,11 @@ Windows 上**无法**编译 iOS/iPadOS 应用（需要 Apple SDK 与 Metal 着�
 * 4K 输入：能不能进 4K 取决于采集卡与 iPad；本工程默认按 1080p60 优化（4K 下示波器会自动降采样）。
 * HDR / HLG / PQ 输入：目前按 SDR 处理（未做 HLG→SDR tone mapping），10bit P010 也没走专门管线。
 * 录制 / 截图 / 波形导出：**已做**（见第 1 节 v1.3.0 行）。注意录到的是**输入信号**（原始素材），LUT 只作用于监看视图；要录「套了 LUT 之后的画面」需要把显示纹理回读成 `CVPixelBuffer`，尚未做。
-* RTMP 推流未对着真实服务器联调过（编译与静态检查通过，首次连接可能需要按面板报错调一轮）；不支持 RTMPS 与自动重连。
-* SRT 未做：SRT 需要 libsrt 那套 ARQ 重传 + 加密，不适合手写。
+* RTMP / SRT 推流都还没对着真实服务器联调过（编译与静态检查通过，首次连接可能需要按面板报错调一轮）；
+  断线不会自动重连。
+* 推流体积：因为静态链接了 HaishinKit + libsrt，IPA 从 0.49 MB 变成 2.44 MB（主程序 1.87 → 7.7 MB）。
+* SPM 依赖：v1.4.0 起工程依赖 HaishinKit（首次编译需要联网解析包；依赖声明在
+  `VideoScopePad/tools/generate-xcodeproj.mjs` 的 `swiftPackage`）。
 * 音频：未处理采集卡的音频（HDMI 内嵌音频不输出）。
 * 外接显示器输出（把干净画面送到 HDMI）：未做。
 * 色域：按 BT.709/sRGB 处理，未做 P3 出图。

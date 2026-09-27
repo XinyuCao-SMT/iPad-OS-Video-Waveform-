@@ -1,10 +1,34 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.3.1-fix**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.4.0-srt**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.4.0 SRT 推流版（提交 `1c3bdb4`，tag `v1.4.0-srt`，CI run #19 全绿）
+
+* **矢量图缩小**：四分割里格子高度就是半屏，矢量图又是 1:1 正方图，圆环直径正好等于格子高度、上下顶格，
+  看着像「占了半屏还多」。新增 `ScopeLayout.fillFactor`：矢量图 **0.78**、亮度波形 0.96、RGB Parade 0.97、
+  画面 1.0（扁长图形缩太多反而浪费高度）；绘图区先按纹理比例内缩再乘系数，条带高度计算同步除以该系数。
+* **接入 HaishinKit 2.2.5（SPM）**：按你选的方案 A，`RTMPHaishinKit` 接管 RTMP（并顺带支持 **RTMPS**），
+  `SRTHaishinKit` 接管 SRT（自带 libsrt 的 xcframework）。**手写的 `RTMPClient.swift` 已删除**。
+  * 新增 `Stream/StreamTransport.swift` 作为唯一传输层。**关键点：不让 HaishinKit 编码** ——
+    `RTMPStream.append` / `SRTStream.append` 遇到 `formatDescription.isCompressed == true` 的
+    CMSampleBuffer 会直接当 RTMP 视频消息 / MPEG-TS 发出，所以我们 VideoToolbox 的编码结果
+    **一份数据同时喂 MP4 录制与推流**，没有二次编码，也不需要 MediaMixer 那一层离屏渲染。
+  * 地址：RTMP 为 `rtmp://主机[:端口]/应用` + 流密钥栏（也支持写在地址里）；
+    SRT 为 `srt://主机:端口?mode=caller[&streamid=…]`（默认端口 9710）。
+  * SRT 侧显式 `setExpectedMedias([.video])`：我们是直接 append 已编码帧的，
+    `publish()` 里靠 `outgoing` 判断媒体的逻辑会落空，不显式指定则 PAT/PMT 里没有流、接收端看不到画面。
+  * 状态：RTMP 订阅 NetStatus（发布成功 / 被拒原因直接显示在面板）；SRT 无事件，轮询 `readyState` + `connected`。
+    确认发布后强制一个关键帧，接收端秒开。
+  * 面板加协议选择（RTMP / SRT）与各自地址栏；`srtURL` / `transportKind` 照旧持久化。
+  * 体积：IPA 0.49 MB → **2.44 MB**（主程序 1.87 → 7.7 MB）。已核对包内含
+    `HaishinKit`/`RTMPStream`/`SRTStream`/`srt_connect` 等符号且 `RTMPClient` 消失。
+* **工程侧**：`tools/generate-xcodeproj.mjs` 现在会生成 SPM 依赖（`XCRemoteSwiftPackageReference` +
+  三个 `XCSwiftPackageProductDependency`），重新生成工程不会丢依赖；CI 增加独立的「解析 Swift Package 依赖」步骤，
+  解析失败与编译失败分开看日志（本次解析到 HaishinKit 2.2.5 + Logboard 2.6.0）。
 
 ### v1.3.1 修复版（提交 `22bd5a0`，tag `v1.3.1-fix`，CI run #18 全绿）— 实机反馈四项
 
@@ -69,24 +93,26 @@
 
 ## ⏳ 待办（都没确认过，随时可以挑）
 
-### 🔴 等你拍板：SRT 怎么接
+### ~~等你拍板：SRT 怎么接~~ → 已按方案 A 实施（v1.4.0）
 
-**结论：SRT 手写不现实**（它是 libsrt 那套 ARQ 重传 + 加密 + 握手，不是几百行能写对的）。查证结果：**HaishinKit 官方就是「RTMP + SRT」双协议库**（[SRTStream 文档](https://docs.haishinkit.com/swift/1.9.2/Classes/SRTStream.html)、[SRT 章节](https://deepwiki.com/HaishinKit/HaishinKit.swift/5.2-srt-streaming)、[仓库](https://github.com/HaishinKit/HaishinKit.swift)），所以 SRT 的现实路线只有两条：
-
-| 方案 | 做法 | 代价 |
-|---|---|---|
-| **A. 引入 HaishinKit（推荐）** | 在工程里加 SPM 依赖，用它的 `RTMPStream` / `SRTStream` **同时**替掉我手写的 RTMP | 多一个第三方依赖；需在 CI 里联调它的 API（2.x 是 Swift Concurrency 风格）；二进制体积增加；它自带编码管线，我要把我们的帧喂进去 |
-| **B. 保持现状 + UDP 兜底** | 保留手写 RTMP，另加一条 **MPEG-TS over UDP**（很多服务器/VLC/ffmpeg 直接能收） | **那不是 SRT**，我不会给它贴 SRT 标签；需要接受"没有 SRT" |
-
-按你的实际用途选（如果是推给 SRS / 媒体服务器，方案 A 更省事；如果只是局域网给 VLC 看，方案 B 够用）。
+你选了 **方案 A：直接调用 HaishinKit**，v1.4.0 已经落地（`RTMPHaishinKit` + `SRTHaishinKit`，手写 RTMP 删除）。
+查证过程留在这里备查：SRT 是 libsrt 那套 ARQ 重传 + 加密 + 握手，手写不现实；
+HaishinKit 官方就是「RTMP + SRT」双协议库（[仓库](https://github.com/HaishinKit/HaishinKit.swift)），
+而且 2.x 把协议拆成了独立 product，还支持直接吃**已压缩**的 CMSampleBuffer —— 正好能复用我们自己的编码器。
 
 ### 推流/录制的后续
 
-* **联调 RTMP**：手写实现需要对着你的服务器跑一次，把面板上的状态/错误发我，我按报错改。
+* **联调 RTMP / SRT**：现在两边的报错都会显示在面板上（RTMP 用服务器 NetStatus，SRT 用连接状态轮询）。
+  对着你的服务器跑一次，把面板上的状态/错误发我，我按报错改。
+* **断线重连 / 自适应码率**：HaishinKit 有 `StreamBitRateStrategy` 与 `NetworkMonitor`，还没接；
+  现在断流会提示但不会自动重连。
+* **把 `Package.resolved` 提交进仓库**：目前 CI 每次按 `upToNextMajorVersion 2.2.5` 解析
+  （本次解析到 HaishinKit 2.2.5 + Logboard 2.6.0）。要完全钉死版本就把解析出来的
+  `Package.resolved` 一并提交。
 * **post-LUT 录制/推流**：现在录/推的是输入信号；想录"套了 LUT 之后的画面"需要在渲染器里把显示纹理回读到 CVPixelBuffer（多一个渲染通道 + 缓冲池）。
-* **带示波器与 HUD 的合成截图**：现在抓帧只有画面；要连刻度与信息层一起截，需要在 Metal 合成结果上做回读，再叠加 SwiftUI 图层。
+* **带示波器与顶部信息行的合成截图**：现在抓帧只有画面；要连刻度与信息层一起截，需要在 Metal 合成结果上做回读，再叠加 SwiftUI 图层。
 * **音频**：采集卡的 HDMI 内嵌音频不走视频采集通道，需要单独找音频输入设备（UVC 音频或 USB 声卡）。
-* **RTMPS / 断线重连**：手写版目前只支持明文 RTMP、无自动重连。
+  HaishinKit 支持 AAC，接上音频设备后可以直接走同一条会话。
 
 ### 画质与信号
 
