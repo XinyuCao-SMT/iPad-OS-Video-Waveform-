@@ -11,10 +11,13 @@
 
 #include <simd/simd.h>
 
-// 3x3 颜色矩阵：Metal 侧直接用原生 float3x3，C/Swift 侧用 matrix_float3x3。
+// 3x3 颜色矩阵：Metal 侧用 metal::float3x3，C/Swift 侧用 matrix_float3x3。
 // 两者都是列主序、每列 16 字节（共 48 字节），内存布局完全一致。
+//
+// 注意：这里必须写全限定名 metal::float3x3。.metal 文件里 `using namespace metal;`
+// 一般写在 include 之后，所以头文件里裸写 float3x3 会报 unknown type name。
 #ifdef __METAL_VERSION__
-typedef float3x3 VSMatrix3x3;
+typedef metal::float3x3 VSMatrix3x3;
 #else
 typedef matrix_float3x3 VSMatrix3x3;
 #endif
