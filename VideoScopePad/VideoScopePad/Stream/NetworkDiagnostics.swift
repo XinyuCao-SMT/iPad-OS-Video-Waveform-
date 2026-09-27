@@ -86,8 +86,9 @@ enum NetworkDiagnostics {
         guard port > 0, port <= 65535, !host.isEmpty else {
             return "主机或端口不合法"
         }
-        // 注意：NWEndpoint.Port 的 init(rawValue:) 不是可失败的，所以先自己校验再构造
-        let nwPort = NWEndpoint.Port(rawValue: UInt16(port))
+        guard let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else {
+            return "端口号非法"
+        }
         let connection = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .udp)
         let queue = DispatchQueue(label: "vsp.network.probe")
 
@@ -99,7 +100,7 @@ enum NetworkDiagnostics {
                 continuation.resume(returning: text)
             }
 
-            connection.stateUpdateHandler = { state in
+            connection.stateUpdateHandler = { (state: NWConnection.State) in
                 switch state {
                 case .ready:
                     // 一个 SRT 风格的 48 位控制包头（HSv5 induction）：
@@ -112,12 +113,12 @@ enum NetworkDiagnostics {
                     payload.append(contentsOf: [0x00, 0x00, 0x00, 0x00])      // cookie
                     payload.append(contentsOf: [UInt8](repeating: 0, count: 16))  // peer ip
 
-                    connection.send(content: payload, completion: .contentProcessed { error in
+                    connection.send(content: payload, completion: .contentProcessed { (error: NWError?) in
                         if let error {
                             finish("发送失败：\(error.localizedDescription)")
                             return
                         }
-                        connection.receiveMessage { data, _, _, error in
+                        connection.receiveMessage { (data: Data?, _: NWConnection.ContentContext?, _: Bool, error: NWError?) in
                             if let error {
                                 finish("目标明确拒绝：\(error.localizedDescription)（主机可达，但那个端口上没有 UDP 服务 → 端口填错了？）")
                             } else if let data, !data.isEmpty {
