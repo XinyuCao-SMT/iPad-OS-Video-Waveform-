@@ -4,6 +4,13 @@
 
 整个工程都在这个仓库里，SwiftUI + AVFoundation + Metal，最低 **iPadOS 17.0**。
 
+> **构建状态：已在 GitHub Actions 上编译通过** ✅
+> 工具链 Xcode 26.6 / iPhoneOS 26.5 SDK，产物 `VideoScopePad.app` 为 arm64（iPad mini 6 及以后可用），
+> `MinimumOSVersion = 17.0`，设备族 iPad + iPhone，Metal 着色器已编译进 `default.metallib`。
+> 未签名 IPA 已下载到本地 `dist/VideoScopePad-unsigned.ipa`，可直接用 Sideloadly 侧载（见 `CLOUD-BUILD.md` 第 7 节）。
+> 目前残留两条**无害的废弃警告**：`AVCaptureConnection.isVideoOrientationSupported` /
+> `videoOrientation` 在 iOS 17 起被 `videoRotationAngle` 取代（只影响内置摄像头作为备用信号源时的方向设置）。
+
 ---
 
 ## 1. 功能
