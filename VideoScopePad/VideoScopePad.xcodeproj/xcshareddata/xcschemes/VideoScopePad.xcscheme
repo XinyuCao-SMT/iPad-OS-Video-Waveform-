@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "AB000000000000000000004D"
+               BlueprintIdentifier = "AB000000000000000000004F"
                BuildableName = "VideoScopePad.app"
                BlueprintName = "VideoScopePad"
                ReferencedContainer = "container:VideoScopePad.xcodeproj">
@@ -44,7 +44,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "AB000000000000000000004D"
+            BlueprintIdentifier = "AB000000000000000000004F"
             BuildableName = "VideoScopePad.app"
             BlueprintName = "VideoScopePad"
             ReferencedContainer = "container:VideoScopePad.xcodeproj">
@@ -61,7 +61,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "AB000000000000000000004D"
+            BlueprintIdentifier = "AB000000000000000000004F"
             BuildableName = "VideoScopePad.app"
             BlueprintName = "VideoScopePad"
             ReferencedContainer = "container:VideoScopePad.xcodeproj">

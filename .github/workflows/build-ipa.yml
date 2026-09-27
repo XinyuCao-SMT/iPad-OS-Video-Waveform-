@@ -178,6 +178,15 @@ jobs:
             /usr/libexec/PlistBuddy -c 'Add :NSPhotoLibraryAddUsageDescription string "Save grabbed frames to the photo library."' "$PLIST"
           fi
 
+          # 推流要连局域网里的 RTMP/SRT 服务器（192.168.x.x）。iOS 14 起这需要「本地网络」权限，
+          # 没有这个键连权限框都弹不出来，数据包会被静默丢弃，表现就是连接一直超时。
+          if /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST" >/dev/null 2>&1; then
+            echo "NSLocalNetworkUsageDescription: 已存在 ✓"
+          else
+            echo "::warning::Info.plist 缺少 NSLocalNetworkUsageDescription，已在打包前补上（推流连局域网服务器会失败）"
+            /usr/libexec/PlistBuddy -c 'Add :NSLocalNetworkUsageDescription string "Streaming needs to reach RTMP/SRT servers on your local network."' "$PLIST"
+          fi
+
           rm -rf Payload VideoScopePad-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/

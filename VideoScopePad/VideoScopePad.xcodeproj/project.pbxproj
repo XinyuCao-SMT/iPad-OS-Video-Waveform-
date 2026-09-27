@@ -27,25 +27,26 @@
 		AB000000000000000000002B /* ScopeKernels.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002A /* ScopeKernels.metal */; };
 		AB0000000000000000000030 /* MeasurementLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002F /* MeasurementLog.swift */; };
 		AB0000000000000000000032 /* MP4Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000031 /* MP4Recorder.swift */; };
-		AB0000000000000000000034 /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* StreamController.swift */; };
-		AB0000000000000000000036 /* StreamEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000035 /* StreamEndpoint.swift */; };
-		AB0000000000000000000038 /* StreamTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000037 /* StreamTransport.swift */; };
-		AB000000000000000000003A /* VideoEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000039 /* VideoEncoder.swift */; };
-		AB000000000000000000003D /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003C /* ContentView.swift */; };
-		AB000000000000000000003F /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003E /* ControlBar.swift */; };
-		AB0000000000000000000041 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* Controls.swift */; };
-		AB0000000000000000000043 /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* MonitorSurface.swift */; };
-		AB0000000000000000000045 /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* ScopeGraticuleView.swift */; };
-		AB0000000000000000000047 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* SettingsSheet.swift */; };
-		AB0000000000000000000049 /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* StreamPanelView.swift */; };
-		AB000000000000000000004B /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004A /* TopStatusBar.swift */; };
-		AB000000000000000000005C /* HaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005B /* HaishinKit */; };
-		AB000000000000000000005E /* RTMPHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005D /* RTMPHaishinKit */; };
-		AB0000000000000000000060 /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005F /* SRTHaishinKit */; };
+		AB0000000000000000000034 /* NetworkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* NetworkDiagnostics.swift */; };
+		AB0000000000000000000036 /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000035 /* StreamController.swift */; };
+		AB0000000000000000000038 /* StreamEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000037 /* StreamEndpoint.swift */; };
+		AB000000000000000000003A /* StreamTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000039 /* StreamTransport.swift */; };
+		AB000000000000000000003C /* VideoEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003B /* VideoEncoder.swift */; };
+		AB000000000000000000003F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003E /* ContentView.swift */; };
+		AB0000000000000000000041 /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* ControlBar.swift */; };
+		AB0000000000000000000043 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* Controls.swift */; };
+		AB0000000000000000000045 /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* MonitorSurface.swift */; };
+		AB0000000000000000000047 /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* ScopeGraticuleView.swift */; };
+		AB0000000000000000000049 /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* SettingsSheet.swift */; };
+		AB000000000000000000004B /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004A /* StreamPanelView.swift */; };
+		AB000000000000000000004D /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004C /* TopStatusBar.swift */; };
+		AB000000000000000000005E /* HaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005D /* HaishinKit */; };
+		AB0000000000000000000060 /* RTMPHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB000000000000000000005F /* RTMPHaishinKit */; };
+		AB0000000000000000000062 /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000061 /* SRTHaishinKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AB000000000000000000004E /* VideoScopePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoScopePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0000000000000000000050 /* VideoScopePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoScopePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB0000000000000000000003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		AB0000000000000000000005 /* VideoScopePadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoScopePadApp.swift; sourceTree = "<group>"; };
 		AB0000000000000000000008 /* CaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureController.swift; sourceTree = "<group>"; };
@@ -68,46 +69,47 @@
 		AB000000000000000000002D /* VideoScopePad-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VideoScopePad-Bridging-Header.h"; sourceTree = "<group>"; };
 		AB000000000000000000002F /* MeasurementLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementLog.swift; sourceTree = "<group>"; };
 		AB0000000000000000000031 /* MP4Recorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Recorder.swift; sourceTree = "<group>"; };
-		AB0000000000000000000033 /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
-		AB0000000000000000000035 /* StreamEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamEndpoint.swift; sourceTree = "<group>"; };
-		AB0000000000000000000037 /* StreamTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTransport.swift; sourceTree = "<group>"; };
-		AB0000000000000000000039 /* VideoEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEncoder.swift; sourceTree = "<group>"; };
-		AB000000000000000000003C /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		AB000000000000000000003E /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
-		AB0000000000000000000040 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
-		AB0000000000000000000042 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
-		AB0000000000000000000044 /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
-		AB0000000000000000000046 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
-		AB0000000000000000000048 /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
-		AB000000000000000000004A /* TopStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopStatusBar.swift; sourceTree = "<group>"; };
+		AB0000000000000000000033 /* NetworkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiagnostics.swift; sourceTree = "<group>"; };
+		AB0000000000000000000035 /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
+		AB0000000000000000000037 /* StreamEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamEndpoint.swift; sourceTree = "<group>"; };
+		AB0000000000000000000039 /* StreamTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTransport.swift; sourceTree = "<group>"; };
+		AB000000000000000000003B /* VideoEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEncoder.swift; sourceTree = "<group>"; };
+		AB000000000000000000003E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000040 /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
+		AB0000000000000000000042 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+		AB0000000000000000000044 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
+		AB0000000000000000000046 /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000048 /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		AB000000000000000000004A /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
+		AB000000000000000000004C /* TopStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopStatusBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		AB0000000000000000000053 /* Frameworks */ = {
+		AB0000000000000000000055 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AB000000000000000000005C /* HaishinKit in Frameworks */,
-				AB000000000000000000005E /* RTMPHaishinKit in Frameworks */,
-				AB0000000000000000000060 /* SRTHaishinKit in Frameworks */,
+				AB000000000000000000005E /* HaishinKit in Frameworks */,
+				AB0000000000000000000060 /* RTMPHaishinKit in Frameworks */,
+				AB0000000000000000000062 /* SRTHaishinKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		AB000000000000000000004F = {
+		AB0000000000000000000051 = {
 			isa = PBXGroup;
 			children = (
 				AB0000000000000000000001 /* VideoScopePad */,
-				AB0000000000000000000050 /* Products */,
+				AB0000000000000000000052 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000050 /* Products */ = {
+		AB0000000000000000000052 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AB000000000000000000004E /* VideoScopePad.app */,
+				AB0000000000000000000050 /* VideoScopePad.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -179,25 +181,26 @@
 			children = (
 				AB000000000000000000002F /* MeasurementLog.swift */,
 				AB0000000000000000000031 /* MP4Recorder.swift */,
-				AB0000000000000000000033 /* StreamController.swift */,
-				AB0000000000000000000035 /* StreamEndpoint.swift */,
-				AB0000000000000000000037 /* StreamTransport.swift */,
-				AB0000000000000000000039 /* VideoEncoder.swift */,
+				AB0000000000000000000033 /* NetworkDiagnostics.swift */,
+				AB0000000000000000000035 /* StreamController.swift */,
+				AB0000000000000000000037 /* StreamEndpoint.swift */,
+				AB0000000000000000000039 /* StreamTransport.swift */,
+				AB000000000000000000003B /* VideoEncoder.swift */,
 			);
 			path = Stream;
 			sourceTree = "<group>";
 		};
-		AB000000000000000000003B /* Views */ = {
+		AB000000000000000000003D /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				AB000000000000000000003C /* ContentView.swift */,
-				AB000000000000000000003E /* ControlBar.swift */,
-				AB0000000000000000000040 /* Controls.swift */,
-				AB0000000000000000000042 /* MonitorSurface.swift */,
-				AB0000000000000000000044 /* ScopeGraticuleView.swift */,
-				AB0000000000000000000046 /* SettingsSheet.swift */,
-				AB0000000000000000000048 /* StreamPanelView.swift */,
-				AB000000000000000000004A /* TopStatusBar.swift */,
+				AB000000000000000000003E /* ContentView.swift */,
+				AB0000000000000000000040 /* ControlBar.swift */,
+				AB0000000000000000000042 /* Controls.swift */,
+				AB0000000000000000000044 /* MonitorSurface.swift */,
+				AB0000000000000000000046 /* ScopeGraticuleView.swift */,
+				AB0000000000000000000048 /* SettingsSheet.swift */,
+				AB000000000000000000004A /* StreamPanelView.swift */,
+				AB000000000000000000004C /* TopStatusBar.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -212,7 +215,7 @@
 				AB0000000000000000000024 /* Resources */,
 				AB0000000000000000000027 /* Shaders */,
 				AB000000000000000000002E /* Stream */,
-				AB000000000000000000003B /* Views */,
+				AB000000000000000000003D /* Views */,
 			);
 			path = VideoScopePad;
 			sourceTree = "<group>";
@@ -220,13 +223,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		AB000000000000000000004D /* VideoScopePad */ = {
+		AB000000000000000000004F /* VideoScopePad */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AB0000000000000000000055 /* Build configuration list for PBXNativeTarget "VideoScopePad" */;
+			buildConfigurationList = AB0000000000000000000057 /* Build configuration list for PBXNativeTarget "VideoScopePad" */;
 			buildPhases = (
-				AB0000000000000000000051 /* Sources */,
-				AB0000000000000000000053 /* Frameworks */,
-				AB0000000000000000000052 /* Resources */,
+				AB0000000000000000000053 /* Sources */,
+				AB0000000000000000000055 /* Frameworks */,
+				AB0000000000000000000054 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -234,30 +237,30 @@
 			);
 			name = VideoScopePad;
 			packageProductDependencies = (
-				AB000000000000000000005B /* HaishinKit */,
-				AB000000000000000000005D /* RTMPHaishinKit */,
-				AB000000000000000000005F /* SRTHaishinKit */,
+				AB000000000000000000005D /* HaishinKit */,
+				AB000000000000000000005F /* RTMPHaishinKit */,
+				AB0000000000000000000061 /* SRTHaishinKit */,
 			);
 			productName = VideoScopePad;
-			productReference = AB000000000000000000004E /* VideoScopePad.app */;
+			productReference = AB0000000000000000000050 /* VideoScopePad.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		AB000000000000000000004C /* Project object */ = {
+		AB000000000000000000004E /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					AB000000000000000000004D = {
+					AB000000000000000000004F = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
 			};
-			buildConfigurationList = AB0000000000000000000054 /* Build configuration list for PBXProject "VideoScopePad" */;
+			buildConfigurationList = AB0000000000000000000056 /* Build configuration list for PBXProject "VideoScopePad" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -266,21 +269,21 @@
 				Base,
 				"zh-Hans",
 			);
-			mainGroup = AB000000000000000000004F;
+			mainGroup = AB0000000000000000000051;
 			packageReferences = (
-				AB000000000000000000005A /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
+				AB000000000000000000005C /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
 			);
-			productRefGroup = AB0000000000000000000050 /* Products */;
+			productRefGroup = AB0000000000000000000052 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AB000000000000000000004D /* VideoScopePad */,
+				AB000000000000000000004F /* VideoScopePad */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		AB0000000000000000000052 /* Resources */ = {
+		AB0000000000000000000054 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -291,7 +294,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		AB0000000000000000000051 /* Sources */ = {
+		AB0000000000000000000053 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -314,25 +317,26 @@
 				AB000000000000000000002B /* ScopeKernels.metal in Sources */,
 				AB0000000000000000000030 /* MeasurementLog.swift in Sources */,
 				AB0000000000000000000032 /* MP4Recorder.swift in Sources */,
-				AB0000000000000000000034 /* StreamController.swift in Sources */,
-				AB0000000000000000000036 /* StreamEndpoint.swift in Sources */,
-				AB0000000000000000000038 /* StreamTransport.swift in Sources */,
-				AB000000000000000000003A /* VideoEncoder.swift in Sources */,
-				AB000000000000000000003D /* ContentView.swift in Sources */,
-				AB000000000000000000003F /* ControlBar.swift in Sources */,
-				AB0000000000000000000041 /* Controls.swift in Sources */,
-				AB0000000000000000000043 /* MonitorSurface.swift in Sources */,
-				AB0000000000000000000045 /* ScopeGraticuleView.swift in Sources */,
-				AB0000000000000000000047 /* SettingsSheet.swift in Sources */,
-				AB0000000000000000000049 /* StreamPanelView.swift in Sources */,
-				AB000000000000000000004B /* TopStatusBar.swift in Sources */,
+				AB0000000000000000000034 /* NetworkDiagnostics.swift in Sources */,
+				AB0000000000000000000036 /* StreamController.swift in Sources */,
+				AB0000000000000000000038 /* StreamEndpoint.swift in Sources */,
+				AB000000000000000000003A /* StreamTransport.swift in Sources */,
+				AB000000000000000000003C /* VideoEncoder.swift in Sources */,
+				AB000000000000000000003F /* ContentView.swift in Sources */,
+				AB0000000000000000000041 /* ControlBar.swift in Sources */,
+				AB0000000000000000000043 /* Controls.swift in Sources */,
+				AB0000000000000000000045 /* MonitorSurface.swift in Sources */,
+				AB0000000000000000000047 /* ScopeGraticuleView.swift in Sources */,
+				AB0000000000000000000049 /* SettingsSheet.swift in Sources */,
+				AB000000000000000000004B /* StreamPanelView.swift in Sources */,
+				AB000000000000000000004D /* TopStatusBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		AB000000000000000000005A /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
+		AB000000000000000000005C /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/HaishinKit/HaishinKit.swift";
 			requirement = {
@@ -343,25 +347,25 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AB000000000000000000005B /* HaishinKit */ = {
+		AB000000000000000000005D /* HaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB000000000000000000005A /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB000000000000000000005C /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = HaishinKit;
 		};
-		AB000000000000000000005D /* RTMPHaishinKit */ = {
+		AB000000000000000000005F /* RTMPHaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB000000000000000000005A /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB000000000000000000005C /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = RTMPHaishinKit;
 		};
-		AB000000000000000000005F /* SRTHaishinKit */ = {
+		AB0000000000000000000061 /* SRTHaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB000000000000000000005A /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB000000000000000000005C /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = SRTHaishinKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
-		AB0000000000000000000056 /* Debug */ = {
+		AB0000000000000000000058 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ALWAYS_SEARCH_USER_PATHS = NO;
@@ -395,7 +399,7 @@
 			};
 			name = Debug;
 		};
-		AB0000000000000000000057 /* Release */ = {
+		AB0000000000000000000059 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ALWAYS_SEARCH_USER_PATHS = NO;
@@ -426,7 +430,7 @@
 			};
 			name = Release;
 		};
-		AB0000000000000000000058 /* Debug */ = {
+		AB000000000000000000005A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -438,6 +442,7 @@
     INFOPLIST_KEY_CFBundleDisplayName = VideoScopePad;
     INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
     INFOPLIST_KEY_NSCameraUsageDescription = "需要访问外接 UVC 采集卡来显示画面、示波器与做 LUT 预览。";
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription = "推流需要连接局域网内的 RTMP / SRT 服务器（例如 192.168.x.x），请允许访问本地网络。";
     INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于把抓帧的画面保存到相册。";
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
     INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -459,7 +464,7 @@
 			};
 			name = Debug;
 		};
-		AB0000000000000000000059 /* Release */ = {
+		AB000000000000000000005B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -471,6 +476,7 @@
     INFOPLIST_KEY_CFBundleDisplayName = VideoScopePad;
     INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
     INFOPLIST_KEY_NSCameraUsageDescription = "需要访问外接 UVC 采集卡来显示画面、示波器与做 LUT 预览。";
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription = "推流需要连接局域网内的 RTMP / SRT 服务器（例如 192.168.x.x），请允许访问本地网络。";
     INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "用于把抓帧的画面保存到相册。";
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
     INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -495,16 +501,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AB0000000000000000000054 /* Build configuration list for PBXProject "VideoScopePad" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AB0000000000000000000056 /* Debug */,
-				AB0000000000000000000057 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AB0000000000000000000055 /* Build configuration list for PBXNativeTarget "VideoScopePad" */ = {
+		AB0000000000000000000056 /* Build configuration list for PBXProject "VideoScopePad" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AB0000000000000000000058 /* Debug */,
@@ -513,8 +510,17 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AB0000000000000000000057 /* Build configuration list for PBXNativeTarget "VideoScopePad" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB000000000000000000005A /* Debug */,
+				AB000000000000000000005B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 	};
-	rootObject = AB000000000000000000004C /* Project object */;
+	rootObject = AB000000000000000000004E /* Project object */;
 }

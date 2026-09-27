@@ -102,6 +102,9 @@ struct ContentView: View {
 
             // 信号 / 读数 / 状态信息全部收在这一行里，不再画在画面上
             if settings.showHUD && coordinatorReady {
+                // logo 固定在左边，不跟着 chip 滚动
+                BrandLogoView(height: 18)
+
                 ScrollView(.horizontal, showsIndicators: false) {
                     TopInfoChips(capture: capture,
                                  settings: settings,

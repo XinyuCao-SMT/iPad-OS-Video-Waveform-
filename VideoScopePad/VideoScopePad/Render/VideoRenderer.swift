@@ -125,7 +125,8 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
             encodeOutput(renderPassDescriptor: renderPassDescriptor,
                          commandBuffer: commandBuffer,
                          displaySource: nil,
-                         scopeSettings: scopeSettings)
+                         scopeSettings: scopeSettings,
+                         drawableSize: drawableSize)
             finish(commandBuffer: commandBuffer,
                    drawable: drawable,
                    retainedFrameTextures: retainedFrameTextures)
@@ -172,6 +173,7 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                      commandBuffer: commandBuffer,
                      displaySource: displaySource,
                      scopeSettings: scopeSettings,
+                     drawableSize: drawableSize,
                      hasScopes: !scopeSettings.enabled.isEmpty)
 
         finish(commandBuffer: commandBuffer,
@@ -342,6 +344,7 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                               commandBuffer: MTLCommandBuffer,
                               displaySource: MTLTexture?,
                               scopeSettings: ScopeRenderSettings,
+                              drawableSize: CGSize,
                               hasScopes: Bool = false) {
 
         let attachment = renderPassDescriptor.colorAttachments[0]!
@@ -367,7 +370,10 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
             for pane in panes where pane.content == .picture {
                 guard let video = pane.video else { continue }
+                // 画面永远不越出自己那一格（四分割下贴邻格会很难看）
+                setScissor(encoder, unitRect: pane.panel, drawableSize: drawableSize)
                 encodeQuad(encoder: encoder, rect: video, uv: pane.videoUV ?? fullRect)
+                clearScissor(encoder, drawableSize: drawableSize)
             }
         }
 
@@ -375,6 +381,8 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         if !panes.isEmpty {
             encoder.setRenderPipelineState(context.pipelines.solidColor)
             for pane in panes where pane.content.scopeKind != nil {
+                setScissor(encoder, unitRect: pane.panel, drawableSize: drawableSize)
+
                 var color = SIMD4<Float>(0.05, 0.052, 0.06, panelAlpha)
                 encoder.setFragmentBytes(&color, length: MemoryLayout<SIMD4<Float>>.stride,
                                          index: Int(VSBufferIndexRenderUniforms))
@@ -386,6 +394,7 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                                              index: Int(VSBufferIndexRenderUniforms))
                     encodeQuad(encoder: encoder, rect: gutter, uv: fullRect)
                 }
+                clearScissor(encoder, drawableSize: drawableSize)
             }
         }
 
@@ -394,6 +403,8 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
             encoder.setRenderPipelineState(context.pipelines.scopeTrace)
             for pane in panes {
                 guard let kind = pane.content.scopeKind, let plot = pane.plot else { continue }
+                // 轨迹只允许画在自己那格的绘图区里（矢量图放大后也不许溢到邻格）
+                setScissor(encoder, unitRect: pane.panel, drawableSize: drawableSize)
                 let texture = scopeEngine.texture(for: kind, waveformMode: settings.waveformMode)
 
                 var scopeUniforms = VSScopeUniforms()
@@ -415,6 +426,7 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 encodeQuad(encoder: encoder,
                            rect: plot,
                            uv: scopeEngine.uvRect(for: kind, gain: settings.vectorscopeGain))
+                clearScissor(encoder, drawableSize: drawableSize)
             }
         }
 
@@ -424,6 +436,32 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
     // MARK: - 工具
 
     private var fullRect: CGRect { CGRect(x: 0, y: 0, width: 1, height: 1) }
+
+    /// 把「单位空间矩形（左上角原点，和 SwiftUI 一致）」设成 Metal 的裁剪框（像素，左上角原点）。
+    /// 有它兜底，任何一格的内容都不可能画到邻格里去 —— 换 iPad、竖屏、矢量图放大都不会越界。
+    private func setScissor(_ encoder: MTLRenderCommandEncoder,
+                            unitRect: CGRect,
+                            drawableSize: CGSize) {
+        let width = Float(drawableSize.width)
+        let height = Float(drawableSize.height)
+        guard width > 1, height > 1 else { return }
+
+        let x = max(0.0, min(Float(unitRect.minX) * width, width - 1))
+        let y = max(0.0, min(Float(unitRect.minY) * height, height - 1))
+        let w = max(1.0, min(Float(unitRect.width) * width, width - x))
+        let h = max(1.0, min(Float(unitRect.height) * height, height - y))
+
+        encoder.setScissorRect(MTLScissorRect(x: Int(x.rounded(.down)),
+                                               y: Int(y.rounded(.down)),
+                                               width: Int(w.rounded(.up)),
+                                               height: Int(h.rounded(.up))))
+    }
+
+    private func clearScissor(_ encoder: MTLRenderCommandEncoder, drawableSize: CGSize) {
+        let width = max(1, Int(drawableSize.width))
+        let height = max(1, Int(drawableSize.height))
+        encoder.setScissorRect(MTLScissorRect(x: 0, y: 0, width: width, height: height))
+    }
 
     private func encodeQuad(encoder: MTLRenderCommandEncoder, rect: CGRect, uv: CGRect) {
         var quad = VSQuadUniforms()

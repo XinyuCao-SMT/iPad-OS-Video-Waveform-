@@ -13,6 +13,22 @@
 
 import SwiftUI
 
+/// 品牌 logo（资源名 BrandLogo，来自 Assets.xcassets）。
+/// 固定放在顶部一行的最左边，不随信息 chip 横向滚动。
+struct BrandLogoView: View {
+
+    var height: CGFloat = 18
+
+    var body: some View {
+        Image("BrandLogo")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(height: height)
+            .accessibilityLabel("SMG SMT")
+    }
+}
+
 struct TopInfoChips: View {
 
     @ObservedObject var capture: CaptureController

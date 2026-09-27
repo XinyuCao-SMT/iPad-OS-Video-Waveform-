@@ -35,6 +35,8 @@ final class StreamController: ObservableObject {
     @Published private(set) var lastError: String?
     /// 失败时的诊断串（面板上可一键复制发给开发助手）
     @Published private(set) var diagnostics = ""
+    private var diagnosticsBase = ""
+    private var networkDiagnostics = ""
     @Published private(set) var diagnosticsTitle = ""
     @Published private(set) var diagnosticsCopied = false
     @Published private(set) var lastRecordingURL: URL?
@@ -468,18 +470,111 @@ final class StreamController: ObservableObject {
             self?.encoder?.requestKeyframe()
         }
         created.onDiagnostics = { [weak self] text in
-            DispatchQueue.main.async { self?.setDiagnostics(text) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.setDiagnostics(text)
+                // 失败之后再做一次网络层面的探测（本机地址 / 是否同网段 / UDP 能不能通），
+                // 结果追加到诊断串末尾 —— 这几层的问题比协议本身更常见。
+                self.attachNetworkDiagnostics()
+            }
         }
         transport = created
         created.start()
     }
 
     private func setDiagnostics(_ text: String) {
+        diagnosticsBase = text
+        networkDiagnostics = ""
         diagnostics = text
         // 标题取「协议 + 时间」，方便在面板上一眼看出是哪一次尝试
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
         diagnosticsTitle = "\(transportKind.title) · \(formatter.string(from: Date()))"
+    }
+
+    /// 追加一段网络层面的探测结果（本机地址、是否同网段、UDP 是否可达）。
+    /// 这几层的问题（局域网权限、跨网段、防火墙丢 UDP）比协议本身更常见。
+    private func attachNetworkDiagnostics() {
+        let target: (host: String, port: Int)? = {
+            switch transportKind {
+            case .rtmp:
+                guard let endpoint = currentRTMPEndpoint else { return nil }
+                return (host: endpoint.host, port: endpoint.port)
+            case .srt:
+                guard let endpoint = currentSRTEndpoint else { return nil }
+                return (host: endpoint.host, port: endpoint.port)
+            }
+        }()
+
+        let locals = NetworkDiagnostics.localIPv4Addresses()
+        var lines: [String] = ["=== 网络探测 ==="]
+        lines.append("本机地址: \(locals.isEmpty ? "(没读到，可能是接口未就绪)" : locals.joined(separator: ", "))")
+
+        guard let target, !target.host.isEmpty else {
+            lines.append("（没有可探测的目标主机）")
+            networkDiagnostics = lines.joined(separator: "\n")
+            rebuildDiagnostics()
+            return
+        }
+
+        var sameSubnet: Bool?
+        if let localPrefix = NetworkDiagnostics.localSubnetPrefix(),
+           let remotePrefix = NetworkDiagnostics.subnetPrefix(of: target.host) {
+            let same = (localPrefix == remotePrefix)
+            sameSubnet = same
+            if same {
+                lines.append("网段: 本机 \(localPrefix).x 与服务器 \(remotePrefix).x 相同 ✓")
+            } else {
+                lines.append("网段: 本机 \(localPrefix).x ≠ 服务器 \(remotePrefix).x —— 不在同一网段，"
+                             + "UDP 一般路由不过去（先确认服务器地址，或把 iPad 换到同一网络）")
+            }
+        }
+
+        lines.append(Self.probeMarker)
+        networkDiagnostics = lines.joined(separator: "\n")
+        rebuildDiagnostics()
+
+        let host = target.host
+        let port = target.port
+        Task { [weak self] in
+            let result = await NetworkDiagnostics.probeUDP(host: host, port: port)
+            await MainActor.run {
+                guard let self else { return }
+                var block = self.networkDiagnostics
+                    .replacingOccurrences(of: Self.probeMarker, with: "UDP 探测 \(host):\(port): \(result)")
+                block += "\n结论: " + Self.conclusion(for: result, sameSubnet: sameSubnet)
+                self.networkDiagnostics = block
+                self.rebuildDiagnostics()
+            }
+        }
+    }
+
+    private static let probeMarker = "UDP 探测: 进行中…"
+
+    /// 按「探测结果 + 是否同网段」给一句能直接照做的结论
+    private static func conclusion(for result: String, sameSubnet: Bool?) -> String {
+        if result.contains("收到") {
+            return "UDP 这一层是通的 —— 问题在 SRT 握手本身：检查服务器的串流标识 streamid / 密码 / 是否允许推流，"
+                + "或换成服务器要求的模式（多数服务器要「呼叫 caller」）。"
+        }
+        if result.contains("明确拒绝") {
+            return "主机可达但该端口没有 UDP 服务 —— 端口很可能填错了（对照服务器配置里的监听端口）。"
+        }
+        if sameSubnet == false {
+            return "不同网段且无回应 —— 先把 iPad 与服务器放到同一网段（同一路由器/交换机），或确认服务器地址是内网地址。"
+        }
+        if sameSubnet == true {
+            return "网段相同却完全没回应 —— 按可能性依次排查：①iPad 上「设置 → 隐私与安全性 → 本地网络」里"
+                + "允许 VideoScopePad（iOS 14 起访问局域网设备必须授权，没授权时数据包会被静默丢弃，表现就是一直超时）；"
+                + "②服务器（Windows 防火墙 / Linux iptables）放行 UDP 该端口；③服务器确实在监听该端口（SRS/MediaMTX/OBS 的 SRT 监听）。"
+        }
+        return "无回应 —— 确认服务器是否在监听该 UDP 端口、防火墙是否放行、以及 iPad 是否已获「本地网络」权限。"
+    }
+
+    private func rebuildDiagnostics() {
+        diagnostics = networkDiagnostics.isEmpty
+            ? diagnosticsBase
+            : diagnosticsBase + "\n\n" + networkDiagnostics
     }
 
     func stopStreaming() {
@@ -504,6 +599,8 @@ final class StreamController: ObservableObject {
 
     func clearDiagnostics() {
         diagnostics = ""
+        diagnosticsBase = ""
+        networkDiagnostics = ""
         diagnosticsTitle = ""
         diagnosticsCopied = false
     }

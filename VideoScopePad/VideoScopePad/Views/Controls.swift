@@ -167,8 +167,15 @@ struct PaneChromeOverlay: View {
             if showsChrome {
                 ForEach(layout.panes, id: \.slot) { pane in
                     let rect = pane.panel.scaled(to: containerSize)
+                    // 内边距按格子尺寸缩放（iPad mini 到 iPad Pro 都能留出同样的观感），
+                    // 并且整个菜单被限制在格子矩形内 —— 固定像素偏移会让它在小格子上跑到格子外。
+                    let inset = min(max(rect.width * 0.02, 3), 12)
                     PaneContentMenu(pane: pane, settings: settings)
-                        .position(x: rect.maxX - 44, y: rect.minY + 16)
+                        .frame(maxWidth: max(rect.width - inset * 2, 44), alignment: .trailing)
+                        .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
+                        .padding(inset)
+                        .clipped()
+                        .position(x: rect.midX, y: rect.midY)
                 }
             }
         }

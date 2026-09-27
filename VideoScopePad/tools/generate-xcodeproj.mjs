@@ -197,6 +197,9 @@ const commonSettings = {
     INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: 'YES',
     INFOPLIST_KEY_NSCameraUsageDescription: '需要访问外接 UVC 采集卡来显示画面、示波器与做 LUT 预览。',
     INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: '用于把抓帧的画面保存到相册。',
+    // iOS 14 起访问局域网设备要用户授权；没有这个键，连权限框都弹不出来，
+    // 数据包会被系统静默丢弃 —— SRT / RTMP 连 192.168.x.x 会一直超时。
+    INFOPLIST_KEY_NSLocalNetworkUsageDescription: '推流需要连接局域网内的 RTMP / SRT 服务器（例如 192.168.x.x），请允许访问本地网络。',
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: 'YES',
     INFOPLIST_KEY_UIFileSharingEnabled: 'YES',
     INFOPLIST_KEY_UILaunchScreen_Generation: 'YES',
