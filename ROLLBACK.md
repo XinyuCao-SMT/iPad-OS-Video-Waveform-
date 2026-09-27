@@ -1,20 +1,25 @@
 # 回滚指南 · 版本保留说明
 
-三个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
+五个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
 
-## 四个版本
+## 五个版本
 
 | 版本 | 提交 | Tag / 分支 | 内容 | IPA |
 |---|---|---|---|---|
 | **v1.0.0 监视器版**<br>（最初的稳定版） | `385d8d0` | tag `v1.0.0-monitor`<br>分支 `legacy/v1.0.0-monitor` | UVC 监视 + 矢量示波器 + 亮度波形 + RGB Parade + `.cube` LUT + 信号幅度读数 + 冻结/调色 + 布局预设（仅画面/底部/右侧/叠加） | `dist/VideoScopePad-v1.0.0-monitor-unsigned.ipa` |
 | **v1.1.0 四分割版** | `99ad8ec` | tag `v1.1.0-quad` | 全屏/四分割可配内容、示波器侧边大号刻度（IRE/mV/%）、等效 mV 与信号信息自动显示、自动选择输入格式 | `dist/VideoScopePad-v1.1.0-quad-unsigned.ipa` |
 | **v1.2.0 看守版** | `67020ef` | tag `v1.2.0-assist` | 真峰值保持游标、超白/黑切割斑马纹、超标报警红框与振动 | `dist/VideoScopePad-v1.2.0-assist-unsigned.ipa` |
-| **v1.3.0 录制推流版**<br>（最新） | `8e5773a` | tag `v1.3.0-stream` | 本机 MP4 录制（H.264 直通）、RTMP 推流（纯 Swift）、抓帧存相册、读数 CSV 导出 | `dist/VideoScopePad-v1.3.0-stream-unsigned.ipa` |
+| **v1.3.0 录制推流版** | `8e5773a` | tag `v1.3.0-stream` | 本机 MP4 录制（H.264 直通）、RTMP 推流（纯 Swift）、抓帧存相册、读数 CSV 导出 | `dist/VideoScopePad-v1.3.0-stream-unsigned.ipa` |
+| **v1.3.1 修复版**<br>（最新，**推荐装**） | `22bd5a0` | tag `v1.3.1-fix` | 修「开读数必闪退」（Swift 独占访问）、修四分割比例与重叠、刻度随格子自适应、二级设置按需显示、HUD 移到顶栏一行 | `dist/VideoScopePad-v1.3.1-fix-unsigned.ipa` |
 
+> ⚠️ **v1.3.0 有已知崩溃**：只要打开「读数」，`PeakHoldTracker` 的独占访问违规就会让 App 崩溃，
+> 而且读数开关是持久化的，**重启后照样崩、根本进不去**。要修只能装 v1.3.1 或更早版本（v1.2.0 及以前没有这个 bug）。
+>
 > v1.0.0 对应的是**第一次云端构建成功**的那份代码（CI run #9），它没有四分割逻辑，已核对过归档内容。
 > 每个版本都用 `default.metallib` 哈希 + 主程序字符串核对过「新代码确实进了包」：
 > v1.0.0/v1.1.0 的 metallib 相同（只改 Swift/UI），v1.2.0 变大且哈希不同（斑马纹着色器），
 > v1.3.0 的 metallib 与 v1.2.0 相同、主程序从 1588 KB 涨到 1921 KB 且出现 `Recordings`/`rtmp://`/`StreamController` 字符串。
+> v1.3.1 的 metallib 仍是 `20D723D0C9…`（没动着色器），主程序降到 1871 KB（删掉 `HUDOverlay`、加入 `TopInfoChips`）。
 
 ## 三种回滚方式
 
@@ -32,22 +37,23 @@
 ```bash
 cd "E:\harness\iPad OS Software Waform"
 
-git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / legacy/v1.0.0-monitor
+git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / v1.3.0-stream / legacy/v1.0.0-monitor
 # …要验证/构建就在这个状态跑 tools/ci-cycle.ps1
 
 git checkout main               # 回到最新版
 git log --oneline -1            # 确认当前位置
 ```
 
-GitHub 上两个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
+GitHub 上五个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
 
 ### 方式 C：完全离线恢复（连 git / GitHub 都没有）
 
 解压这些归档即可得到完整工程（含 Xcode 工程、scheme、CI 工作流）：
 
 ```
-E:\harness\_backup\src-v1.0.0-monitor-385d8d0.zip      ← 旧版源码
-E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运行地址
+E:\harness\_backup\src-v1.3.1-fix-<sha>.zip             ← 最新版源码
+E:\harness\_backup\src-v1.0.0-monitor-385d8d0.zip      ← 最早那版源码
+E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运行地址与 IPA 哈希
 ```
 
 ## 构建工件地址（GitHub Actions，30 天后过期）
@@ -58,13 +64,15 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | v1.1.0-quad | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36299560754> |
 | v1.2.0-assist | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36300439675> |
 | v1.3.0-stream | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36302386663> |
+| v1.3.1-fix | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36304201815> |
 
-四个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
+五个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
 
 - v1.0.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.0.0-monitor>
 - v1.1.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.1.0-quad>
 - v1.2.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.2.0-assist>
 - v1.3.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.3.0-stream>
+- v1.3.1：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.3.1-fix>
 
 ## 校验哈希（确认手里的是哪一版）
 
@@ -74,11 +82,12 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | `VideoScopePad-v1.1.0-quad-unsigned.ipa` | 0.39 MB | `ED016D218EF5917D…` |
 | `VideoScopePad-v1.2.0-assist-unsigned.ipa` | 0.42 MB | `4D4FA00688063CD0…` |
 | `VideoScopePad-v1.3.0-stream-unsigned.ipa` | 0.50 MB | `52DF03D6064DC039…` |
+| `VideoScopePad-v1.3.1-fix-unsigned.ipa` | 0.49 MB | `4C1285F786196AD4…` |
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\dist\VideoScopePad-v1.3.0-stream-unsigned.ipa -Algorithm SHA256
+Get-FileHash .\dist\VideoScopePad-v1.3.1-fix-unsigned.ipa -Algorithm SHA256
 ```
 
 ## 说明

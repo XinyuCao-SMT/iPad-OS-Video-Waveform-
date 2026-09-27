@@ -97,12 +97,36 @@ if ($remoteSha -eq $localSha) { Write-Host 'already up to date, nothing to do'; 
 $remoteCommit = Invoke-GitHub GET "/repos/$Repo/git/commits/$remoteSha"
 $baseTree = $remoteCommit.tree.sha
 
-# make sure the local commit really descends from the remote tip (fast-forward)
-& git merge-base --is-ancestor $remoteSha $localSha
-if ($LASTEXITCODE -ne 0) { throw "local $localSha is not a fast-forward of remote $remoteSha; push manually" }
+# The remote tip may be a commit this clone has never seen: a previous run of THIS
+# script builds the commit server-side, so its sha exists only on GitHub. In that case
+# `git merge-base --is-ancestor` cannot work, so fall back to matching by tree sha:
+# find a local commit whose tree is identical to the remote tree, and use it as the
+# diff base (the new commit still gets the real remote sha as its parent).
+$diffBase = $remoteSha
+# `git rev-parse --verify --quiet` exits non-zero and prints NOTHING when the object is
+# missing. (`git cat-file -e` writes to stderr, which PowerShell turns into a terminating
+# error while $ErrorActionPreference is 'Stop'.)
+& git rev-parse --verify --quiet "$remoteSha^{commit}" | Out-Null
+$haveRemoteObject = ($LASTEXITCODE -eq 0)
+if (-not $haveRemoteObject) {
+    Write-Host "remote tip $remoteSha is not in this clone; matching by tree sha"
+    $diffBase = $null
+    foreach ($candidate in (& git rev-list -n 100 $LocalRef)) {
+        $t = (& git rev-parse "$candidate^{tree}").Trim()
+        if ($t -eq $baseTree) { $diffBase = $candidate.Trim(); break }
+    }
+    if (-not $diffBase) {
+        throw ("remote tip {0} (tree {1}) has no local equivalent - run 'git fetch origin' when github.com is reachable" -f $remoteSha, $baseTree)
+    }
+    Write-Host "  local equivalent of the remote tree: $diffBase"
+} else {
+    # make sure the local commit really descends from the remote tip (fast-forward)
+    & git merge-base --is-ancestor $remoteSha $localSha
+    if ($LASTEXITCODE -ne 0) { throw "local $localSha is not a fast-forward of remote $remoteSha; push manually" }
+}
 
 # ---------------------------------------------------------------- diff
-$diffLines = & git diff --name-status $remoteSha $localSha
+$diffLines = & git diff --name-status $diffBase $localSha
 if (-not $diffLines) { throw 'no diff between remote tip and local HEAD' }
 
 $changes = @()
