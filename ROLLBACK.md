@@ -1,8 +1,8 @@
 # 回滚指南 · 版本保留说明
 
-八个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
+九个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
 
-## 八个版本
+## 九个版本
 
 | 版本 | 提交 | Tag / 分支 | 内容 | IPA |
 |---|---|---|---|---|
@@ -14,6 +14,7 @@
 | **v1.4.0 SRT 推流版** | `1c3bdb4` | tag `v1.4.0-srt` | 接入 HaishinKit 2.2.5：RTMP / RTMPS / SRT 推流（替换手写 RTMP）；矢量图缩到 0.78 不再占满半格 | `dist/VideoScopePad-v1.4.0-srt-unsigned.ipa` |
 | **v1.4.1 SRT 修复版** | `44cef718` | tag `v1.4.1-fix` | SRT 地址解析加固（全角折叠 / 零宽字符 / 强制小写 scheme / 自动补 mode 与 conntimeo）、18 种拒绝原因翻译、可一键复制的诊断信息、20 秒超时看门狗 | `dist/VideoScopePad-v1.4.1-fix-unsigned.ipa` |
 | **v1.5.0 地址表单版**<br>（最新，**推荐装**） | `bfd384ae` | tag `v1.5.0-form` | 推流地址改成**逐栏填写**（RTMP：地址/端口/应用/流密钥/加密；SRT：主机/端口/模式 caller·listener·rendezvous/串流标识 + 高级的延迟·密码·加密位数·超时），实时显示「将连接」地址与逐栏校验，「开始推流」在地址不合法时禁用；保留「粘贴完整地址自动填入」入口；旧设置自动迁移到各栏 | `dist/VideoScopePad-v1.5.0-form-unsigned.ipa` |
+| **v1.6.0 品牌与网络修复版**<br>（最新，**推荐装**） | `fb58d4c8` | tag `v1.6.0-brand` | **补上 `NSLocalNetworkUsageDescription`** —— iOS 14 起访问局域网设备必须授权，缺这个键系统连权限框都不弹、数据包被静默丢弃，推流连 `192.168.x.x` 就表现为一直超时（SRT_REJ_TIMEOUT）；新增网络诊断（本机 IP / 网段比较 / UDP 探测 / 可照做的结论）；四分割逐格适配（每格菜单按比例内缩并 `clipped()` + Metal `setScissorRect` 裁剪，内容绝不越出格子）；App 图标（之前资源里没有图片文件）与顶部界面 logo | `dist/VideoScopePad-v1.6.0-brand-unsigned.ipa` |
 
 > ⚠️ **v1.3.0 有已知崩溃**：只要打开「读数」，`PeakHoldTracker` 的独占访问违规就会让 App 崩溃，
 > 而且读数开关是持久化的，**重启后照样崩、根本进不去**。要修只能装 v1.3.1 或更早版本（v1.2.0 及以前没有这个 bug）。
@@ -26,8 +27,10 @@
 > v1.4.0 的 metallib 仍是 `20D723D0C9…`，主程序涨到 7.7 MB（HaishinKit + libsrt 静态链入），
 > IPA 从 0.49 MB 变成 2.44 MB，包内出现 `HaishinKit`/`RTMPStream`/`SRTStream`/`srt_connect` 且 `RTMPClient` 消失。
 > v1.4.1 的 metallib 仍是 `20D723D0C9…`，主程序 7.84 MB，包内出现 `conntimeo` 与新的中文诊断文案。
-> v1.5.0 的 metallib 仍是 `20D723D0C9…`，主程序 8.0 MB，包内出现地址表单的新文案
-> （「串流标识 streamid（不填就不带这个参数）」「或：粘贴完整地址自动填入上面各栏」等）。
+> v1.5.0 的 metallib 仍是 `20D723D0C9…`，主程序 8.0 MB，包内出现地址表单的新文案。
+> v1.6.0 的 metallib 仍是 `20D723D0C9…`，主程序 8.06 MB；IPA 从 2.51 MB 涨到 **4.24 MB**（加了 App 图标），
+> `Assets.car` 从 17.7 KB 涨到 1.72 MB，产物里能看到 `AppIcon60x60@2x.png` 与 `AppIcon76x76@2x~ipad.png`，
+> Info.plist 里 `NSCameraUsageDescription` / `NSPhotoLibraryAddUsageDescription` / `NSLocalNetworkUsageDescription` 三个键齐全。
 
 ## 三种回滚方式
 
@@ -45,22 +48,22 @@
 ```bash
 cd "E:\harness\iPad OS Software Waform"
 
-git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / v1.3.0-stream / v1.3.1-fix / v1.4.0-srt / v1.4.1-fix / legacy/v1.0.0-monitor
+git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / v1.3.0-stream / v1.3.1-fix / v1.4.0-srt / v1.4.1-fix / v1.5.0-form / legacy/v1.0.0-monitor
 # …要验证/构建就在这个状态跑 tools/ci-cycle.ps1
 
 git checkout main               # 回到最新版
 git log --oneline -1            # 确认当前位置
 ```
 
-GitHub 上八个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
+GitHub 上九个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
 
 ### 方式 C：完全离线恢复（连 git / GitHub 都没有）
 
 解压这些归档即可得到完整工程（含 Xcode 工程、scheme、CI 工作流）：
 
 ```
-E:\harness\_backup\src-v1.5.0-form-<sha>.zip            ← 最新版源码
-E:\harness\_backup\src-v1.4.1-fix-39eaf0c4a.zip         ← 上一版源码
+E:\harness\_backup\src-v1.6.0-brand-<sha>.zip           ← 最新版源码
+E:\harness\_backup\src-v1.5.0-form-cc5a75b04.zip        ← 上一版源码
 E:\harness\_backup\src-v1.0.0-monitor-385d8d0.zip       ← 最早那版源码
 E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运行地址与 IPA 哈希
 ```
@@ -80,8 +83,9 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | v1.4.0-srt | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36305507610> |
 | v1.4.1-fix | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36306831825> |
 | v1.5.0-form | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36307727940> |
+| v1.6.0-brand | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36308909145> |
 
-八个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
+九个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
 
 - v1.0.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.0.0-monitor>
 - v1.1.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.1.0-quad>
@@ -91,6 +95,7 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 - v1.4.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.4.0-srt>
 - v1.4.1：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.4.1-fix>
 - v1.5.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.5.0-form>
+- v1.6.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.6.0-brand>
 
 ## 校验哈希（确认手里的是哪一版）
 
@@ -104,11 +109,12 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | `VideoScopePad-v1.4.0-srt-unsigned.ipa` | 2.44 MB | `3C2BF0A9545CFDFF…` |
 | `VideoScopePad-v1.4.1-fix-unsigned.ipa` | 2.46 MB | `250438E3F0160966…` |
 | `VideoScopePad-v1.5.0-form-unsigned.ipa` | 2.51 MB | `4EADF1A0276CAADA…` |
+| `VideoScopePad-v1.6.0-brand-unsigned.ipa` | 4.24 MB | `74D67AC763388F15…` |
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\dist\VideoScopePad-v1.5.0-form-unsigned.ipa -Algorithm SHA256
+Get-FileHash .\dist\VideoScopePad-v1.6.0-brand-unsigned.ipa -Algorithm SHA256
 ```
 
 ## 说明

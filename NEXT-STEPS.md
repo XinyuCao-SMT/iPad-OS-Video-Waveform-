@@ -1,10 +1,52 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.5.0-form**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.6.0-brand**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.6.0 品牌与网络修复版（提交 `fb58d4c8`，tag `v1.6.0-brand`，CI run #25 全绿）
+
+**一、SRT 实机超时的真凶：缺「本地网络」权限说明（🔴 重要，以后别再踩）**
+
+实机诊断给到的是 `SRT_REJ_TIMEOUT`，地址 `srt://192.168.6.106:9000?mode=caller&conntimeo=5000`
+—— 地址解析完全正确（拼出来的就是这一条），所以问题在网络层。原因是：
+
+> **iOS 14 起，App 访问局域网设备（192.168.x.x / 10.x.x.x）需要用户授权，前提是 Info.plist 里有
+> `NSLocalNetworkUsageDescription`。没有这个键，系统连权限框都弹不出来，发往局域网的包被静默丢弃**，
+> 表现就是连接一直超时（对端超时）。RTMP 连局域网地址同样会中招。
+
+* 工程生成器加 `INFOPLIST_KEY_NSLocalNetworkUsageDescription`（Debug/Release 都加）；
+* CI 打包步骤加兜底注入（与相机/相册权限同等处理）并打印结果；
+* 产物核对：三个权限键齐全。
+
+**二、网络诊断（卡在哪一层，直接写出来）**
+
+新增 `Stream/NetworkDiagnostics.swift`：
+* `localIPv4Addresses()`（getifaddrs 读 en0/en1…）、`subnetPrefix(of:)`（比 /24 网段）；
+* `probeUDP(host:port:)`（Network.framework 发一个 SRT 风格控制包头）区分三种结果：
+  收到回应 / 明确拒绝（ICMP 端口不可达 → 端口填错）/ 完全无回应；
+* `StreamController` 失败时自动追加「网络探测」段 + 按「结果 + 是否同网段」给一句可照做的结论
+  （权限 → 防火墙 → 服务未监听 → streamid/密码）。
+* 踩坑：`NWEndpoint.Port(rawValue:)` 是**可失败**初始化器；`NWConnection` 的几个回调
+  在复合表达式里推断不出参数类型，需要显式标注。
+
+**三、四分割逐格适配**
+
+* `PaneChromeOverlay` 原用固定像素偏移 `.position(x: rect.maxX - 44, y: rect.minY + 16)` 放每格菜单，
+  按钮宽度随文字变化 → 小格子上超出格子。改为「容器=格子矩形 + 按格子宽度缩放的内边距（3–12pt）
+  + 右上角对齐 + `clipped()`」。
+* `VideoRenderer` 增加 Metal 裁剪框 `setScissorRect`：画面格子、示波器底/刻度栏/轨迹各自裁剪到自己的格子。
+  从此任何 iPad 尺寸、竖屏横屏、矢量图放大都不会溢到邻格。
+
+**四、App 图标与界面 logo**
+
+* `AppIcon.appiconset` 里**原本没有图片文件**（等于没有图标）→ 用用户给的 1500×1500 图生成
+  1024×1024 `AppIcon.png`（先铺白底去 alpha）并写进 Contents.json；
+* 界面 logo：2029×395 带透明的源图 → `BrandLogo.imageset` 1x/2x/3x（205/411/616 px 宽），
+  新增 `BrandLogoView` 固定在顶部一行最左边（不随 chip 滚动）。
+* 体积影响：IPA 2.51 → 4.24 MB，Assets.car 17.7 KB → 1.72 MB。
 
 ### v1.5.0 地址表单版（提交 `bfd384ae`，tag `v1.5.0-form`，CI run #23 全绿）
 
