@@ -1,0 +1,180 @@
+name: Build unsigned IPA
+
+# 在 GitHub 免费的 macOS 虚拟机上编译出「未签名 IPA」。
+# 下载后可在 Windows 上用 Sideloadly / AltStore 用自己的 Apple ID 签名并装到 iPad。
+#
+# 用法见仓库根目录的 CLOUD-BUILD.md。
+#
+# 这份工作流不假设仓库目录结构：
+# 它会自己在仓库里找 VideoScopePad.xcodeproj，无论工程是在仓库根目录，
+# 还是放在 VideoScopePad/ 子目录里，都能正常编译。
+
+on:
+  # 手动触发（推荐）：Actions -> Build unsigned IPA -> Run workflow
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: '构建配置（排查编译问题时可切 Debug）'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+  # 推送到默认分支时自动构建（只改文档不会触发）
+  push:
+    branches: [ main, master ]
+    paths:
+      - '**/*.swift'
+      - '**/*.metal'
+      - '**/*.h'
+      - '**/*.xcodeproj/**'
+      - '.github/workflows/build-ipa.yml'
+
+# 同一分支连续触发时，取消上一次没跑完的
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ inputs.configuration || 'Release' }}, unsigned)
+    runs-on: macos-latest
+    timeout-minutes: 40
+
+    env:
+      CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 先把仓库里到底有什么打出来 —— 目录结构不对时，这里一眼就能看出来
+      - name: 仓库内容自检
+        run: |
+          echo "workspace: $GITHUB_WORKSPACE"
+          echo "--- 顶层文件 ---"
+          ls -la "$GITHUB_WORKSPACE"
+          echo "--- 三层以内（已排除 .git）---"
+          find "$GITHUB_WORKSPACE" -maxdepth 3 -not -path '*/.git/*' -not -name '.git' | sort | head -80
+
+      - name: 定位 Xcode 工程
+        id: locate
+        run: |
+          echo "--- 搜索 VideoScopePad.xcodeproj ---"
+          PROJ="$(find "$GITHUB_WORKSPACE" -maxdepth 5 -type d -name 'VideoScopePad.xcodeproj' -not -path '*/.git/*' | head -1)"
+
+          if [ -z "$PROJ" ]; then
+            echo "::error title=仓库里没有源码::找不到 VideoScopePad.xcodeproj。请确认已经把代码推上来（见 CLOUD-BUILD.md 第 2 步）：仓库顶层应当能看到 VideoScopePad 目录，里面有 VideoScopePad.xcodeproj 和源码子目录。"
+            exit 1
+          fi
+
+          DIR="$(dirname "$PROJ")"
+          if [ "$DIR" = "$GITHUB_WORKSPACE" ]; then
+            REL="."
+          else
+            REL="${DIR#$GITHUB_WORKSPACE/}"
+          fi
+          if [ -z "$REL" ]; then
+            REL="."
+          fi
+
+          echo "工程文件: $PROJ"
+          echo "项目目录(相对仓库根): $REL"
+
+          echo "--- 工程能否被解析 ---"
+          xcodebuild -list -project "$PROJ" 2>&1 | head -40 || true
+
+          echo "rel=$REL" >> "$GITHUB_OUTPUT"
+
+      - name: 显示编译工具链
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: 编译（未签名）
+        working-directory: ${{ steps.locate.outputs.rel }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project VideoScopePad.xcodeproj \
+            -scheme VideoScopePad \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            build 2>&1 | tee build.log
+
+      - name: 编译失败时提取错误摘要
+        if: failure()
+        working-directory: ${{ steps.locate.outputs.rel }}
+        run: |
+          {
+            echo "## 编译错误摘要"
+            echo ""
+            echo "把下面这段直接发给开发助手即可定位问题："
+            echo ""
+            echo '```'
+            grep -E "(error:|fatal error:|does not conform|cannot find|no such module)" build.log | sort -u | head -60 || echo "（没能从日志里匹配到 error: 行，请下载 build-log 工件查看完整日志）"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "--- 错误原文 ---"
+          grep -E "(error:|fatal error:)" build.log | sort -u | head -60 || true
+
+      - name: 打包未签名 IPA
+        working-directory: ${{ steps.locate.outputs.rel }}
+        run: |
+          APP_PATH="build/Build/Products/$CONFIGURATION-iphoneos/VideoScopePad.app"
+          PLIST="$APP_PATH/Info.plist"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error title=没有构建产物::没找到 $APP_PATH"
+            exit 1
+          fi
+
+          echo "== 产物关键信息 =="
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST" || true
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST" || true
+
+          # 相机权限说明缺失会导致 App 一请求权限就闪退。
+          # 正常情况下它是通过 INFOPLIST_KEY_NSCameraUsageDescription 生成的；
+          # 万一没生成成功，这里直接补进已构建的 Info.plist 兜底（反正后面还要重新签名）。
+          if /usr/libexec/PlistBuddy -c 'Print :NSCameraUsageDescription' "$PLIST" >/dev/null 2>&1; then
+            echo "NSCameraUsageDescription: 已存在 ✓"
+          else
+            echo "::warning::Info.plist 缺少 NSCameraUsageDescription，已在打包前补上（建议回头在工程里改成真正的 Info.plist）"
+            /usr/libexec/PlistBuddy -c 'Add :NSCameraUsageDescription string "Camera access is required to display the UVC capture card signal."' "$PLIST"
+          fi
+
+          rm -rf Payload VideoScopePad-unsigned.ipa
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry VideoScopePad-unsigned.ipa Payload
+
+          echo "== IPA 内容 =="
+          unzip -l VideoScopePad-unsigned.ipa | head -20
+          ls -lh VideoScopePad-unsigned.ipa
+
+      - name: 上传 IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: VideoScopePad-unsigned-ipa
+          path: ${{ steps.locate.outputs.rel }}/VideoScopePad-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 失败时上传完整日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ steps.locate.outputs.rel }}/build.log
+          if-no-files-found: ignore
+          retention-days: 7

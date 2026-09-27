@@ -1,0 +1,20 @@
+# 换行与二进制处理：保证仓库里存的是 LF，CI 上的 macOS 拿到的东西和本地完全一致
+* text=auto
+
+*.swift      text eol=lf
+*.metal      text eol=lf
+*.h          text eol=lf
+*.pbxproj    text eol=lf
+*.xcscheme   text eol=lf
+*.yml        text eol=lf
+*.yaml       text eol=lf
+*.json       text eol=lf
+*.md         text eol=lf
+*.cube       text eol=lf
+
+*.ipa        binary
+*.png        binary
+*.jpg        binary
+*.pdf        binary
+*.dSYM       binary
+.DS_Store    binary

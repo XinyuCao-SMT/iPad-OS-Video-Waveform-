@@ -1,0 +1,176 @@
+//
+//  HUDOverlay.swift
+//  VideoScopePad
+//
+//  画面上的信息层：设备/格式/帧率/色彩矩阵/LUT/丢帧 + 状态提示。
+//
+
+import SwiftUI
+
+struct HUDOverlay: View {
+
+    @ObservedObject var capture: CaptureController
+    @ObservedObject var settings: AppSettings
+    @ObservedObject var lutStore: LUTStore
+    @ObservedObject var measurement: MeasurementHub
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 6) {
+                chips
+                Spacer(minLength: 8)
+                if settings.showMeasurement {
+                    measurementPanel
+                }
+                if settings.freeze {
+                    ChipLabel(title: "已冻结", systemImage: "pause.fill", tint: .orange)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            if let message = capture.statusMessage {
+                Text(message)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+        .padding(10)
+        .allowsHitTesting(false)
+    }
+
+    // MARK: - 信号幅度数值读数
+
+    @ViewBuilder
+    private var measurementPanel: some View {
+        if let value = measurement.value {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text("信号幅度")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text(settings.scopeSource == .postLUT ? "LUT 后" : "LUT 前")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.white.opacity(0.45))
+                }
+
+                divider
+
+                // ViewBuilder 最多 10 个子视图，用 Group 分组
+                Group {
+                    row("峰值白", String(format: "%.1f IRE", value.stableWhiteIRE),
+                        warn: value.stableWhiteIRE > 103)
+                    row("最高码值", String(format: "%.1f IRE", value.peakWhiteIRE), warn: false)
+                    row("黑位", String(format: "%.1f IRE", value.stableBlackIRE),
+                        warn: value.stableBlackIRE < -2 || value.stableBlackIRE > 8)
+                    row("平均", String(format: "%.1f IRE", value.averageIRE), warn: false)
+                    row("动态范围", String(format: "%.0f IRE", value.dynamicRangeIRE), warn: false)
+                }
+
+                divider
+
+                Group {
+                    row("R / G / B",
+                        String(format: "%.0f / %.0f / %.0f",
+                               value.redPeakIRE, value.greenPeakIRE, value.bluePeakIRE),
+                        warn: max(value.redPeakIRE, max(value.greenPeakIRE, value.bluePeakIRE)) > 103)
+                    row("色度峰值", String(format: "%.0f%%", value.peakSaturationPercent),
+                        warn: value.peakSaturationPercent > 105)
+                    row("超白 / 超黑",
+                        String(format: "%.2f%% / %.2f%%", value.aboveWhitePercent, value.belowBlackPercent),
+                        warn: value.aboveWhitePercent > 0.05 || value.belowBlackPercent > 0.05)
+                }
+
+                if !value.warnings.isEmpty {
+                    divider
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 10))
+                        Text(value.warnings.joined(separator: " · "))
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .foregroundStyle(.orange)
+                }
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(Color.black.opacity(0.55))
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.14))
+            .frame(height: 1)
+    }
+
+    private func row(_ title: String, _ value: String, warn: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.6))
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(warn ? Color.orange : Color.white.opacity(0.92))
+        }
+        .frame(minWidth: 178, alignment: .leading)
+    }
+
+    private var chips: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                ChipLabel(title: deviceName,
+                          systemImage: "video.fill",
+                          isActive: capture.hasExternalDevice,
+                          tint: .green)
+
+                if capture.stats.isRunning {
+                    ChipLabel(title: formatText)
+                    ChipLabel(title: String(format: "%.1f fps", capture.stats.fps),
+                              isActive: capture.stats.fps > 1)
+                }
+            }
+
+            HStack(spacing: 6) {
+                if capture.stats.isRunning {
+                    ChipLabel(title: "\(capture.stats.pixelFormatText) · \(capture.stats.colorMatrixTitle)")
+                }
+
+                if settings.lutEnabled, let detail = lutStore.detailText {
+                    ChipLabel(title: "LUT \(Int(settings.lutIntensity * 100))%",
+                              systemImage: "camera.filters",
+                              isActive: true,
+                              tint: .blue)
+                    ChipLabel(title: detail)
+                }
+
+                if !settings.gradeIsNeutral {
+                    ChipLabel(title: "已调色", systemImage: "slider.horizontal.3", tint: .purple)
+                }
+
+                if capture.stats.droppedFrames > 0 {
+                    ChipLabel(title: "丢帧 \(capture.stats.droppedFrames)",
+                              systemImage: "exclamationmark.triangle.fill",
+                              tint: .orange)
+                }
+            }
+        }
+    }
+
+    private var deviceName: String {
+        capture.devices.first { $0.id == capture.selectedDeviceID }?.name ?? "未选择设备"
+    }
+
+    private var formatText: String {
+        if capture.stats.width > 0 {
+            return "\(capture.stats.width)×\(capture.stats.height)"
+        }
+        return "\(Int(capture.videoSize.width))×\(Int(capture.videoSize.height))"
+    }
+}

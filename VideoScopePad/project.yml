@@ -1,0 +1,49 @@
+// 如果不想用仓库里已经生成好的 .xcodeproj，可以安装 XcodeGen 后执行：
+//     cd VideoScopePad && xcodegen generate
+// 效果与 tools/generate-xcodeproj.mjs 一致。
+
+name: VideoScopePad
+
+options:
+  bundleIdPrefix: com.videoscopepad
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  VideoScopePad:
+    type: application
+    platform: iOS
+    sources:
+      - path: VideoScopePad
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.videoscopepad.app
+        PRODUCT_NAME: $(TARGET_NAME)
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        ENABLE_PREVIEWS: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_OBJC_BRIDGING_HEADER: VideoScopePad/Shaders/VideoScopePad-Bridging-Header.h
+        MTL_HEADER_SEARCH_PATHS: $(SRCROOT)/VideoScopePad/Shaders
+        INFOPLIST_KEY_CFBundleDisplayName: VideoScopePad
+        INFOPLIST_KEY_NSCameraUsageDescription: 需要访问外接 UVC 采集卡来显示画面、示波器与 LUT 预览。
+        INFOPLIST_KEY_UIFileSharingEnabled: YES
+        INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UIStatusBarStyle: UIStatusBarStyleLightContent
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight

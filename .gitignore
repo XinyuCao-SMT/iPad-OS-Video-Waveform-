@@ -1,0 +1,19 @@
+# ---- Xcode ----
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+DerivedData/
+build/
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# ---- 生成物（由 tools/generate-xcodeproj.mjs 产出，可按需提交） ----
+# VideoScopePad/VideoScopePad.xcodeproj/project.pbxproj
+
+# ---- macOS / Windows ----
+.DS_Store
+Thumbs.db
+desktop.ini
