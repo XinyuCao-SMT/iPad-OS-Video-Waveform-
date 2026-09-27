@@ -1,10 +1,36 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.4.1-fix**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.5.0-form**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.5.0 地址表单版（提交 `bfd384ae`，tag `v1.5.0-form`，CI run #23 全绿）
+
+用户反馈：手打一整条地址容易被符号格式坑到（全角冒号、漏斜杠、scheme 大小写、粘贴带的零宽字符），
+而 SRT 只要库里看到的 scheme 不是严格小写 `srt` 就直接 `unsupportedUri`（`... error 1.`）。
+所以把地址**拆成逐栏填写**：
+
+* 新增 `Stream/StreamEndpoint.swift`：
+  * `SRTModeOption`（呼叫/监听/会合，自带中文说明 —— 库里的 `SRTMode` 是 internal 用不了）；
+  * `EndpointSanitizer`：全角折叠、去零宽字符、端口与可选整数的校验；
+  * `RTMPEndpoint.make(...)`：主机/端口/应用/流密钥/RTMPS → `rtmp(s)://主机:端口/应用` + 流名；
+  * `SRTEndpoint.make(...)`：主机/端口/模式/串流标识/延迟/密码/加密位数/连接超时 →
+    小写 `srt://主机:端口?mode=…&streamid=…`，拼完复核 scheme；
+  * 两条路径共用清洗规则：`make`（表单）与 `parse`（粘贴导入）。
+* `StreamController`：拆成十几个持久化字段（`vsp.stream.rtmp.host` 等），启动时把旧的
+  `vsp.stream.rtmpURL` / `srtURL` 一整条 URL 解析后填进各栏（老设置不丢）；
+  新增 `addressPreview`（将连接的实际地址）、`addressProblem`（哪一栏有问题）、`importAddress()`。
+* `StreamPanelView`：按协议显示栏位；SRT 有模式分段选择器与「高级」折叠区；
+  实时显示「将连接」的实际地址；地址不合法时「开始推流」禁用；
+  保留「粘贴完整地址自动填入各栏」入口。
+* 顺带修：v1.4.1 里 RTMP「勾了加密就把端口改成 443」的兜底会覆盖主机栏里显式写的端口，删掉。
+* `check-sources.mjs` 增加守卫：目录里每个源文件都必须在 `project.pbxproj` 里出现。
+  （这次就是因为新增文件忘了重新生成工程，CI 报了一堆 `cannot find type 'X' in scope` 白烧一轮。）
+
+**教训：新增/删除源文件后，必须跑 `node tools/generate-xcodeproj.mjs` 再提交**，
+现在本地自检会拦住这类问题。
 
 ### v1.4.1 SRT 修复版（提交 `44cef718`，tag `v1.4.1-fix`，CI run #21 全绿）
 
