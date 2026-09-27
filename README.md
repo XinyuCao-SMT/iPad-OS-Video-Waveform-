@@ -231,10 +231,21 @@ Windows 上**无法**编译 iOS/iPadOS 应用（需要 Apple SDK 与 Metal 着�
   cd VideoScopePad && node tools/generate-xcodeproj.mjs
   ```
   （不跑也行，直接在 Xcode 里把文件拖进对应分组即可。）
-* 在 Windows 上没法编译，但可以先跑自检（括号配平、跨文件重名、Swift/Metal 共享宏是否漏定义）：
+* 在 Windows 上没法编译，但可以先跑两个自检：
   ```bash
-  cd VideoScopePad && node tools/check-sources.mjs
+  cd VideoScopePad
+  node tools/check-sources.mjs     # 括号配平、跨文件重名、Swift/Metal 共享宏、ViewBuilder 子视图上限
+  node tools/parse-swift.mjs       # 用 tree-sitter 真语法解析全部 .swift，报 ERROR/MISSING 节点
+  node tools/ci-locate-selftest.mjs # 验证 CI 里的工程目录定位逻辑（5 种目录结构）
   ```
+  `parse-swift.mjs` 需要先装解析器（一次即可，装完设 `VSP_TS_DIR` 指向该目录）：
+  ```bash
+  mkdir %TEMP%\vsp-swift-parse && cd /d %TEMP%\vsp-swift-parse
+  npm init -y && npm i web-tree-sitter@0.20.8 tree-sitter-wasms@0.1.13
+  set VSP_TS_DIR=%TEMP%\vsp-swift-parse
+  ```
+  注意版本必须配套：`web-tree-sitter` 0.27 载入不了 `tree-sitter-wasms` 的语法 wasm。
+  另外它在 Node 24 上退出时会崩一次，**看最后一行结论，别看退出码**。
 * 只想改色调映射、加个示波器类型（比如直方图、YCbCr Parade）：
   * 加直方图统计 → `Shaders/ScopeKernels.metal` 里复用现有直方图缓冲区，加一个 normalize kernel；
   * 加一个面板 → `Model/ScopeModels.swift` 的 `ScopePanelKind` 加一个 case，
