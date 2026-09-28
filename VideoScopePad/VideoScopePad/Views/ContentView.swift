@@ -200,6 +200,12 @@ struct ContentView: View {
                                       settings: settings,
                                       containerSize: geo.size)
 
+                    // 布局调试叠加层：画出每格的 格子/绘图区/刻度栏/画面区 实际矩形与尺寸
+                    if settings.showLayoutDebug {
+                        LayoutDebugOverlay(layout: layout, containerSize: geo.size)
+                            .allowsHitTesting(false)
+                    }
+
                     // 超标报警：红色外框
                     if settings.warningAlarmEnabled {
                         AlarmBorderOverlay(measurement: coordinator.measurementHub)

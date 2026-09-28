@@ -158,6 +158,13 @@ struct SettingsSheet: View {
 
             Toggle("顶部显示信号 / 读数信息行", isOn: $settings.showHUD)
             Toggle("监视时防止息屏", isOn: $settings.preventSleep)
+
+            Toggle("布局调试叠加层（每格边界与尺寸）", isOn: $settings.showLayoutDebug)
+            if settings.showLayoutDebug {
+                Text("打开后画面上会画出每个格子的实际边界：绿=格子、青=示波器绘图区、黄=刻度栏、品红=画面区，并标出尺寸。排查「不居中 / 显示不全 / 跑到别的格子」时截图即可。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

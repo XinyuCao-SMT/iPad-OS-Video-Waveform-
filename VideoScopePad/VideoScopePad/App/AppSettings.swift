@@ -45,6 +45,7 @@ final class AppSettings: ObservableObject {
         static let zebraBlackEnabled = prefix + "zebraBlackEnabled"
         static let warningAlarmEnabled = prefix + "warningAlarmEnabled"
         static let warningRaiseCount = prefix + "warningRaiseCount"
+        static let showLayoutDebug = prefix + "showLayoutDebug"
     }
 
     // MARK: - 监视器
@@ -63,6 +64,12 @@ final class AppSettings: ObservableObject {
 
     @Published var showHUD = true {
         didSet { UserDefaults.standard.set(showHUD, forKey: Key.showHUD) }
+    }
+
+    /// 调试用：在画面上画出每个格子的边界（格子 / 绘图区 / 刻度栏 / 画面区）与实时尺寸。
+    /// 排查「内容不居中 / 显示不全 / 跑到别的格子」时打开它截图即可。
+    @Published var showLayoutDebug = false {
+        didSet { UserDefaults.standard.set(showLayoutDebug, forKey: Key.showLayoutDebug) }
     }
 
     /// 信号幅度数值读数（峰值白 / 黑位 / 平均值 / 超范围占比）

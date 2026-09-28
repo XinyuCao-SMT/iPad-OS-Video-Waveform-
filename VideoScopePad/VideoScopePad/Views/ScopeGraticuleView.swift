@@ -31,7 +31,8 @@ struct ScopeGraticuleView: View {
                 guard plot.width > 16, plot.height > 16 else { continue }
 
                 context.drawLayer { layer in
-                    layer.clip(to: Path(plot))
+                    // 裁到绘图区（外扩 1.5pt，免得绘图区边框线被裁掉一半看起来「缺一条边」）
+                    layer.clip(to: Path(plot.insetBy(dx: -1.5, dy: -1.5)))
                     switch content {
                     case .vectorscope:
                         drawVectorscope(&layer, rect: plot, gain: settings.vectorscopeGain)
@@ -48,11 +49,15 @@ struct ScopeGraticuleView: View {
                 }
 
                 if let gutterUnit = pane.gutter {
-                    drawGutter(context: &context,
-                               gutter: gutterUnit.scaled(to: size),
-                               plot: plot,
-                               content: content,
-                               pane: pane)
+                    // 刻度栏整体裁在**格子**内：数字与刻度线绝不会跑到相邻格子里去
+                    context.drawLayer { layer in
+                        layer.clip(to: Path(pane.panel.scaled(to: size)))
+                        drawGutter(context: &layer,
+                                   gutter: gutterUnit.scaled(to: size),
+                                   plot: plot,
+                                   content: content,
+                                   pane: pane)
+                    }
                 }
             }
         }
@@ -157,13 +162,15 @@ struct ScopeGraticuleView: View {
             path.addLine(to: CGPoint(x: rect.maxX, y: y))
             stroke(&ctx, path, color: row.color, width: 1.2, dash: [5, 3])
 
+            // 标注放在放得下的一侧（绘图区窄的时候放右边会被裁掉）
+            let narrow = rect.width < 170
             ctx.draw(label(row.name + " " + unit.formatPrecise(row.value),
                            size: 11,
                            weight: .semibold,
                            opacity: 0.95,
                            monospaced: true),
-                     at: CGPoint(x: rect.maxX - 6, y: y - 11),
-                     anchor: .trailing)
+                     at: CGPoint(x: narrow ? rect.minX + 6 : rect.maxX - 6, y: y - 11),
+                     anchor: narrow ? .leading : .trailing)
         }
     }
 
@@ -172,6 +179,7 @@ struct ScopeGraticuleView: View {
     private func drawVectorscope(_ ctx: inout GraphicsContext, rect: CGRect, gain: Double) {
         let center = CGPoint(x: rect.midX, y: rect.midY)
         let radius = min(rect.width, rect.height) / 2
+        let maxRadius = radius          // 绘图区半边长：超出它的圈/目标框一律不画
         let g = CGFloat(max(gain, 0.25))
 
         // 字号跟着圆的大小走，格子小的时候自动变小、并减少标注
@@ -184,12 +192,14 @@ struct ScopeGraticuleView: View {
 
         for fraction in [0.25, 0.5, 0.75, 1.0] {
             let r = radius * CGFloat(fraction) * g
-            guard r <= radius * 1.8 else { continue }
+            // 放大（gain > 1）时外圈会超出绘图区：整圈不画，避免只画出半圈像「图形缺失」
+            guard r <= maxRadius + 0.5 else { continue }
             let circle = Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r,
                                                 width: r * 2, height: r * 2))
             stroke(&ctx, circle, color: fraction == 0.75 ? strong : thin, width: 1)
 
-            if showRingLabels {
+            // 标注也要留得下才画
+            if showRingLabels, r <= maxRadius - fontSize * 1.4 {
                 ctx.draw(label(String(format: "%.0f%%", fraction * 100),
                                size: fontSize,
                                weight: .semibold,
@@ -207,35 +217,45 @@ struct ScopeGraticuleView: View {
         cross.addLine(to: CGPoint(x: center.x, y: rect.maxY))
         stroke(&ctx, cross, color: normal, width: 1)
 
-        // 75% 彩条目标框
+        // 75% 彩条目标框（完整落在绘图区内才画）
         for target in Self.colorTargets75 {
             let x = center.x + CGFloat(target.value.x / 0.5) * radius * g
             let y = center.y - CGFloat(target.value.y / 0.5) * radius * g
 
             let box = max(radius * 0.045, 4)
-            stroke(&ctx, Path(CGRect(x: x - box, y: y - box, width: box * 2, height: box * 2)),
+            let boxRect = CGRect(x: x - box, y: y - box, width: box * 2, height: box * 2)
+            guard rect.contains(boxRect) else { continue }
+
+            stroke(&ctx, Path(boxRect),
                    color: Color.white.opacity(0.6),
                    width: 1)
             if radius >= 60 {
+                // 名字画在左边还是右边，看哪边放得下
+                let placeRight = (x + box + 3 + fontSize * 3.2) <= rect.maxX
                 ctx.draw(label(target.name, size: fontSize, weight: .bold, opacity: 0.9),
-                         at: CGPoint(x: x + box + 3, y: y - fontSize * 0.6),
-                         anchor: .leading)
+                         at: CGPoint(x: placeRight ? x + box + 3 : x - box - 3,
+                                     y: y - fontSize * 0.6),
+                         anchor: placeRight ? .leading : .trailing)
             }
         }
 
-        // 肤色线（I 轴约 123°，广播标准刻度）
+        // 肤色线（I 轴约 123°，广播标准刻度）：长度裁到不出绘图区
         if radius >= 60 {
             let angle = CGFloat(123.0 * Double.pi / 180.0)
-            let length = radius * g * 0.9
-            var skin = Path()
-            skin.move(to: center)
-            skin.addLine(to: CGPoint(x: center.x + cos(angle) * length,
-                                     y: center.y - sin(angle) * length))
-            stroke(&ctx, skin, color: Color.orange.opacity(0.55), width: 1.2, dash: [4, 3])
-            ctx.draw(label("肤色", size: fontSize, weight: .semibold, opacity: 0.8),
-                     at: CGPoint(x: center.x + cos(angle) * length * 0.8,
-                                 y: center.y - sin(angle) * length * 0.8),
-                     anchor: .leading)
+            let dx = cos(angle)
+            let dy = -sin(angle)
+            let reach = maxLength(from: center, dx: dx, dy: dy, in: rect)
+            let length = min(radius * g * 0.9, reach * 0.96)
+            if length > fontSize * 2 {
+                var skin = Path()
+                skin.move(to: center)
+                skin.addLine(to: CGPoint(x: center.x + dx * length, y: center.y + dy * length))
+                stroke(&ctx, skin, color: Color.orange.opacity(0.55), width: 1.2, dash: [4, 3])
+                ctx.draw(label("肤色", size: fontSize, weight: .semibold, opacity: 0.8),
+                         at: CGPoint(x: center.x + dx * length * 0.8,
+                                     y: center.y + dy * length * 0.8),
+                         anchor: .leading)
+            }
         }
 
         if radius >= 80 {
@@ -244,6 +264,16 @@ struct ScopeGraticuleView: View {
             ctx.draw(label("R-Y", size: fontSize, weight: .semibold, opacity: 0.6),
                      at: CGPoint(x: center.x + fontSize * 2.2, y: rect.minY + fontSize))
         }
+    }
+
+    /// 从矩形中心沿 (dx, dy) 方向到边界的最大距离（用来把参考线裁在绘图区内）
+    private func maxLength(from center: CGPoint, dx: CGFloat, dy: CGFloat, in rect: CGRect) -> CGFloat {
+        var limit = CGFloat.greatestFiniteMagnitude
+        if dx > 0.0001 { limit = min(limit, (rect.maxX - center.x) / dx) }
+        if dx < -0.0001 { limit = min(limit, (rect.minX - center.x) / dx) }
+        if dy > 0.0001 { limit = min(limit, (rect.maxY - center.y) / dy) }
+        if dy < -0.0001 { limit = min(limit, (rect.minY - center.y) / dy) }
+        return max(limit, 0)
     }
 
     // MARK: - 波形刻度

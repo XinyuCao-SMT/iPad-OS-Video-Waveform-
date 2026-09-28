@@ -20,6 +20,10 @@ const projectName = 'VideoScopePad';
 const sourcesDirName = 'VideoScopePad';
 const sourcesAbs = path.join(rootDir, sourcesDirName);
 
+// 应用内「设置 → 关于」显示的版本号（MARKETING_VERSION）。
+// 每次发版改这一处，重新生成工程即可，不用手动动 pbxproj。
+const appVersion = '1.6.1';
+
 if (!fs.existsSync(sourcesAbs)) {
     console.error(`找不到源码目录: ${sourcesAbs}`);
     process.exit(1);
@@ -208,7 +212,7 @@ const commonSettings = {
     INFOPLIST_KEY_UISupportedInterfaceOrientations: 'UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown',
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: 'UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight',
     IPHONEOS_DEPLOYMENT_TARGET: '17.0',
-    MARKETING_VERSION: '1.0',
+    MARKETING_VERSION: appVersion,
     MTL_HEADER_SEARCH_PATHS: '$(SRCROOT)/VideoScopePad/Shaders',
     PRODUCT_BUNDLE_IDENTIFIER: 'com.videoscopepad.app',
     PRODUCT_NAME: '$(TARGET_NAME)',

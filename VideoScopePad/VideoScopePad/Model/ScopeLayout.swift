@@ -65,9 +65,13 @@ struct ScopeLayoutResult: Equatable {
 
 enum ScopeLayout {
 
-    /// 绘图区的宽高比**必须等于示波器纹理的比例**，否则轨迹会被拉伸（格子越小越明显）：
+    /// 示波器纹理本身的尺寸（供参考，决定绘图区尺寸时**不再**按它内缩）：
     ///   亮度波形 = 512×256 = 2:1，RGB Parade = 1536×256 = 6:1，矢量 = 256×256 = 1:1
-    static func plotAspect(for content: PaneContent) -> CGFloat {
+    ///
+    /// 只有**矢量图**必须保持 1:1（Cb / Cr 两轴比例尺要一致）；
+    /// 波形 / Parade 的纵向是标定过的幅度轴、横向只是取样位置，所以绘图区铺满可用区域即可 ——
+    /// 纹理被拉伸不会影响读数，因为刻度线与轨迹用的是同一个矩形（见 makePane 里的说明）。
+    static func textureAspect(for content: PaneContent) -> CGFloat {
         switch content {
         case .vectorscope: return 1.0
         case .waveform: return 2.0
@@ -76,16 +80,15 @@ enum ScopeLayout {
         }
     }
 
-    /// 绘图区相对「按纹理比例内缩后」的区域再缩一点，留出呼吸空间。
+    /// 绘图区相对可用区域再缩一点，留出呼吸空间。
     ///
-    /// 矢量图的圆环直径原本正好等于格子高度（四分割里格子高就是半屏），
-    /// 圆环上下顶到格子边缘，视觉上像是「占了半屏还多」，所以单独缩到 0.78；
-    /// 波形/Parade 是扁长的，缩太多反而浪费高度，只留很小的边。
+    /// 矢量图必须保持正方形（见 makePane），所以缩得最多：圆环上下顶格时视觉上像「占了半屏还多」。
+    /// 波形 / Parade 的幅度轴已经由刻度线标定，缩太多只会浪费格子，所以只留很小的边。
     static func fillFactor(for content: PaneContent) -> CGFloat {
         switch content {
         case .vectorscope: return 0.78
-        case .waveform: return 0.96
-        case .parade: return 0.97
+        case .waveform: return 0.97
+        case .parade: return 0.98
         case .picture: return 1.0
         }
     }
@@ -243,40 +246,63 @@ enum ScopeLayout {
                               videoUV: uvRect(videoAspect: videoAspect, target: video, mode: aspectMode))
         }
 
-        let pad = panel.width * 0.015
-        var plotArea = CGRect(x: panel.minX + pad, y: panel.minY + pad,
-                              width: max(panel.width - pad * 2, 1),
-                              height: max(panel.height - pad * 2, 1))
-        var gutter: CGRect?
+        // 内边距按「较短边」取，横竖屏与各尺寸 iPad 的观感一致
+        let pad = min(panel.width, panel.height) * 0.035
 
+        // 刻度栏宽度跟格子高度挂钩，同时不超过格子宽度的一定比例（竖屏窄格子里不至于挤掉绘图区）
+        var gutterWidth: CGFloat = 0
         if needsGutter(content) {
-            // 刻度栏宽度跟格子高度挂钩（而不是宽度），这样格子再小也不会把绘图区挤没
-            let gutterWidth = min(max(panel.height * 0.09, 0.018), panel.width * 0.24)
-            gutter = CGRect(x: panel.minX, y: panel.minY, width: gutterWidth, height: panel.height)
-            plotArea = CGRect(x: panel.minX + gutterWidth + pad,
-                              y: panel.minY + pad,
-                              width: max(panel.width - gutterWidth - pad * 2, 1),
-                              height: max(panel.height - pad * 2, 1))
+            gutterWidth = min(max(panel.height * 0.085, 0.015), panel.width * 0.22)
         }
 
-        let aspect = plotAspect(for: content)
-        var width = plotArea.width
-        var height = plotArea.height
-        if width / height > aspect {
-            width = height * aspect
-        } else {
-            height = width / aspect
+        // 可用空间（先扣掉刻度栏与内边距）
+        var availableWidth = max(panel.width - gutterWidth - pad * 2, 0.001)
+        var availableHeight = max(panel.height - pad * 2, 0.001)
+
+        // 小格子上优先把刻度栏收窄，保证绘图区还有地方（否则会出现「只看见刻度看不见波形」）
+        let minPlotWidth: CGFloat = 0.03          // 单位空间，约等于容器短边的 3%
+        if gutterWidth > 0, availableWidth < minPlotWidth {
+            let deficit = minPlotWidth - availableWidth
+            let shrink = min(deficit, gutterWidth * 0.5)
+            gutterWidth -= shrink
+            availableWidth = max(panel.width - gutterWidth - pad * 2, 0.001)
         }
 
-        // 再按内容的留白系数缩一圈（矢量图缩得最多，见 fillFactor）
+        // 绘图区怎么定尺寸：
+        //   · 矢量图**必须**是正方形 —— Cb / Cr 两个轴的比例尺要一致，否则圆会变椭圆；
+        //   · 波形 / RGB Parade 的**纵向是标定过的幅度轴**（码值 → IRE，和刻度线用同一个矩形），
+        //     横向只是「这一行的取样位置」，拉宽压扁都不会影响读数 —— 所以直接铺满可用区域。
+        //     真实波形监视器也是这么做的：幅度轴占满整个高度，0 / 100 IRE 线内缩一点留头room。
+        //     之前按纹理比例（2:1 / 6:1）内缩，四分割里就只剩中间一条，既小又浪费格子。
+        var width = availableWidth
+        var height = availableHeight
+        if content == .vectorscope {
+            let side = min(width, height)
+            width = side
+            height = side
+        }
+
+        // 再乘留白系数（矢量图 0.78，波形/Parade 约 0.97 —— 只留一点边，不浪费格子）
         let fill = fillFactor(for: content)
         width *= fill
         height *= fill
 
-        let plot = CGRect(x: plotArea.midX - width / 2,
-                          y: plotArea.midY - height / 2,
+        // 让「刻度栏 + 绘图区」**整体**在格子里水平居中（而不是只让绘图区居中，
+        // 那样带刻度栏的格子看起来会整体偏右）。
+        let groupWidth = gutterWidth + width
+        let groupMinX = panel.midX - groupWidth / 2
+        let plot = CGRect(x: groupMinX + gutterWidth,
+                          y: panel.midY - height / 2,
                           width: width,
                           height: height)
+
+        var gutter: CGRect?
+        if gutterWidth > 0 {
+            gutter = CGRect(x: groupMinX,
+                            y: panel.minY + pad * 0.5,
+                            width: gutterWidth,
+                            height: max(panel.height - pad, 0.001))
+        }
 
         return PaneLayout(content: content,
                           slot: slot,
@@ -295,10 +321,9 @@ enum ScopeLayout {
         let gap = box.width * 0.006
         let panelWidth = (box.width - gap * (count + 1)) / count
 
-        // 让最「方」的那个面板决定条带高度（刻度栏要占位，所以多留一点）
-        let required = panels.map { panelWidth / plotAspect(for: content(for: $0)) / fillFactor(for: content(for: $0)) + box.height * 0.06 }
-            .max() ?? box.height * 0.3
-        let stripHeight = min(max(required, box.height * 0.24), box.height * 0.54)
+        // 条带高度：示波器现在会铺满自己的格子，所以给一个与容器高度挂钩的合理值。
+        // 矢量图是正方形，格子宽度决定它能站多高，这里保证不会矮到刻度看不见。
+        let stripHeight = min(max(box.height * 0.30, box.height * 0.22), box.height * 0.50)
 
         var result: [PaneLayout] = []
         for (index, kind) in panels.enumerated() {
