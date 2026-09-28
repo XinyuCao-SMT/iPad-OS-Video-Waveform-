@@ -116,9 +116,21 @@ if (-not $haveRemoteObject) {
         if ($t -eq $baseTree) { $diffBase = $candidate.Trim(); break }
     }
     if (-not $diffBase) {
-        throw ("remote tip {0} (tree {1}) has no local equivalent - run 'git fetch origin' when github.com is reachable" -f $remoteSha, $baseTree)
+        # 找不到 tree 完全一致的本地提交时（常见原因：git 的换行规范化让本地提交的
+        # 树字节与工作区/服务端不一致），退一步用**上一个本地提交**做 diff 基点：
+        # 只要「远端当前状态 = 上一个本地提交的内容」，上传这份差异拼出来的树就是对的。
+        & git rev-parse --verify --quiet "HEAD^" | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $diffBase = (& git rev-parse "HEAD^").Trim()
+            Write-Host "  WARNING: no local tree matched the remote tree;"
+            Write-Host "           using the previous local commit $diffBase as the diff base"
+            Write-Host "           (fine when the remote tip holds the same content as that commit)"
+        } else {
+            throw ("remote tip {0} (tree {1}) has no local equivalent and there is no parent commit - run 'git fetch origin' when github.com is reachable" -f $remoteSha, $baseTree)
+        }
+    } else {
+        Write-Host "  local equivalent of the remote tree: $diffBase"
     }
-    Write-Host "  local equivalent of the remote tree: $diffBase"
 } else {
     # make sure the local commit really descends from the remote tip (fast-forward)
     & git merge-base --is-ancestor $remoteSha $localSha
