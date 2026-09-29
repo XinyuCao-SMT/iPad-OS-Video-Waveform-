@@ -244,11 +244,11 @@ final class StreamController: ObservableObject {
             self.metrics.setPublishing(self.isStreaming, protocolName: self.transportKind.title)
             switch self.transportKind {
             case .srt:
-                self.metrics.note = "带宽与延迟来自 libsrt 的实时统计（RTT = 往返时延）"
+                self.metrics.setNote("带宽与延迟来自 libsrt 的实时统计（RTT = 往返时延）")
             case .rtmp:
-                self.metrics.note = self.isStreaming
+                self.metrics.setNote(self.isStreaming
                     ? "RTMP 协议本身不回传链路指标，所以只画编码码率；延迟/带宽请看 SRT"
-                    : "未推流：曲线为空，开始推流后每秒记录一个点"
+                    : "未推流：曲线为空，开始推流后每秒记录一个点")
             }
         }
     }

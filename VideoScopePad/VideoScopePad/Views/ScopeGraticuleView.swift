@@ -408,20 +408,32 @@ struct ScopeGraticuleView: View {
         stroke(&ctx, locus, color: Color.white.opacity(0.55), width: 1.2)
 
         // 高清 BT.709 与 BT.2020 色域三角
-        func triangle(_ name: String, _ r: (Double, Double), _ g: (Double, Double), _ b: (Double, Double), opacity: Double) {
+        // 注意：这里返回 Path 而不是在嵌套函数里改 ctx —— 嵌套函数捕获 inout 参数有额外限制
+        func trianglePath(_ r: (Double, Double),
+                          _ g: (Double, Double),
+                          _ b: (Double, Double)) -> Path {
             var path = Path()
             path.move(to: point(r.0, r.1))
             path.addLine(to: point(g.0, g.1))
             path.addLine(to: point(b.0, b.1))
             path.closeSubpath()
-            stroke(&ctx, path, color: Color.white.opacity(opacity), width: 1.2)
+            return path
+        }
+
+        func drawTriangle(_ name: String,
+                          _ r: (Double, Double),
+                          _ g: (Double, Double),
+                          _ b: (Double, Double),
+                          opacity: Double) {
+            stroke(&ctx, trianglePath(r, g, b), color: Color.white.opacity(opacity), width: 1.2)
 
             let center = point((r.0 + g.0 + b.0) / 3, (r.1 + g.1 + b.1) / 3)
             ctx.draw(label(name, size: fontSize * 0.9, weight: .bold, opacity: opacity + 0.15),
                      at: CGPoint(x: center.x, y: center.y + fontSize * 0.7))
         }
-        triangle("BT.709", (0.640, 0.330), (0.300, 0.600), (0.150, 0.060), opacity: 0.42)
-        triangle("BT.2020", (0.708, 0.292), (0.170, 0.797), (0.131, 0.046), opacity: 0.22)
+
+        drawTriangle("BT.709", (0.640, 0.330), (0.300, 0.600), (0.150, 0.060), opacity: 0.42)
+        drawTriangle("BT.2020", (0.708, 0.292), (0.170, 0.797), (0.131, 0.046), opacity: 0.22)
 
         // D65 白点
         let white = point(0.3127, 0.3290)

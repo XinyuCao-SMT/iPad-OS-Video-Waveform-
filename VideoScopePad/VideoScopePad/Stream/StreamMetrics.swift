@@ -59,6 +59,11 @@ final class StreamMetrics: ObservableObject {
         self.protocolName = protocolName
     }
 
+    /// 图下方的说明文字（由 StreamController 按当前协议/状态给出）
+    func setNote(_ text: String) {
+        note = text
+    }
+
     func reset() {
         samples.removeAll()
     }
