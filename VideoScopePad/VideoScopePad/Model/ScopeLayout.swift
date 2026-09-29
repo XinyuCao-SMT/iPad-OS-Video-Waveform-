@@ -73,23 +73,26 @@ enum ScopeLayout {
     /// 纹理被拉伸不会影响读数，因为刻度线与轨迹用的是同一个矩形（见 makePane 里的说明）。
     static func textureAspect(for content: PaneContent) -> CGFloat {
         switch content {
-        case .vectorscope: return 1.0
+        case .vectorscope, .diamond, .cie: return 1.0
         case .waveform: return 2.0
         case .parade: return 6.0
         case .picture: return 16.0 / 9.0
+        case .streamStats: return 1.0
         }
     }
 
     /// 绘图区相对可用区域再缩一点，留出呼吸空间。
     ///
-    /// 矢量图必须保持正方形（见 makePane），所以缩得最多：圆环上下顶格时视觉上像「占了半屏还多」。
+    /// 矢量 / 钻石 / 马蹄三种图必须是正方形（圆形与色域刻度不能被拉歪），所以缩得较多；
     /// 波形 / Parade 的幅度轴已经由刻度线标定，缩太多只会浪费格子，所以只留很小的边。
     static func fillFactor(for content: PaneContent) -> CGFloat {
         switch content {
         case .vectorscope: return 0.78
+        case .diamond: return 0.86
+        case .cie: return 0.94
         case .waveform: return 0.97
         case .parade: return 0.98
-        case .picture: return 1.0
+        case .picture, .streamStats: return 1.0
         }
     }
 
@@ -97,7 +100,7 @@ enum ScopeLayout {
     static func needsGutter(_ content: PaneContent) -> Bool {
         switch content {
         case .waveform, .parade: return true
-        case .vectorscope, .picture: return false
+        case .vectorscope, .diamond, .cie, .picture, .streamStats: return false
         }
     }
 
@@ -276,7 +279,7 @@ enum ScopeLayout {
         //     之前按纹理比例（2:1 / 6:1）内缩，四分割里就只剩中间一条，既小又浪费格子。
         var width = availableWidth
         var height = availableHeight
-        if content == .vectorscope {
+        if content.needsSquarePlot {
             let side = min(width, height)
             width = side
             height = side
@@ -345,6 +348,8 @@ enum ScopeLayout {
         case .vectorscope: return .vectorscope
         case .waveform: return .waveform
         case .parade: return .parade
+        case .diamond: return .diamond
+        case .cie: return .cie
         }
     }
 

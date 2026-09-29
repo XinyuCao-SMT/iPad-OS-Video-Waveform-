@@ -195,6 +195,12 @@ struct ContentView: View {
                                        videoRange: capture.isVideoRange)
                         .allowsHitTesting(false)
 
+                    // 「推流状态」格子：近 5 分钟带宽 / 码率 / 延迟曲线（不走 Metal 示波器管线）
+                    StreamStatsPaneOverlay(layout: layout,
+                                           metrics: coordinator.stream.metrics,
+                                           containerSize: geo.size)
+                        .allowsHitTesting(false)
+
                     // 每个格子右上角的内容选择菜单（点它切换这一格显示什么）
                     PaneChromeOverlay(layout: layout,
                                       settings: settings,

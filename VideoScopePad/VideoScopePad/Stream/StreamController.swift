@@ -45,6 +45,14 @@ final class StreamController: ObservableObject {
     /// 读数 CSV 记录器（界面读它的行数与开关）
     let log = MeasurementLog()
 
+    /// 推流状态历史（近 5 分钟）：编码码率 / SRT 带宽 / 延迟，供「推流状态」格子画折线
+    let metrics = StreamMetrics()
+
+    /// 统计用：本秒内编码器输出的字节数
+    private var encodedBytesSinceTick = 0
+    private var lastMetricsTick = Date()
+    private var metricsTask: Task<Void, Never>?
+
     /// 是否记录读数（绑定到界面）
     @Published var logEnabled = false {
         didSet { log.isEnabled = logEnabled }
@@ -174,6 +182,8 @@ final class StreamController: ObservableObject {
             srtPassphrase = endpoint.passphrase ?? ""
             if let bits = endpoint.keyLength { srtKeyLength = bits }
         }
+
+        startMetricsSampling()
     }
 
     // MARK: - 地址预览与校验（界面直接显示）
@@ -196,6 +206,51 @@ final class StreamController: ObservableObject {
                          passphrase: srtPassphrase,
                          keyLength: srtKeyLength,
                          connectTimeout: srtConnectTimeout)
+    }
+
+    // MARK: - 推流状态采样（1 Hz，保留近 5 分钟）
+
+    private func startMetricsSampling() {
+        metricsTask?.cancel()
+        metricsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard let self else { return }
+                await self.sampleMetrics()
+            }
+        }
+    }
+
+    private func sampleMetrics() async {
+        let now = Date()
+        let elapsed = max(now.timeIntervalSince(lastMetricsTick), 0.2)
+        lastMetricsTick = now
+        let bytes = encodedBytesSinceTick
+        encodedBytesSinceTick = 0
+
+        var sample = StreamMetricSample(encodedMbps: Double(bytes) * 8 / 1_000_000 / elapsed)
+
+        // SRT 才有链路统计：libsrt 的估算带宽、实际发送速率、往返时延、丢包/重传
+        if let stats = await transport?.srtStatistics() {
+            sample.bandwidthMbps = stats.bandwidthMbps
+            sample.sendMbps = stats.sendRateMbps
+            sample.rttMs = stats.rttMs
+            sample.lostPackets = stats.lostPackets
+            sample.retransmittedPackets = stats.retransmittedPackets
+        }
+
+        await MainActor.run {
+            self.metrics.append(sample)
+            self.metrics.setPublishing(self.isStreaming, protocolName: self.transportKind.title)
+            switch self.transportKind {
+            case .srt:
+                self.metrics.note = "带宽与延迟来自 libsrt 的实时统计（RTT = 往返时延）"
+            case .rtmp:
+                self.metrics.note = self.isStreaming
+                    ? "RTMP 协议本身不回传链路指标，所以只画编码码率；延迟/带宽请看 SRT"
+                    : "未推流：曲线为空，开始推流后每秒记录一个点"
+            }
+        }
     }
 
     /// 界面上的「将连接」预览
@@ -370,6 +425,9 @@ final class StreamController: ObservableObject {
     }
 
     private func handleEncodedFrame(_ frame: EncodedVideoFrame) {
+        // 统计编码码率（每秒结算一次，供「推流状态」曲线用）
+        encodedBytesSinceTick += CMSampleBufferGetTotalSampleSize(frame.sampleBuffer)
+
         // 录制
         if let recorder {
             do {

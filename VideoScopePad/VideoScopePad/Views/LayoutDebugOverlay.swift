@@ -49,14 +49,7 @@ struct LayoutDebugOverlay: View {
     }
 
     private func panelLabel(_ pane: PaneLayout, _ rect: CGRect) -> String {
-        let name: String
-        switch pane.content {
-        case .picture:      name = "画面"
-        case .vectorscope:  name = "矢量"
-        case .waveform:     name = "波形"
-        case .parade:       name = "Parade"
-        }
-        return "格 \(pane.slot) \(name)  \(sizeText(rect))"
+        "格 \(pane.slot) \(pane.content.shortTitle)  \(sizeText(rect))"
     }
 
     private func sizeText(_ rect: CGRect) -> String {

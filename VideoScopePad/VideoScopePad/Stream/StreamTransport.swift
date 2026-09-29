@@ -127,6 +127,31 @@ final class StreamTransport {
         return publishing
     }
 
+    // MARK: - SRT 链路统计（带宽 / 延迟）
+
+    struct SRTStatistics {
+        /// 往返时延（毫秒）
+        var rttMs: Double
+        /// libsrt 估算的可用带宽（Mb/s）
+        var bandwidthMbps: Double
+        /// 实际发送速率（Mb/s）
+        var sendRateMbps: Double
+        /// 发送侧累计丢包 / 重传（重传多说明链路在丢包）
+        var lostPackets: Int
+        var retransmittedPackets: Int
+    }
+
+    /// 只有 SRT 有链路统计；未连接或走 RTMP 时返回 nil
+    func srtStatistics() async -> SRTStatistics? {
+        guard let connection = srtConnection else { return nil }
+        guard let data = await connection.performanceData else { return nil }
+        return SRTStatistics(rttMs: data.msRTT,
+                             bandwidthMbps: data.mbpsBandwidth,
+                             sendRateMbps: data.mbpsSendRate,
+                             lostPackets: Int(data.pktSndLossTotal),
+                             retransmittedPackets: Int(data.pktRetransTotal))
+    }
+
     // MARK: - 开始 / 停止
 
     func start() {

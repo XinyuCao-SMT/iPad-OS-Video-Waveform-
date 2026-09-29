@@ -65,6 +65,9 @@ enum PaneContent: String, CaseIterable, Identifiable {
     case vectorscope
     case waveform
     case parade
+    case diamond
+    case cie
+    case streamStats
 
     var id: String { rawValue }
 
@@ -74,6 +77,9 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .vectorscope: return "矢量示波器"
         case .waveform: return "亮度波形"
         case .parade: return "RGB 波形"
+        case .diamond: return "钻石图（RGB 色域）"
+        case .cie: return "马蹄图（CIE 色度）"
+        case .streamStats: return "推流状态（近 5 分钟）"
         }
     }
 
@@ -83,6 +89,9 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .vectorscope: return "矢量"
         case .waveform: return "波形"
         case .parade: return "RGB"
+        case .diamond: return "钻石"
+        case .cie: return "马蹄"
+        case .streamStats: return "推流"
         }
     }
 
@@ -92,18 +101,44 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .vectorscope: return "circle.grid.cross"
         case .waveform: return "waveform"
         case .parade: return "chart.bar.doc.horizontal"
+        case .diamond: return "diamond"
+        case .cie: return "chart.xyaxis.line"
+        case .streamStats: return "chart.line.uptrend.xyaxis"
         }
     }
 
-    /// 画面之外的内容对应的示波器种类
+    /// 一句话说明（设置面板 / 菜单里做提示用）
+    var detail: String {
+        switch self {
+        case .picture: return "采集卡的实时画面"
+        case .vectorscope: return "Cb / Cr 平面，看色度落点与饱和度"
+        case .waveform: return "亮度波形，纵向为标定过的 IRE 幅度轴"
+        case .parade: return "RGB 三路波形并排"
+        case .diamond: return "RGB 立方体沿白轴投影：R / G / B 三轴，超出六边形即 0–100% 色域越界"
+        case .cie: return "CIE 1931 色度图：画面颜色在 xy 平面的分布 + 709 / 2020 色域三角"
+        case .streamStats: return "编码码率 / SRT 估计带宽 / 网络延迟（RTT）近 5 分钟曲线"
+        }
+    }
+
+    /// 画面之外的内容对应的示波器种类（推流状态不是 GPU 示波器，所以为 nil）
     var scopeKind: ScopePanelKind? {
         switch self {
-        case .picture: return nil
+        case .picture, .streamStats: return nil
         case .vectorscope: return .vectorscope
         case .waveform: return .waveform
         case .parade: return .parade
+        case .diamond: return .diamond
+        case .cie: return .cie
         }
     }
+
+    /// 绘图区是否必须是正方形（圆形/方形刻度不能被拉歪）
+    var needsSquarePlot: Bool {
+        self == .vectorscope || self == .diamond || self == .cie
+    }
+
+    /// 纯界面绘制（不走 Metal 示波器管线）
+    var isInterfaceOnly: Bool { self == .streamStats }
 }
 
 /// 波形/矢量图侧边刻度的显示单位
@@ -234,6 +269,10 @@ enum ScopePanelKind: String, CaseIterable, Identifiable {
     case vectorscope
     case waveform
     case parade
+    /// 钻石图：RGB 立方体沿白轴投影的色域菱形图
+    case diamond
+    /// 马蹄图：CIE 1931 色度图
+    case cie
 
     var id: String { rawValue }
 
@@ -242,6 +281,8 @@ enum ScopePanelKind: String, CaseIterable, Identifiable {
         case .vectorscope: return "矢量示波器"
         case .waveform: return "亮度波形"
         case .parade: return "RGB 波形"
+        case .diamond: return "钻石图（RGB 色域）"
+        case .cie: return "马蹄图（CIE 色度）"
         }
     }
 
@@ -250,6 +291,8 @@ enum ScopePanelKind: String, CaseIterable, Identifiable {
         case .vectorscope: return "矢量"
         case .waveform: return "波形"
         case .parade: return "RGB"
+        case .diamond: return "钻石"
+        case .cie: return "马蹄"
         }
     }
 }

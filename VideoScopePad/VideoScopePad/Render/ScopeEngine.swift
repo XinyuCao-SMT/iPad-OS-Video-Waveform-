@@ -38,6 +38,8 @@ final class ScopeEngine {
 
     let histogramBuffer: MTLBuffer
     let vectorscopeTexture: MTLTexture
+    let diamondTexture: MTLTexture
+    let cieTexture: MTLTexture
     let waveformTexture: MTLTexture
     let overlayTexture: MTLTexture
     let paradeTexture: MTLTexture
@@ -61,7 +63,7 @@ final class ScopeEngine {
         self.measureUintCount = Int(VS_MEASURE_PLANES) * Int(VS_MEASURE_BINS) + Int(VS_MEASURE_RADIAL_BINS)
 
         let length = (Int(VS_WAVEFORM_COLUMNS) * Int(VS_WAVEFORM_BINS) * Int(VS_WAVEFORM_PLANES)
-            + Int(VS_VECTORSCOPE_SIZE) * Int(VS_VECTORSCOPE_SIZE)) * uintSize
+            + Int(VS_GAMUT_SECTION_COUNT) * Int(VS_VECTORSCOPE_SIZE) * Int(VS_VECTORSCOPE_SIZE)) * uintSize
         guard let buffer = context.device.makeBuffer(length: length, options: .storageModePrivate) else {
             throw ScopeEngineError.bufferAllocationFailed
         }
@@ -86,6 +88,8 @@ final class ScopeEngine {
         let bins = Int(VS_WAVEFORM_BINS)
 
         guard let vector = context.makeScopeTexture(width: scopeSize, height: scopeSize, label: "矢量示波器"),
+              let diamond = context.makeScopeTexture(width: scopeSize, height: scopeSize, label: "钻石图（RGB 色域）"),
+              let cie = context.makeScopeTexture(width: scopeSize, height: scopeSize, label: "马蹄图（CIE 色度）"),
               let waveform = context.makeScopeTexture(width: columns, height: bins, label: "亮度波形"),
               let overlay = context.makeScopeTexture(width: columns, height: bins, label: "RGB 叠加波形"),
               let parade = context.makeScopeTexture(width: columns * 3, height: bins, label: "RGB Parade") else {
@@ -93,6 +97,8 @@ final class ScopeEngine {
         }
 
         vectorscopeTexture = vector
+        diamondTexture = diamond
+        cieTexture = cie
         waveformTexture = waveform
         overlayTexture = overlay
         paradeTexture = parade
@@ -103,10 +109,24 @@ final class ScopeEngine {
         switch kind {
         case .vectorscope:
             return vectorscopeTexture
+        case .diamond:
+            return diamondTexture
+        case .cie:
+            return cieTexture
         case .waveform:
             return waveformMode == .luma ? waveformTexture : overlayTexture
         case .parade:
             return paradeTexture
+        }
+    }
+
+    /// 二维直方图分段索引（与 ShaderTypes.h 里的 VS_GAMUT_SECTION_* 对应）
+    private func gamutSection(for kind: ScopePanelKind) -> Float {
+        switch kind {
+        case .vectorscope: return Float(VS_GAMUT_SECTION_VECTORSCOPE)
+        case .diamond:     return Float(VS_GAMUT_SECTION_DIAMOND)
+        case .cie:         return Float(VS_GAMUT_SECTION_CIE)
+        case .waveform, .parade: return Float(VS_GAMUT_SECTION_VECTORSCOPE)
         }
     }
 
@@ -166,11 +186,14 @@ final class ScopeEngine {
 
             for kind in ScopePanelKind.allCases where settings.enabled.contains(kind) {
                 switch kind {
-                case .vectorscope:
+                case .vectorscope, .diamond, .cie:
+                    // 三种二维直方图共用同一条归一化管线，靠 refs.z 选读哪一段
+                    var sectionUniforms = uniforms
+                    sectionUniforms.refs.z = gamutSection(for: kind)
                     encodeNormalize(encoder: encoder,
                                     pipeline: context.pipelines.normalizeVectorscope,
-                                    texture: vectorscopeTexture,
-                                    uniforms: &uniforms)
+                                    texture: texture(for: kind, waveformMode: settings.waveformMode),
+                                    uniforms: &sectionUniforms)
 
                 case .waveform:
                     encodeNormalize(encoder: encoder,
@@ -267,8 +290,19 @@ final class ScopeEngine {
         uniforms.color = SIMD4<Float>(settings.traceColor.x, settings.traceColor.y, settings.traceColor.z, 1)
         uniforms.refs = SIMD4<Float>(Float(max(8.0, samplesPerColumn * 0.08)),
                                      Float(max(6.0, totalSamples / 20000.0)),
-                                     0, 0)
-        uniforms.flags = SIMD4<Float>(Float(settings.waveformMode.shaderValue), 0, 0, 0)
+                                     Float(VS_GAMUT_SECTION_VECTORSCOPE),
+                                     0)
+
+        // flags.y = 要累计哪几种二维直方图；flags.z = 要不要波形数据（不看波形就别算，省一半原子操作）
+        var gamutMask: Float = 0
+        if settings.enabled.contains(.vectorscope) { gamutMask += 1 }
+        if settings.enabled.contains(.diamond) { gamutMask += 2 }
+        if settings.enabled.contains(.cie) { gamutMask += 4 }
+        let needsWaveform = settings.enabled.contains(.waveform) || settings.enabled.contains(.parade)
+        uniforms.flags = SIMD4<Float>(Float(settings.waveformMode.shaderValue),
+                                      gamutMask,
+                                      needsWaveform ? 1 : 0,
+                                      0)
         return uniforms
     }
 }

@@ -36,6 +36,10 @@ struct ScopeGraticuleView: View {
                     switch content {
                     case .vectorscope:
                         drawVectorscope(&layer, rect: plot, gain: settings.vectorscopeGain)
+                    case .diamond:
+                        drawDiamond(&layer, rect: plot)
+                    case .cie:
+                        drawChromaticity(&layer, rect: plot)
                     case .waveform:
                         drawWaveform(&layer,
                                      rect: plot,
@@ -276,7 +280,189 @@ struct ScopeGraticuleView: View {
         return max(limit, 0)
     }
 
-    // MARK: - 波形刻度
+    // MARK: - 钻石图（RGB 色域）
+
+    /// 钻石图刻度：RGB 立方体沿白轴投影后，0–100% 的合法区域是「上下两个菱形叠起来」的六边形。
+    ///   顶点 R(0,1)、右 M(1,0.5)、右下 B(1,-0.5)、底 C(0,-1)、左下 G(-1,-0.5)、左 Y(-1,0.5)
+    ///   白色 (1,1,1) 落在中心。任何分量超出 0–100% 都会把点推到六边形外 → 色域越界。
+    /// 纹理里的坐标是 0–1 的归一化值（x: ±√3/2 归一化、y: ±1 归一化），所以这里直接映射。
+    private func drawDiamond(_ ctx: inout GraphicsContext, rect: CGRect) {
+        let fontSize = min(max(min(rect.width, rect.height) / 22, 7), 11)
+
+        /// 归一化坐标（x/y ∈ -1...1，y 向上）→ 绘图区坐标
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: rect.midX + x * rect.width / 2,
+                    y: rect.midY - y * rect.height / 2)
+        }
+
+        let vertices: [(CGFloat, CGFloat)] = [
+            (0, 1),      // R
+            (1, 0.5),    // M
+            (1, -0.5),   // B
+            (0, -1),     // C
+            (-1, -0.5),  // G
+            (-1, 0.5)    // Y
+        ]
+
+        // 外框（100% 边界）
+        var hex = Path()
+        hex.move(to: point(vertices[0].0, vertices[0].1))
+        for vertex in vertices.dropFirst() { hex.addLine(to: point(vertex.0, vertex.1)) }
+        hex.closeSubpath()
+        stroke(&ctx, hex, color: Color.white.opacity(0.35), width: 1.2)
+
+        // 内框（75% 彩条边界）—— 灰阶以外的区域是否越界一眼可见
+        var inner = Path()
+        for (index, vertex) in vertices.enumerated() {
+            let p = point(vertex.0 * 0.75, vertex.1 * 0.75)
+            if index == 0 { inner.move(to: p) } else { inner.addLine(to: p) }
+        }
+        inner.closeSubpath()
+        stroke(&ctx, inner, color: Color.white.opacity(0.16), width: 1)
+
+        // 三条轴（中心 → R / G / B）
+        for vertex in [vertices[0], vertices[3 + 1], vertices[2]] {
+            var axis = Path()
+            axis.move(to: point(0, 0))
+            axis.addLine(to: point(vertex.0, vertex.1))
+            stroke(&ctx, axis, color: Color.white.opacity(0.20), width: 1)
+        }
+
+        // 中心十字（白色所在位置）
+        var cross = Path()
+        cross.move(to: point(-0.12, 0))
+        cross.addLine(to: point(0.12, 0))
+        cross.move(to: point(0, -0.12))
+        cross.addLine(to: point(0, 0.12))
+        stroke(&ctx, cross, color: Color.white.opacity(0.30), width: 1)
+
+        // 240 网格（25% 间隔的辅助菱形边）
+        for level in [0.25, 0.5] as [CGFloat] {
+            var grid = Path()
+            for (index, vertex) in vertices.enumerated() {
+                let p = point(vertex.0 * level, vertex.1 * level)
+                if index == 0 { grid.move(to: p) } else { grid.addLine(to: p) }
+            }
+            grid.closeSubpath()
+            stroke(&ctx, grid, color: Color.white.opacity(0.10), width: 1)
+        }
+
+        // 轴与顶点标注
+        let labels: [(String, CGFloat, CGFloat, UnitPoint)] = [
+            ("R", 0, 1.06, .center),
+            ("M", 1.06, 0.5, .leading),
+            ("B", 1.06, -0.5, .leading),
+            ("C", 0, -1.06, .center),
+            ("G", -1.06, -0.5, .trailing),
+            ("Y", -1.06, 0.5, .trailing)
+        ]
+        for label in labels {
+            ctx.draw(self.label(label.0, size: fontSize, weight: .bold, opacity: 0.85),
+                     at: point(label.1, label.2),
+                     anchor: label.3)
+        }
+
+        ctx.draw(self.label("W", size: fontSize * 0.9, weight: .semibold, opacity: 0.5),
+                 at: point(0.06, 0.05),
+                 anchor: .leading)
+    }
+
+    // MARK: - 马蹄图（CIE 1931 色度）
+
+    /// CIE 刻度：光谱轨迹（马蹄形）+ 709 / 2020 色域三角 + D65 白点。
+    /// 坐标映射与 Metal 侧完全一致（用 ShaderTypes.h 里的 VS_CIE_ORIGIN_* / VS_CIE_SPAN）。
+    private func drawChromaticity(_ ctx: inout GraphicsContext, rect: CGRect) {
+        let fontSize = min(max(min(rect.width, rect.height) / 26, 7), 11)
+        let span = Double(VS_CIE_SPAN)
+        let originX = Double(VS_CIE_ORIGIN_X)
+        let originY = Double(VS_CIE_ORIGIN_Y)
+
+        /// xy 色度坐标 → 绘图区坐标
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            let nx = (x + originX) / span
+            let ny = (y + originY) / span
+            return CGPoint(x: rect.minX + CGFloat(nx) * rect.width,
+                           y: rect.maxY - CGFloat(ny) * rect.height)
+        }
+
+        // 坐标框 + 0.1 网格
+        stroke(&ctx, Path(rect), color: Color.white.opacity(0.25), width: 1)
+        var grid = Path()
+        var step = 0.1
+        while step < 0.9 {
+            grid.move(to: point(step, -originY))
+            grid.addLine(to: point(step, -originY + span))
+            grid.move(to: point(-originX, step))
+            grid.addLine(to: point(-originX + span, step))
+            step += 0.1
+        }
+        stroke(&ctx, grid, color: Color.white.opacity(0.08), width: 1)
+
+        // 光谱轨迹（380–700nm，5nm 间隔的 CIE 1931 2° 标准观察者数据）
+        var locus = Path()
+        for (index, sample) in Self.spectralLocus.enumerated() {
+            let p = point(sample.x, sample.y)
+            if index == 0 { locus.move(to: p) } else { locus.addLine(to: p) }
+        }
+        locus.closeSubpath()          // 补上紫边（700nm → 380nm）
+        stroke(&ctx, locus, color: Color.white.opacity(0.55), width: 1.2)
+
+        // 高清 BT.709 与 BT.2020 色域三角
+        func triangle(_ name: String, _ r: (Double, Double), _ g: (Double, Double), _ b: (Double, Double), opacity: Double) {
+            var path = Path()
+            path.move(to: point(r.0, r.1))
+            path.addLine(to: point(g.0, g.1))
+            path.addLine(to: point(b.0, b.1))
+            path.closeSubpath()
+            stroke(&ctx, path, color: Color.white.opacity(opacity), width: 1.2)
+
+            let center = point((r.0 + g.0 + b.0) / 3, (r.1 + g.1 + b.1) / 3)
+            ctx.draw(label(name, size: fontSize * 0.9, weight: .bold, opacity: opacity + 0.15),
+                     at: CGPoint(x: center.x, y: center.y + fontSize * 0.7))
+        }
+        triangle("BT.709", (0.640, 0.330), (0.300, 0.600), (0.150, 0.060), opacity: 0.42)
+        triangle("BT.2020", (0.708, 0.292), (0.170, 0.797), (0.131, 0.046), opacity: 0.22)
+
+        // D65 白点
+        let white = point(0.3127, 0.3290)
+        let r: CGFloat = max(fontSize * 0.4, 3)
+        stroke(&ctx, Path(ellipseIn: CGRect(x: white.x - r, y: white.y - r, width: r * 2, height: r * 2)),
+               color: Color.white.opacity(0.9),
+               width: 1.2)
+        ctx.draw(label("D65", size: fontSize * 0.85, weight: .semibold, opacity: 0.75),
+                 at: CGPoint(x: white.x + r + 2, y: white.y - fontSize * 0.6),
+                 anchor: .leading)
+
+        // 轴标注
+        ctx.draw(label("x", size: fontSize, weight: .semibold, opacity: 0.6),
+                 at: CGPoint(x: rect.maxX - fontSize * 1.6, y: rect.maxY - fontSize * 1.1),
+                 anchor: .center)
+        ctx.draw(label("y", size: fontSize, weight: .semibold, opacity: 0.6),
+                 at: CGPoint(x: rect.minX + fontSize * 1.4, y: rect.minY + fontSize * 1.1),
+                 anchor: .center)
+    }
+
+    /// CIE 1931 2° 光谱轨迹（380–700nm，5nm 步长，x / y 色度坐标）
+    static let spectralLocus: [(x: Double, y: Double)] = [
+        (0.1741, 0.0050), (0.1740, 0.0050), (0.1738, 0.0049), (0.1736, 0.0049),
+        (0.1733, 0.0048), (0.1730, 0.0048), (0.1726, 0.0048), (0.1721, 0.0048),
+        (0.1714, 0.0051), (0.1703, 0.0058), (0.1689, 0.0069), (0.1669, 0.0086),
+        (0.1644, 0.0109), (0.1611, 0.0138), (0.1566, 0.0177), (0.1510, 0.0227),
+        (0.1440, 0.0297), (0.1355, 0.0399), (0.1241, 0.0578), (0.1096, 0.0868),
+        (0.0913, 0.1327), (0.0687, 0.2007), (0.0454, 0.2950), (0.0235, 0.4127),
+        (0.0082, 0.5384), (0.0039, 0.6548), (0.0139, 0.7502), (0.0389, 0.8120),
+        (0.0743, 0.8338), (0.1142, 0.8262), (0.1547, 0.8059), (0.1929, 0.7816),
+        (0.2292, 0.7543), (0.2658, 0.7243), (0.3016, 0.6923), (0.3373, 0.6589),
+        (0.3731, 0.6245), (0.4087, 0.5896), (0.4441, 0.5547), (0.4788, 0.5202),
+        (0.5125, 0.4866), (0.5448, 0.4544), (0.5752, 0.4242), (0.6029, 0.3965),
+        (0.6270, 0.3725), (0.6482, 0.3514), (0.6658, 0.3340), (0.6801, 0.3197),
+        (0.6915, 0.3083), (0.7006, 0.2993), (0.7079, 0.2920), (0.7140, 0.2859),
+        (0.7190, 0.2809), (0.7230, 0.2770), (0.7260, 0.2740), (0.7283, 0.2717),
+        (0.7300, 0.2700), (0.7311, 0.2689), (0.7320, 0.2680), (0.7327, 0.2673),
+        (0.7334, 0.2666), (0.7340, 0.2660), (0.7344, 0.2656), (0.7346, 0.2654),
+        (0.7347, 0.2653)
+    ]
+
 
     private func drawWaveform(_ ctx: inout GraphicsContext,
                               rect: CGRect,
