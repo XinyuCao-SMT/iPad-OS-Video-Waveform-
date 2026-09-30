@@ -42,6 +42,7 @@ internal static class Program
 
             string shaderDirectory = Path.Combine(AppContext.BaseDirectory, "Render", "Shaders");
             using var shaders = ShaderLibrary.Create(d3d.Device, shaderDirectory);
+            using var pipelines = new PipelineLibrary(d3d.Device, shaders);
             Console.WriteLine($"着色器编译    : {shaders.Log.Count} 条");
             foreach (string line in shaders.Log)
             {
@@ -237,7 +238,183 @@ internal static class Program
             }
             Check(allLit, "7 条彩条在矢量图纹理上都有亮点（bin → 纹理坐标 y 翻转正确）");
 
-            // ---------- 4) 出图 ----------
+            // ---------- 4) 整机合成：布局 + 画面 + 轨迹 ----------
+            Console.WriteLine();
+            Console.WriteLine("布局断言（四分割：画面 / 亮度波形 / 矢量图 / Parade）：");
+
+            var layout = ScopeLayout.Compute(
+                containerWidth: width,
+                containerHeight: height,
+                videoWidth: width,
+                videoHeight: height,
+                preset: MonitorLayoutPreset.Quad,
+                aspectMode: AspectMode.Fit,
+                fullscreenContent: PaneContent.Picture,
+                quadContents: new[]
+                {
+                    PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
+                },
+                legacyPanels: Array.Empty<ScopePanelKind>());
+
+            Check(layout.Panes.Count == 4, $"四分割给出 {layout.Panes.Count} 个格子");
+            Check(layout.HasPicture, "布局里包含画面格");
+            Check(layout.VisibleScopeKinds.Count == 3, $"布局用到 {layout.VisibleScopeKinds.Count} 种示波器（波形/矢量/Parade）");
+
+            double boxWidth = (double)width / height;
+            foreach (var pane in layout.Panes)
+            {
+                if (pane.Plot is { } plot)
+                {
+                    bool inside = plot.MinX >= pane.Panel.MinX - 1e-9 && plot.MaxX <= pane.Panel.MaxX + 1e-9
+                               && plot.MinY >= pane.Panel.MinY - 1e-9 && plot.MaxY <= pane.Panel.MaxY + 1e-9;
+                    Check(inside, $"格子 {pane.Slot}（{pane.Content}）的绘图区在格子内 {plot} ⊆ {pane.Panel}");
+
+                    if (pane.Content.NeedsSquarePlot())
+                    {
+                        // 单位空间里 x 被容器宽高比缩过，所以「正方形」要在盒空间里判：width × boxWidth == height
+                        double boxedWidth = plot.Width * boxWidth;
+                        Check(Math.Abs(boxedWidth - plot.Height) < 1e-6,
+                              $"格子 {pane.Slot}（{pane.Content}）绘图区是正方形：盒空间 {boxedWidth:0.#####} × {plot.Height:0.#####}");
+                    }
+                }
+                if (pane.Video is { } video)
+                {
+                    bool inside = video.MinX >= pane.Panel.MinX - 1e-9 && video.MaxX <= pane.Panel.MaxX + 1e-9
+                               && video.MinY >= pane.Panel.MinY - 1e-9 && video.MaxY <= pane.Panel.MaxY + 1e-9;
+                    Check(inside, $"格子 {pane.Slot} 的画面区在格子内 {video} ⊆ {pane.Panel}");
+                }
+            }
+
+            // 格子之间不许重叠（四分割最容易出的错就是「内容跑到别的框里」）
+            bool overlaps = false;
+            for (int i = 0; i < layout.Panes.Count; i++)
+            {
+                for (int j = i + 1; j < layout.Panes.Count; j++)
+                {
+                    var a = layout.Panes[i].Panel;
+                    var b = layout.Panes[j].Panel;
+                    var hit = a.Intersect(b);
+                    if (hit.Width > 1e-6 && hit.Height > 1e-6)
+                    {
+                        overlaps = true;
+                        Console.WriteLine($"      格子 {i} 与 {j} 重叠 {hit}");
+                    }
+                }
+            }
+            Check(!overlaps, "四分割的格子两两不重叠");
+
+            // ---------- 5) 合成渲染并核对 ----------
+            Console.WriteLine();
+            Console.WriteLine("合成渲染断言：");
+            using var composite = d3d.CreateRenderTarget(width, height);
+            using var compositeRtv = d3d.Device.CreateRenderTargetView(composite);
+            using var renderer = new VideoRenderer(d3d.Device, pipelines)
+            {
+                Layout = layout,
+            };
+
+            var options = new RenderOptions { WaveformMode = WaveformMode.Luma, VectorscopeGain = 1.0 };
+            renderer.Render(d3d.Context, compositeRtv, width, height, sourceSrv, engine, options);
+            d3d.Context.Flush();
+            d3d.SavePng(composite, Path.Combine(outDirectory, "composite-quad.png"));
+
+            var image = d3d.ReadBackRgba8(composite, out int cw, out int ch);
+
+            // 画面格：应当能看到彩条（非黑）
+            var picturePane = layout.Panes[0];
+            Check(picturePane.Video is not null, "画面格有画面区");
+            if (picturePane.Video is { } pv)
+            {
+                int px = (int)((pv.MinX + pv.Width / 7 * 0.5) * cw);
+                int py = (int)((pv.MinY + pv.Height * 0.25) * ch);
+                byte r = image[(py * cw + px) * 4];
+                byte g = image[(py * cw + px) * 4 + 1];
+                byte b = image[(py * cw + px) * 4 + 2];
+                Check(r > 60 && g > 60 && b > 60, $"画面格左上角是 75% 白条：({r},{g},{b})");
+            }
+
+            // 波形格：191 IRE 那一行必须有轨迹
+            var waveformPane = layout.Panes[1];
+            Check(waveformPane.Plot is not null, "波形格有绘图区");
+            if (waveformPane.Plot is { } wp)
+            {
+                int traceRow = (int)((wp.MinY + wp.Height * (rowForWhite / 256.0)) * ch);
+                int quietRow = (int)((wp.MinY + wp.Height * (128 / 256.0)) * ch);   // 约 127 bin，彩条不在这
+                int left = (int)(wp.MinX * cw) + 4;
+                int right = (int)(wp.MaxX * cw) - 4;
+
+                // 判据：只看**白条那 1/7 列**的纵向剖面 —— 在白条占的列里，
+                // 亮度最高的一行就是 191 IRE（白条在那几列里有 720 行、亮度统一，
+                // 比它自己的蓝条段 360 行更亮），所以 argmax 应该正好落在期望行上。
+                int whiteLeft = left + 4;
+                int whiteRight = left + (right - left) / 7 - 4;
+                int bestRow = -1;
+                double bestValue = -1;
+                for (int y = (int)(wp.MinY * ch); y < (int)(wp.MaxY * ch); y++)
+                {
+                    double value = RowAverageRgba(image, cw, y, whiteLeft, whiteRight);
+                    if (value > bestValue)
+                    {
+                        bestValue = value;
+                        bestRow = y;
+                    }
+                }
+                Check(Math.Abs(bestRow - traceRow) <= 4,
+                      $"白条那几列的纵向剖面峰值在 y={bestRow}（均值 {bestValue:0.0}），" +
+                      $"期望 191 IRE 的 y={traceRow}（±4 px）");
+
+                int litAtTrace = CountAbove(image, cw, bestRow, left, right, 90);
+                int expectedColumns = (int)((right - left) / 7.0);
+                Check(litAtTrace >= expectedColumns * 0.6,
+                      $"该行有 {litAtTrace} 个亮列，白条占 1/7 宽度（至少应有 {expectedColumns * 0.6:0}）");
+
+                double tracePeak = RowMaxRgba(image, cw, traceRow, left, right);
+                double quietPeak = RowMaxRgba(image, cw, quietRow, left, right);
+                Check(tracePeak > quietPeak, $"191 IRE 行峰值 {tracePeak:0.0} 高于 128 bin 行 {quietPeak:0.0}");
+
+            }
+
+            // 矢量图格：应当有 7 个亮点
+            var vectorPane = layout.Panes[2];
+            Check(vectorPane.Plot is not null, "矢量图格有绘图区");
+            if (vectorPane.Plot is { } vp)
+            {
+                int lit = 0;
+                int x0 = (int)(vp.MinX * cw), x1 = (int)(vp.MaxX * cw);
+                int y0 = (int)(vp.MinY * ch), y1 = (int)(vp.MaxY * ch);
+                for (int y = y0; y < y1; y++)
+                {
+                    for (int x = x0; x < x1; x++)
+                    {
+                        int offset = (y * cw + x) * 4;
+                        if (image[offset] + image[offset + 1] + image[offset + 2] > 150)
+                        {
+                            lit++;
+                        }
+                    }
+                }
+                Check(lit > 7, $"矢量图格里有 {lit} 个亮点像素（7 条彩条）");
+            }
+
+            // Parade 格：三列都要有轨迹
+            var paradePane = layout.Panes[3];
+            Check(paradePane.Plot is not null, "Parade 格有绘图区");
+            if (paradePane.Plot is { } pp)
+            {
+                for (int channel = 0; channel < 3; channel++)
+                {
+                    double from = pp.MinX + pp.Width * channel / 3.0;
+                    double to = pp.MinX + pp.Width * (channel + 1) / 3.0;
+                    double value = 0;
+                    for (int y = (int)(pp.MinY * ch); y < (int)(pp.MaxY * ch); y++)
+                    {
+                        value = Math.Max(value, RowAverageRgba(image, cw, y, (int)(from * cw) + 2, (int)(to * cw) - 2));
+                    }
+                    string[] names = { "R", "G", "B" };
+                    Check(value > 8, $"Parade 第 {names[channel]} 列有轨迹（峰值行均值 {value:0.0}）");
+                }
+            }
+
             Console.WriteLine();
             Console.WriteLine("输出 PNG：");
             Save(engine, ScopePanelKind.Waveform, WaveformMode.Luma, d3d, "scope-waveform.png", outDirectory);
@@ -317,6 +494,71 @@ internal static class Program
         for (int x = fromX; x < toX && x < width; x++)
         {
             sum += pixels[(row * width + x) * 4];
+            count++;
+        }
+        return count > 0 ? sum / count : 0;
+    }
+
+    /// <summary>一行里的最大亮度（判轨迹有没有到位，比均值可靠）</summary>
+    private static double RowMaxRgba(byte[] pixels, int width, int row, int fromX, int toX)
+    {
+        if (row < 0 || row * width * 4 >= pixels.Length)
+        {
+            return 0;
+        }
+        fromX = Math.Max(fromX, 0);
+        toX = Math.Min(toX, width);
+        double max = 0;
+        for (int x = fromX; x < toX; x++)
+        {
+            int offset = (row * width + x) * 4;
+            max = Math.Max(max, Math.Max(pixels[offset], Math.Max(pixels[offset + 1], pixels[offset + 2])));
+        }
+        return max;
+    }
+
+    /// <summary>一行里亮度超过阈值的像素个数</summary>
+    private static int CountAbove(byte[] pixels, int width, int row, int fromX, int toX, double threshold)
+    {
+        if (row < 0 || row * width * 4 >= pixels.Length)
+        {
+            return 0;
+        }
+        fromX = Math.Max(fromX, 0);
+        toX = Math.Min(toX, width);
+        int count = 0;
+        for (int x = fromX; x < toX; x++)
+        {
+            int offset = (row * width + x) * 4;
+            double value = Math.Max(pixels[offset], Math.Max(pixels[offset + 1], pixels[offset + 2]));
+            if (value > threshold)
+            {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /// <summary>一行的平均亮度（RGB 三个通道都算，矢量图 / Parade 的亮点是彩色的）</summary>
+    private static double RowAverageRgba(byte[] pixels, int width, int row, int fromX, int toX)
+    {
+        if (row < 0 || row * width * 4 >= pixels.Length)
+        {
+            return 0;
+        }
+        fromX = Math.Max(fromX, 0);
+        toX = Math.Min(toX, width);
+        if (toX <= fromX)
+        {
+            return 0;
+        }
+
+        double sum = 0;
+        int count = 0;
+        for (int x = fromX; x < toX; x++)
+        {
+            int offset = (row * width + x) * 4;
+            sum += Math.Max(pixels[offset], Math.Max(pixels[offset + 1], pixels[offset + 2]));
             count++;
         }
         return count > 0 ? sum / count : 0;
