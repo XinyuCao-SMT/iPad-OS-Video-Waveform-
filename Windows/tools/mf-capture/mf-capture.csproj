@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Media Foundation 采集自检工具：一条命令一个验收点。
+
+      dotnet run 该项目 list      ① 枚举设备
+      dotnet run 该项目 formats   ② 格式清单 + 生效格式 + 色彩元数据
+      dotnet run 该项目 capture 1 ③ 采 1 秒 + 存 PNG
+
+    为什么不做成窗口程序：WPF 界面要等采集链路稳了再上；
+    在此之前每一步都用「命令行 + 数值断言 + 出图」验收，
+    出问题能一眼定位到是 API 用法、驱动、还是我们的转换代码。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <RootNamespace>VideoScopePad.Tools.MfCapture</RootNamespace>
+    <AssemblyName>mf-capture</AssemblyName>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\VideoScopePad.Win\VideoScopePad.Win.csproj" />
+  </ItemGroup>
+
+</Project>
