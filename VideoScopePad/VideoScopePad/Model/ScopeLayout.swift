@@ -97,7 +97,7 @@ enum ScopeLayout {
         case .cie: return 0.94
         case .waveform: return 0.97
         case .parade: return 0.98
-        case .picture, .streamStats, .avSync: return 1.0
+        case .picture, .streamStats, .avSync, .audioSpectrum: return 1.0
         case .audioPhase: return 0.92
         }
     }
