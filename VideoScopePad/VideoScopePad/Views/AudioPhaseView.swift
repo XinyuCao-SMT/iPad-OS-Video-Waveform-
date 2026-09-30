@@ -120,19 +120,20 @@ struct AudioPhasePaneView: View {
         guard !points.isEmpty else { return }
 
         let dot = max(plot.width / 220, 1.4)
-        var layer = ctx
-        layer.blendMode = .plusLighter
 
-        for point in points {
-            let x = plot.minX + CGFloat(point.x) / 255 * plot.width
-            // 图像坐标 y 向上，屏幕向下 → 翻转
-            let y = plot.maxY - CGFloat(point.y) / 255 * plot.height
-            let alpha = 0.25 + 0.75 * Double(point.intensity)
-            let rect = CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)
-            layer.fill(Path(ellipseIn: rect),
-                       with: .color(Color(red: 0.45, green: 1.0, blue: 0.65).opacity(alpha)))
+        // 点云用 plusLighter 叠加：重叠越多越亮，和示波器的观感一致
+        ctx.drawLayer { layer in
+            layer.blendMode = .plusLighter
+            for point in points {
+                let x = plot.minX + CGFloat(point.x) / 255 * plot.width
+                // 图像坐标 y 向上、屏幕向下 → 翻转
+                let y = plot.maxY - CGFloat(point.y) / 255 * plot.height
+                let alpha = 0.25 + 0.75 * Double(point.intensity)
+                let rect = CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)
+                layer.fill(Path(ellipseIn: rect),
+                           with: .color(Color(red: 0.45, green: 1.0, blue: 0.65).opacity(alpha)))
+            }
         }
-        ctx.draw(layer, in: plot)
     }
 
     /// 底部读数：相关度（数字 + 从 −1 到 +1 的条形）与 L/R 平衡
