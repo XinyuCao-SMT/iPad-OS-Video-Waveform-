@@ -23,3 +23,9 @@ dist/
 
 # ---- 实机报错截图（交流用，不进仓库）----
 error_report/
+
+# ---- Windows 版（C#/.NET）本地构建产物与自检出图 ----
+Windows/**/bin/
+Windows/**/obj/
+Windows/out/
+*.user

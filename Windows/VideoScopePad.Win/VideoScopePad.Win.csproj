@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VideoScopePad.Win —— Windows 版的**核心库**（不含界面）。
+
+    与 iPad 版一一对应：
+      Core/     ← Model/   （布局计算、格内容模型、量表单位）
+      Render/   ← Render/  （D3D11 渲染、示波器引擎、离屏出图、PNG 编码）
+      Capture/  ← Capture/ （Media Foundation UVC 采集）
+      Audio/    ← Audio/   （WASAPI 采集 + 分析）
+
+    单独拆成库是为了让「离屏自检工具」能直接引用它渲染 PNG：
+    没有 Xcode 的时候我们靠 CI 盲编，现在这台机器能本地编译，
+    所以要有办法**自己看图核对**（见 tools/render-selfcheck）。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>VideoScopePad.Win</RootNamespace>
+    <AssemblyName>VideoScopePad.Win</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+    <PackageReference Include="Vortice.Mathematics" Version="2.1.1" />
+  </ItemGroup>
+
+  <!-- 着色器随输出一起拷贝，运行时按文件名编译（HLSL 用系统的 d3dcompiler_47.dll，
+       不需要装 Visual Studio / fxc.exe） -->
+  <ItemGroup>
+    <None Include="Render\Shaders\*.hlsl" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Render\Shaders\*.hlsli" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

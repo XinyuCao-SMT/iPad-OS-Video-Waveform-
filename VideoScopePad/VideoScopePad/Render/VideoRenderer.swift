@@ -204,6 +204,9 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 scopeEngine.captureReference(commandBuffer: commandBuffer)
                 referenceRequest = .none
             }
+        } else if referenceRequest == .capture {
+            // 一格示波器都没显示：没有图可抓，别把这个请求一直留着以后误抓
+            referenceRequest = .none
         }
         if referenceRequest == .clear {
             scopeEngine.clearReference()

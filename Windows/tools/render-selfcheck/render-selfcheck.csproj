@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    离屏自检工具：不开窗口，直接把合成信号跑完整条渲染链路，然后存 PNG。
+    我（AI）用 read_image 看图核对，用户也能直接打开图看效果。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <RootNamespace>VideoScopePad.Tools.RenderSelfCheck</RootNamespace>
+    <AssemblyName>render-selfcheck</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\VideoScopePad.Win\VideoScopePad.Win.csproj" />
+  </ItemGroup>
+
+</Project>
