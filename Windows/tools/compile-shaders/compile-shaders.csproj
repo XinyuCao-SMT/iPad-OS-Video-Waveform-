@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    compile-shaders —— Windows 版 HLSL 编译自检工具（控制台程序）。
+
+    只依赖 Vortice.D3DCompiler：它封装系统自带的 d3dcompiler_47.dll，
+    所以这台机器**不需要** Visual Studio / fxc.exe / Windows SDK 就能编译 HLSL。
+
+    注意：Vortice.D3DCompiler 依赖 Vortice.DirectX（Blob / ShaderMacro / Include 都在里面），
+    由 NuGet 自动带入，不需要显式写。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>compile-shaders</AssemblyName>
+    <RootNamespace>VideoScopePad.Tools.CompileShaders</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
+  </ItemGroup>
+
+</Project>
