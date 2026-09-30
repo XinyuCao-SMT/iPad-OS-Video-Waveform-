@@ -1,10 +1,56 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.7.0-gamut**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.7.1-rot**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.7.1 修复版（提交 `00ba3841`，tag `v1.7.1-rot`，CI run #29 全绿）
+
+**一、钻石图按 Tektronix 原版重做（v1.7.0 那版算法是错的）**
+
+依据：泰克应用手册 **《Color Grading with the Spearhead Display》**（`2PW_28619_0`，第 2 节
+*Color Grading and Gamut Monitoring with the Diamond Display*；可从
+`download.tek.com/document/2PW_28619_0_HR.pdf` 取得）。原文逐条：
+
+| 原文 | 结论 |
+|---|---|
+| "the top diamond … indicates levels of blue and green" | 上菱形画 **G 与 B** |
+| "the bottom diamond displays only red and green" | 下菱形画 **G 与 R** |
+| "with the green signal indicated on the left side of both diamonds" | **G 在两个菱形左侧** |
+| "pure black where the two diamonds join in the center" | 纯黑在两菱形交会的**中心** |
+| "pure white … center top of the top diamond and the center bottom of the bottom diamond" | 纯白在上菱形顶 / 下菱形底 |
+| "a perfectly monochromatic signal … displays as a perfect vertical line" | 灰阶是**正中竖线** |
+| "pure gray is indicated in the center of the broadest part of both diamonds" | 中灰在**最宽处中心** |
+
+由此唯一确定坐标（显示坐标 x、y ∈ −1…1，y 向上，原点 = 纯黑）：
+
+```
+上菱形：x = B − G      y = (G + B)/2      （0 … 1）
+下菱形：x = R − G      y = −(R + G)/2     （−1 … 0）
+```
+
+* kernel 每帧累加两个点（上/下钻石），共用同一张 256×256 直方图（section 1）。
+* 刻度层：两个菱形 + 25% / 50% / 75% 等值线（以纯黑点为心缩放 = 「两分量之和」的等值线）
+  + 灰阶竖线 + 两条最宽处水平线 + 中心黑点 + W / B / G / R 标注。
+* v1.7.0 用的是自行推导（RGB 立方体沿白轴投影 → 单六边形），形状与轴向都不对，已废弃。
+
+**二、画面方向跟随设备**
+
+* 新增 `PictureRotation`（自动跟随界面 / 不旋转 / 顺时针 90° / 逆时针 90° / 180°），
+  默认「自动跟随界面」：界面竖屏时画面顺时针转 90°，横屏不动。
+* `ScopeLayout.compute` 增加 `pictureRotation`；画面旋转 90/270 时按**对调后的宽高比**适配显示区
+  （否则竖屏会被裁掉或留大片黑边），角度记进 `PaneLayout.rotation`。
+* `VSQuadUniforms` 增加 `misc.x` = 旋转角度，顶点着色器绕采样区中心旋转 UV；
+  **几何矩形不变** → 画面永远不会溢出自己的格子（四分割安全）。
+* 只作用于画面格子，示波器格子不受影响。
+
+**待办（下轮顺手做）**
+* `PaneContent.detail`（每种格子的一句话说明）还没接到界面上 —— 适合做成分格菜单的副标题。
+* 想更贴近泰克家族的话，还可以加 **Split Diamond**（两个菱形左右错开，便于看近黑细节）
+  与 **Arrowhead**（复合色域，需要做 composite 编码）。
+
 
 ### v1.7.0 色域与推流监看版（提交 `a85d5d41`，tag `v1.7.0-gamut`，CI run #28 全绿）
 
