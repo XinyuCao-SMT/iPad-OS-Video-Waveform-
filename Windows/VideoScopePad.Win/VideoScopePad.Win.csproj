@@ -32,6 +32,7 @@
     <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
     <PackageReference Include="Vortice.D3DCompiler" Version="3.8.3" />
     <PackageReference Include="Vortice.Mathematics" Version="2.1.1" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
   </ItemGroup>
 
   <!-- 着色器随输出一起拷贝，运行时按文件名编译（HLSL 用系统的 d3dcompiler_47.dll，
