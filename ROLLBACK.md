@@ -1,8 +1,8 @@
 # 回滚指南 · 版本保留说明
 
-十二个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
+十三个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
 
-## 十二个版本
+## 十三个版本
 
 | 版本 | 提交 | Tag / 分支 | 内容 | IPA |
 |---|---|---|---|---|
@@ -17,7 +17,8 @@
 | **v1.6.0 品牌与网络修复版** | `fb58d4c8` | tag `v1.6.0-brand` | **补上 `NSLocalNetworkUsageDescription`** —— iOS 14 起访问局域网设备必须授权，缺这个键系统连权限框都不弹、数据包被静默丢弃，推流连 `192.168.x.x` 就表现为一直超时（SRT_REJ_TIMEOUT）；新增网络诊断（本机 IP / 网段比较 / UDP 探测 / 可照做的结论）；四分割逐格适配（每格菜单按比例内缩并 `clipped()` + Metal `setScissorRect` 裁剪）；App 图标（之前资源里没有图片文件）与顶部界面 logo | `dist/VideoScopePad-v1.6.0-brand-unsigned.ipa` |
 | **v1.6.1 布局修复版** | `0a8d4c61` | tag `v1.6.1-layout` | 四分割逐格修正：波形/Parade 绘图区**铺满格子**（纵向才是标定过的幅度轴，不再按 2:1 / 6:1 内缩成中间一条）；「刻度栏 + 绘图区」整体居中；内边距按短边、小格子自动收窄刻度栏；矢量图放大时超出绘图区的圈/目标框整圈不画；刻度栏与峰值标注裁剪在格子内；新增**布局调试叠加层**（设置 → 显示）；应用内版本号接通（1.6.1） | `dist/VideoScopePad-v1.6.1-layout-unsigned.ipa` |
 | **v1.7.0 色域与推流监看版** | `a85d5d41` | tag `v1.7.0-gamut` | 新增三种格子内容：**钻石图**（⚠️ 此版算法是错的，见 v1.7.1 修正）、**马蹄图**（CIE 1931：380–700nm 光谱轨迹 + BT.709/BT.2020 三角 + D65 白点）、**推流状态**（近 5 分钟曲线：编码码率 / SRT 估计带宽 / SRT 发送速率 / RTT 往返时延，每秒一点共 300 点） | `dist/VideoScopePad-v1.7.0-gamut-unsigned.ipa` |
-| **v1.7.1 修复版**<br>（最新，**推荐装**） | `00ba3841` | tag `v1.7.1-rot` | **钻石图按 Tektronix 原版重做**（依据泰克手册 `2PW_28619_0` 第 2 节：上菱形画 G+B、下菱形画 G+R、**G 在两个菱形左侧**、纯黑在两菱形交会中心、纯白在上下顶端、灰阶是正中竖线、中灰在最宽处中心 → `x=B−G, y=(G+B)/2` 与 `x=R−G, y=−(R+G)/2`）；新增**画面方向**设置（自动跟随界面 / 不旋转 / 顺·逆时针 90° / 180°），画面格子旋转时按对调宽高比适配、UV 在顶点着色器里绕采样区中心旋转（几何矩形不变，绝不溢出格子） | `dist/VideoScopePad-v1.7.1-rot-unsigned.ipa` |
+| **v1.7.1 修复版** | `00ba3841` | tag `v1.7.1-rot` | **钻石图按 Tektronix 原版重做**（依据泰克手册 `2PW_28619_0` 第 2 节：上菱形画 G+B、下菱形画 G+R、**G 在两个菱形左侧**、纯黑在两菱形交会中心、纯白在上下顶端、灰阶是正中竖线、中灰在最宽处中心 → `x=B−G, y=(G+B)/2` 与 `x=R−G, y=−(R+G)/2`）；新增**画面方向**设置（自动跟随界面 / 不旋转 / 顺·逆时针 90° / 180°），画面格子旋转时按对调宽高比适配、UV 在顶点着色器里绕采样区中心旋转（几何矩形不变，绝不溢出格子） | `dist/VideoScopePad-v1.7.1-rot-unsigned.ipa` |
+| **v1.8.0 声画延时版**<br>（最新，**推荐装**） | `5ea9bfd9` | tag `v1.8.0-avsync` | **声画延时（A/V Sync）测量**：音频侧 1 kHz 带通 + 逐样本包络检波（采样级起音），视频侧每帧画面签名（亮度/饱和度）找「黑场 → 彩条」跳变帧，两者同在主机时钟上直接相减 → 报「声音快 / 画面快 xx ms」+ 中位数 / 极差 / 帧间隔量化；新增**画面两侧音柱**（L/R，dB 刻度、峰值保持、CLIP，裁在格子内）；设置新增音频输入选择与测量补偿；Info.plist 增加麦克风权限键 | `dist/VideoScopePad-v1.8.0-avsync-unsigned.ipa` |
 
 > ⚠️ **v1.3.0 有已知崩溃**：只要打开「读数」，`PeakHoldTracker` 的独占访问违规就会让 App 崩溃，
 > 而且读数开关是持久化的，**重启后照样崩、根本进不去**。要修只能装 v1.3.1 或更早版本（v1.2.0 及以前没有这个 bug）。
@@ -56,22 +57,22 @@
 ```bash
 cd "E:\harness\iPad OS Software Waform"
 
-git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / v1.3.0-stream / v1.3.1-fix / v1.4.0-srt / v1.4.1-fix / v1.5.0-form / v1.6.0-brand / v1.6.1-layout / v1.7.0-gamut / legacy/v1.0.0-monitor
+git checkout v1.0.0-monitor     # 或 v1.1.0-quad / v1.2.0-assist / v1.3.0-stream / v1.3.1-fix / v1.4.0-srt / v1.4.1-fix / v1.5.0-form / v1.6.0-brand / v1.6.1-layout / v1.7.0-gamut / v1.7.1-rot / legacy/v1.0.0-monitor
 # …要验证/构建就在这个状态跑 tools/ci-cycle.ps1
 
 git checkout main               # 回到最新版
 git log --oneline -1            # 确认当前位置
 ```
 
-GitHub 上十二个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
+GitHub 上十三个 tag 都已推送，换台机器 `git clone` + `git checkout <tag>` 同样有效。
 
 ### 方式 C：完全离线恢复（连 git / GitHub 都没有）
 
 解压这些归档即可得到完整工程（含 Xcode 工程、scheme、CI 工作流）：
 
 ```
-E:\harness\_backup\src-v1.7.1-rot-<sha>.zip             ← 最新版源码
-E:\harness\_backup\src-v1.7.0-gamut-0ae888186.zip       ← 上一版源码
+E:\harness\_backup\src-v1.8.0-avsync-<sha>.zip          ← 最新版源码
+E:\harness\_backup\src-v1.7.1-rot-2331b5ab6.zip         ← 上一版源码
 E:\harness\_backup\src-v1.0.0-monitor-385d8d0.zip       ← 最早那版源码
 E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运行地址与 IPA 哈希
 ```
@@ -95,8 +96,9 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | v1.6.1-layout | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36432295696> |
 | v1.7.0-gamut | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36575613952> |
 | v1.7.1-rot | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36671677533> |
+| v1.8.0-avsync | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36706991542> |
 
-十二个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
+十三个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
 
 - v1.0.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.0.0-monitor>
 - v1.1.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.1.0-quad>
@@ -110,6 +112,7 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 - v1.6.1：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.6.1-layout>
 - v1.7.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.7.0-gamut>
 - v1.7.1：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.7.1-rot>
+- v1.8.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.8.0-avsync>
 
 ## 校验哈希（确认手里的是哪一版）
 
@@ -127,11 +130,12 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | `VideoScopePad-v1.6.1-layout-unsigned.ipa` | 4.25 MB | `6DCCE87111EB8711…` |
 | `VideoScopePad-v1.7.0-gamut-unsigned.ipa` | 4.27 MB | `DBE884071DCB3894…` |
 | `VideoScopePad-v1.7.1-rot-unsigned.ipa` | 4.28 MB | `E12E4D5A0DE23F87…` |
+| `VideoScopePad-v1.8.0-avsync-unsigned.ipa` | 4.33 MB | `7DB6AD03F771FEB4…` |
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\dist\VideoScopePad-v1.7.1-rot-unsigned.ipa -Algorithm SHA256
+Get-FileHash .\dist\VideoScopePad-v1.8.0-avsync-unsigned.ipa -Algorithm SHA256
 ```
 
 ## 说明
