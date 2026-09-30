@@ -11,6 +11,8 @@
 //  布局由 SwiftUI 侧计算后传入（单位空间矩形），保证刻度线与轨迹严格对齐。
 //
 
+import AVFoundation
+import CoreMedia
 import CoreVideo
 import Foundation
 import Metal
