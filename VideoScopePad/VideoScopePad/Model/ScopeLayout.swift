@@ -82,7 +82,7 @@ enum ScopeLayout {
         case .waveform: return 2.0
         case .parade: return 6.0
         case .picture: return 16.0 / 9.0
-        case .streamStats, .avSync: return 1.0
+        case .streamStats, .avSync, .audioPhase: return 1.0
         }
     }
 
@@ -98,6 +98,7 @@ enum ScopeLayout {
         case .waveform: return 0.97
         case .parade: return 0.98
         case .picture, .streamStats, .avSync: return 1.0
+        case .audioPhase: return 0.92
         }
     }
 
@@ -105,7 +106,7 @@ enum ScopeLayout {
     static func needsGutter(_ content: PaneContent) -> Bool {
         switch content {
         case .waveform, .parade: return true
-        case .vectorscope, .diamond, .cie, .picture, .streamStats, .avSync: return false
+        case .vectorscope, .diamond, .cie, .picture, .streamStats, .avSync, .audioPhase: return false
         }
     }
 

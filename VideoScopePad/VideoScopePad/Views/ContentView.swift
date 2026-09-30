@@ -223,6 +223,11 @@ struct ContentView: View {
                                       containerSize: geo.size)
                         .allowsHitTesting(false)
 
+                    // 「声相（李萨如）」格子
+                    AudioPhasePaneOverlay(layout: layout,
+                                          audio: coordinator.audio,
+                                          containerSize: geo.size)
+                        .allowsHitTesting(false)
                     // 画面左右两侧的音柱
                     if settings.showAudioMeters {
                         AudioMeterOverlay(layout: layout,

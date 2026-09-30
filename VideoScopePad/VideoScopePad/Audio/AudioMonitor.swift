@@ -79,10 +79,34 @@ final class AudioMonitor: ObservableObject {
     @Published private(set) var isClipping = false
     /// 1 kHz 分量电平（dBFS），用来确认测试音真的收到了
     @Published private(set) var toneLevelDB: Float = -120
+    /// 声相（李萨如）快照：立体声的 L/R 关系图 + 相关度 + 平衡
+    @Published private(set) var phase = PhaseSnapshot.empty
 
     /// 千周声起音 / 结束（主机时钟秒）
     var onToneOnset: ((TimeInterval) -> Void)?
     var onToneEnd: ((TimeInterval) -> Void)?
+
+    // MARK: - 声相（李萨如）
+
+    struct PhasePoint {
+        /// 0…255：横向 = Side = (L − R)/2（右为正）
+        var x: UInt8
+        /// 0…255：纵向 = Mid = (L + R)/2（上为正）
+        var y: UInt8
+        /// 0…1，按累计次数对数压缩
+        var intensity: Float
+    }
+
+    struct PhaseSnapshot {
+        var points: [PhasePoint]
+        /// 相关系数：+1 完全同相（单声道）、0 无关、−1 完全反相
+        var correlation: Float
+        /// 平衡：正 = 偏左，负 = 偏右（dB）
+        var balanceDB: Float
+        var isStereo: Bool
+
+        static let empty = PhaseSnapshot(points: [], correlation: 1, balanceDB: 0, isStereo: false)
+    }
 
     // MARK: - 内部
 
@@ -97,6 +121,17 @@ final class AudioMonitor: ObservableObject {
 
     private let processedQueue = DispatchQueue(label: "vsp.audio.analysis")
     private var clipHoldUntil = Date.distantPast
+
+    // 声相直方图：256×256（side × mid），每约 40 ms 清算一次并发布一份快照
+    private var phaseBins = [UInt16](repeating: 0, count: 256 * 256)
+    private var phasePending = 0
+    private let phasePublishInterval = 2048          // 48 kHz 下约 43 ms ≈ 23 fps
+    private var sumLR: Double = 0
+    private var sumLL: Double = 0
+    private var sumRR: Double = 0
+    private var sumL2: Double = 0                    // 用于 L/R 平衡
+    private var sumR2: Double = 0
+    private let maxPhasePoints = 1400                // 每帧最多画这么多点
 
     /// 起音判据：带通包络要连续超过阈值这么多秒才算「千周声来了」
     private let confirmSeconds: Double = 0.004
@@ -225,6 +260,34 @@ final class AudioMonitor: ObservableObject {
             levels.append(min(max((db + 60) / 60, 0), 1))
         }
 
+        // ---- 声相（李萨如）：按样本累加 (Side, Mid) 直方图，并累计相关度统计量 ----
+        let isStereo = channelCount > 1
+        let right = isStereo ? channels[1] : channels[0]
+        var phaseReady = false
+
+        for index in 0..<frames {
+            let l = channels[0][index]
+            let r = right[index]
+
+            let side = (l - r) * 0.5
+            let mid = (l + r) * 0.5
+            let bx = Int(min(max((side + 1) * 0.5, 0), 1) * 255)
+            let by = Int(min(max((mid + 1) * 0.5, 0), 1) * 255)
+            phaseBins[by * 256 + bx] &+= 1
+
+            sumLR += Double(l) * Double(r)
+            sumLL += Double(l) * Double(l)
+            sumRR += Double(r) * Double(r)
+            sumL2 += Double(l) * Double(l)
+            sumR2 += Double(r) * Double(r)
+        }
+
+        phasePending += frames
+        if phasePending >= phasePublishInterval {
+            phasePending = 0
+            phaseReady = true
+        }
+
         // ---- 1 kHz 起音检测（逐样本带通 + 包络）----
         var onset: TimeInterval?
         var end: TimeInterval?
@@ -266,20 +329,75 @@ final class AudioMonitor: ObservableObject {
         if clipped { clipHoldUntil = Date().addingTimeInterval(2) }
         let showClip = Date() < clipHoldUntil
 
+        // ---- 清算声相直方图并生成快照 ----
+        var snapshot: PhaseSnapshot?
+        if phaseReady {
+            snapshot = makePhaseSnapshot(isStereo: isStereo)
+            phaseBins.withUnsafeMutableBufferPointer { buffer in
+                if let base = buffer.baseAddress {
+                    memset(base, 0, buffer.count * MemoryLayout<UInt16>.size)
+                }
+            }
+            sumLR = 0; sumLL = 0; sumRR = 0; sumL2 = 0; sumR2 = 0
+        }
+
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.toneLevelDB = toneDB
             self.isClipping = showClip
             let left = levels.first ?? 0
-            let right = levels.count > 1 ? levels[1] : left
+            let rightLevel = levels.count > 1 ? levels[1] : left
             self.levelLeft = left
-            self.levelRight = right
+            self.levelRight = rightLevel
             // 峰值保持：缓慢回落
             self.peakLeft = max(left, self.peakLeft * 0.97)
-            self.peakRight = max(right, self.peakRight * 0.97)
+            self.peakRight = max(rightLevel, self.peakRight * 0.97)
+            if let snapshot { self.phase = snapshot }
         }
 
         if let onset { onToneOnset?(onset) }
         if let end { onToneEnd?(end) }
+    }
+
+    /// 把直方图压成点列表（只保留非零点，按强度对数压缩），并算相关度与平衡
+    private func makePhaseSnapshot(isStereo: Bool) -> PhaseSnapshot {
+        var counts: [(index: Int, count: UInt16)] = []
+        counts.reserveCapacity(maxPhasePoints)
+        var maxCount: UInt16 = 1
+
+        for index in 0..<phaseBins.count {
+            let count = phaseBins[index]
+            if count == 0 { continue }
+            if count > maxCount { maxCount = count }
+            if counts.count < maxPhasePoints {
+                counts.append((index, count))
+            }
+        }
+
+        let denominator = log(1 + Double(maxCount))
+        let points = counts.map { item -> PhasePoint in
+            let intensity = denominator > 0 ? log(1 + Double(item.count)) / denominator : 0
+            return PhasePoint(x: UInt8(item.index & 0xFF),
+                              y: UInt8((item.index >> 8) & 0xFF),
+                              intensity: Float(intensity))
+        }
+
+        // 相关系数
+        var correlation: Float = 1
+        let denominator2 = (sumLL * sumRR).squareRoot()
+        if denominator2 > 1e-9 {
+            correlation = Float(min(max(sumLR / denominator2, -1), 1))
+        }
+
+        // 平衡（正 = 偏左）
+        var balance: Float = 0
+        if sumR2 > 1e-9, sumL2 > 1e-9 {
+            balance = Float(10 * log10(sumL2 / sumR2))
+        }
+
+        return PhaseSnapshot(points: points,
+                             correlation: correlation,
+                             balanceDB: min(max(balance, -60), 60),
+                             isStereo: isStereo)
     }
 }

@@ -69,6 +69,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     case cie
     case streamStats
     case avSync
+    case audioPhase
 
     var id: String { rawValue }
 
@@ -82,6 +83,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .cie: return "马蹄图（CIE 色度）"
         case .streamStats: return "推流状态（近 5 分钟）"
         case .avSync: return "声画延时（A/V Sync）"
+        case .audioPhase: return "声相（李萨如）"
         }
     }
 
@@ -95,6 +97,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .cie: return "马蹄"
         case .streamStats: return "推流"
         case .avSync: return "声画"
+        case .audioPhase: return "声相"
         }
     }
 
@@ -108,6 +111,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .cie: return "chart.xyaxis.line"
         case .streamStats: return "chart.line.uptrend.xyaxis"
         case .avSync: return "waveform.badge.mic"
+        case .audioPhase: return "circle.hexagongrid"
         }
     }
 
@@ -122,13 +126,14 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .cie: return "CIE 1931 色度图：画面颜色在 xy 平面的分布 + 709 / 2020 色域三角"
         case .streamStats: return "编码码率 / SRT 估计带宽 / 网络延迟（RTT）近 5 分钟曲线"
         case .avSync: return "声画延时：测试设备周期发送「静音黑场 → 千周声 + 彩条」，这里测两者的到达时差"
+        case .audioPhase: return "声相（李萨如）：立体声 L/R 关系图 —— 竖直中线=单声道/同相，水平=反相，并给出相关度与平衡"
         }
     }
 
     /// 画面之外的内容对应的示波器种类（推流状态与声画延时不是 GPU 示波器，所以为 nil）
     var scopeKind: ScopePanelKind? {
         switch self {
-        case .picture, .streamStats, .avSync: return nil
+        case .picture, .streamStats, .avSync, .audioPhase: return nil
         case .vectorscope: return .vectorscope
         case .waveform: return .waveform
         case .parade: return .parade
@@ -143,7 +148,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     }
 
     /// 纯界面绘制（不走 Metal 示波器管线）
-    var isInterfaceOnly: Bool { self == .streamStats || self == .avSync }
+    var isInterfaceOnly: Bool { self == .streamStats || self == .avSync || self == .audioPhase }
 }
 
 /// 波形/矢量图侧边刻度的显示单位
