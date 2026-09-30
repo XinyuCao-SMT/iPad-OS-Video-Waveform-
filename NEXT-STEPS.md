@@ -1,6 +1,38 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.9.0-phase**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.10.0-audio**。
+
+---
+
+## ✅ 已完成
+
+### v1.10.0 音频分析版（提交 `2eb8338e`，tag `v1.10.0-audio`，CI run #35 全绿）
+
+**一、音频频谱 / 响度（新格子内容）**
+* 频谱：vDSP 1024 点 FFT（Hann 窗）→ **1/3 倍频程** 31 段（20 Hz–20 kHz）；
+  每段取带内最大值 + 快起慢落（24 dB/s）+ 峰值保持。用 1/3 倍频程而不是原始 FFT 线：
+  按比例分频更符合听觉与广播习惯，读数与常见 RTA 一致。
+* 响度：按 **ITU-R BS.1770 / EBU R128** —— K 加权 = 高频搁架（f0≈1681.97 Hz、+4 dB、Q≈0.7072）
+  + RLB 高通（f0≈38.14 Hz、Q≈0.5003），用 RBJ 双二阶按标准参数设计 → **与采样率无关**；
+  每 100 ms 累计加权均方值进环形缓冲，Momentary = 最近 4 块（400 ms）、
+  Short-term = 最近 30 块（3 s）；`LUFS = −0.691 + 10·log10(Σ G·均方)`。
+* 界面：对数频率柱状图 + 0…−72 dB 刻度 + 100/1k/10k 标注；底部 −40…0 LUFS 条形
+  （绿填充 = 短时、白线 = 瞬时、青刻度 = −23 EBU / −24 ATSC）；右上角 M/S LUFS 与 RMS/Peak dBFS。
+* 全部 CPU（Accelerate），不占 GPU；每 100 ms 发一次快照。
+
+**二、冻结语义：只冻图表，画面继续实时**（用户要求）
+* 冻结点一下后：**示波器轨迹不再重算**（纹理保留当时内容）、**数值读数也停住**，
+  但**实时画面照常更新** → 可把上一个信号的图形/读数与当前画面同屏对比；
+* 音频相关显示（音柱 / 声相 / 频谱 / 声画延时）**永远不冻结**；
+* 需要真正静止画面时打开设置里的「冻结时连实时画面一起冻住」（`freezePictureToo`，默认关）；
+* 实现：`VideoRenderer` 拆成 `freezeScopes` / `freezePicture` —— 冻结时跳过 `scopeEngine.encode`
+  与测量回读，但继续消费与绘制新帧。
+
+**三、踩坑**
+* 新增 `PaneContent` 分支后，`ScopeLayout.fillFactor` 的 switch 漏了 `.audioSpectrum`
+  → CI 报 "switch must be exhaustive"（本地脚本也提示过，但我先只改了 aspect 与 gutter）。
+* 「显示」设置 Section 子视图超过 SwiftUI 的 10 个上限，被 `check-sources.mjs` 抓出，已用 `Group` 修掉。
+
 
 ---
 
