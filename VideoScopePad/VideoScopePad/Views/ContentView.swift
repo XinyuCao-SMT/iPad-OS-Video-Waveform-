@@ -170,7 +170,8 @@ struct ContentView: View {
                                              aspectMode: settings.aspectMode,
                                              fullscreenContent: settings.fullscreenContent,
                                              quadContents: settings.normalizedQuadContents,
-                                             legacyPanels: settings.enabledPanels)
+                                             legacyPanels: settings.enabledPanels,
+                                             pictureRotation: settings.pictureRotation)
 
             ZStack {
                 if coordinatorReady {

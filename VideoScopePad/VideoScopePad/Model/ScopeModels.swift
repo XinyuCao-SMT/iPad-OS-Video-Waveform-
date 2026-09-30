@@ -114,7 +114,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .vectorscope: return "Cb / Cr 平面，看色度落点与饱和度"
         case .waveform: return "亮度波形，纵向为标定过的 IRE 幅度轴"
         case .parade: return "RGB 三路波形并排"
-        case .diamond: return "RGB 立方体沿白轴投影：R / G / B 三轴，超出六边形即 0–100% 色域越界"
+        case .diamond: return "Tektronix 钻石图：上菱形画 G（左）与 B（右）、下菱形画 G（左）与 R（右），纯黑在两菱形交会的中心、灰阶是正中竖线；轨迹跑出菱形即 R'G'B' 色域越界"
         case .cie: return "CIE 1931 色度图：画面颜色在 xy 平面的分布 + 709 / 2020 色域三角"
         case .streamStats: return "编码码率 / SRT 估计带宽 / 网络延迟（RTT）近 5 分钟曲线"
         }
@@ -265,8 +265,64 @@ enum DisplayMode: String, CaseIterable, Identifiable {
 
 // MARK: - 示波器
 
-enum ScopePanelKind: String, CaseIterable, Identifiable {
-    case vectorscope
+/// 画面方向：UVC 采集卡的画面方向是固定的，而 iPad 转屏时界面会跟着转，
+/// 于是竖屏下画面还是横的（两边留黑、显得小）。这里给几种选择：
+///   自动 = 界面竖屏时把画面转 90°（跟随设备方向），横屏不动
+enum PictureRotation: String, CaseIterable, Identifiable {
+    case automatic
+    case none
+    case clockwise90
+    case counterClockwise90
+    case rotate180
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .automatic: return "自动跟随界面"
+        case .none: return "不旋转"
+        case .clockwise90: return "顺时针 90°"
+        case .counterClockwise90: return "逆时针 90°"
+        case .rotate180: return "旋转 180°"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .automatic:
+            return "界面是竖屏时把画面转 90°（画面跟着设备方向走），横屏时保持原样。"
+        case .none:
+            return "始终按信号原本的方向显示 —— 监视器最忠于信号的做法。"
+        case .clockwise90:
+            return "画面顺时针转 90°，适合竖屏使用但自动方向不对的情况。"
+        case .counterClockwise90:
+            return "画面逆时针转 90°。"
+        case .rotate180:
+            return "画面上下颠倒（采集卡或安装方向倒置时用）。"
+        }
+    }
+
+    /// 顺时针角度
+    var degrees: Int {
+        switch self {
+        case .automatic: return 0
+        case .none: return 0
+        case .clockwise90: return 90
+        case .counterClockwise90: return 270
+        case .rotate180: return 180
+        }
+    }
+
+    /// 结合容器方向解析出实际角度（containerIsPortrait 为 true 表示界面是竖屏）
+    func resolvedDegrees(containerIsPortrait: Bool) -> Int {
+        switch self {
+        case .automatic: return containerIsPortrait ? 90 : 0
+        default: return degrees
+        }
+    }
+}
+
+enum ScopePanelKind: String, CaseIterable, Identifiable {    case vectorscope
     case waveform
     case parade
     /// 钻石图：RGB 立方体沿白轴投影的色域菱形图

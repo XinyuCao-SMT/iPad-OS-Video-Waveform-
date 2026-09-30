@@ -46,6 +46,7 @@ final class AppSettings: ObservableObject {
         static let warningAlarmEnabled = prefix + "warningAlarmEnabled"
         static let warningRaiseCount = prefix + "warningRaiseCount"
         static let showLayoutDebug = prefix + "showLayoutDebug"
+        static let pictureRotation = prefix + "pictureRotation"
     }
 
     // MARK: - 监视器
@@ -60,6 +61,12 @@ final class AppSettings: ObservableObject {
 
     @Published var displayMode: DisplayMode = .color {
         didSet { UserDefaults.standard.set(displayMode.rawValue, forKey: Key.displayMode) }
+    }
+
+    /// 画面方向：默认「自动跟随界面」—— 界面竖屏时把画面转 90°，横屏保持原样，
+    /// 这样 iPad 转屏时界面与画面方向一致（采集卡画面本身不会跟着设备转）。
+    @Published var pictureRotation: PictureRotation = .automatic {
+        didSet { UserDefaults.standard.set(pictureRotation.rawValue, forKey: Key.pictureRotation) }
     }
 
     @Published var showHUD = true {

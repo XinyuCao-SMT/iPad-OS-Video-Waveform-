@@ -36,6 +36,11 @@ struct PaneLayout: Equatable {
     var plot: CGRect?
     /// 示波器刻度栏（波形/RGB 才有）
     var gutter: CGRect?
+    /// 画面顺时针旋转角度（0 / 90 / 180 / 270），只对画面格子有意义
+    var rotation: Int = 0
+
+    /// 旋转 90 / 270 度时，画面的宽高要对调
+    var swapsVideoAxes: Bool { rotation == 90 || rotation == 270 }
 }
 
 struct ScopeLayoutResult: Equatable {
@@ -112,7 +117,8 @@ enum ScopeLayout {
                         aspectMode: AspectMode,
                         fullscreenContent: PaneContent,
                         quadContents: [PaneContent],
-                        legacyPanels: [ScopePanelKind]) -> ScopeLayoutResult {
+                        legacyPanels: [ScopePanelKind],
+                        pictureRotation: PictureRotation = .none) -> ScopeLayoutResult {
 
         var result = ScopeLayoutResult()
 
@@ -123,6 +129,9 @@ enum ScopeLayout {
         // 归一化工作盒：宽 = 容器宽高比，高 = 1
         let boxWidth = containerSize.width / containerSize.height
         let box = CGRect(x: 0, y: 0, width: boxWidth, height: 1)
+
+        // 画面旋转：自动模式下竖屏界面把画面转 90°（跟着设备方向走）
+        let rotationDegrees = pictureRotation.resolvedDegrees(containerIsPortrait: containerSize.height > containerSize.width)
 
         var effectivePreset = preset
         // 竖屏下右侧栏太窄，退化成底部条
@@ -147,7 +156,8 @@ enum ScopeLayout {
                                      slot: 0,
                                      panel: box,
                                      videoAspect: videoAspect,
-                                     aspectMode: aspectMode)]
+                                     aspectMode: aspectMode,
+                                                 rotation: rotationDegrees)]
             result.panes = result.panes.map { normalized($0, normalize) }
 
         case .quad:
@@ -168,7 +178,8 @@ enum ScopeLayout {
                                       slot: slot,
                                       panel: panel,
                                       videoAspect: videoAspect,
-                                      aspectMode: aspectMode))
+                                      aspectMode: aspectMode,
+                                     rotation: rotationDegrees))
             }
             result.panes = panes.map { normalized($0, normalize) }
 
@@ -184,7 +195,8 @@ enum ScopeLayout {
                                                 slot: 0,
                                                 panel: monitorBox,
                                                 videoAspect: videoAspect,
-                                                aspectMode: aspectMode)]
+                                                aspectMode: aspectMode,
+                                                 rotation: rotationDegrees)]
             panes.append(contentsOf: strip)
             result.panes = panes.map { normalized($0, normalize) }
 
@@ -201,7 +213,8 @@ enum ScopeLayout {
                                                 slot: 0,
                                                 panel: monitorBox,
                                                 videoAspect: videoAspect,
-                                                aspectMode: aspectMode)]
+                                                aspectMode: aspectMode,
+                                                 rotation: rotationDegrees)]
 
             let count = max(legacyPanels.count, 1)
             let panelHeight = box.height / CGFloat(count)
@@ -214,7 +227,8 @@ enum ScopeLayout {
                                       slot: index + 1,
                                       panel: panel,
                                       videoAspect: videoAspect,
-                                      aspectMode: aspectMode))
+                                      aspectMode: aspectMode,
+                                     rotation: rotationDegrees))
             }
             result.panes = panes.map { normalized($0, normalize) }
 
@@ -224,7 +238,8 @@ enum ScopeLayout {
                                                 slot: 0,
                                                 panel: box,
                                                 videoAspect: videoAspect,
-                                                aspectMode: aspectMode)]
+                                                aspectMode: aspectMode,
+                                                 rotation: rotationDegrees)]
             panes.append(contentsOf: stripPanels(in: box, panels: legacyPanels))
             result.panes = panes.map { normalized($0, normalize) }
         }
@@ -238,15 +253,21 @@ enum ScopeLayout {
                                  slot: Int,
                                  panel: CGRect,
                                  videoAspect: CGFloat,
-                                 aspectMode: AspectMode) -> PaneLayout {
+                                 aspectMode: AspectMode,
+                                 rotation: Int = 0) -> PaneLayout {
 
         if content == .picture {
-            let video = fittedRect(aspect: videoAspect, in: panel, mode: aspectMode)
+            // 画面旋转 90 / 270 度时，显示区要按「对调后的宽高比」适配，
+            // 否则竖屏下画面会被裁掉或留下大片黑边
+            let swapped = (rotation == 90 || rotation == 270)
+            let effectiveAspect = swapped ? 1.0 / max(videoAspect, 0.0001) : videoAspect
+            let video = fittedRect(aspect: effectiveAspect, in: panel, mode: aspectMode)
             return PaneLayout(content: .picture,
                               slot: slot,
                               panel: panel,
                               video: video,
-                              videoUV: uvRect(videoAspect: videoAspect, target: video, mode: aspectMode))
+                              videoUV: uvRect(videoAspect: effectiveAspect, target: video, mode: aspectMode),
+                              rotation: rotation)
         }
 
         // 内边距按「较短边」取，横竖屏与各尺寸 iPad 的观感一致

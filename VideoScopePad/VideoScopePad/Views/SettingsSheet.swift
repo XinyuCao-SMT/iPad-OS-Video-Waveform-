@@ -150,6 +150,15 @@ struct SettingsSheet: View {
                 }
             }
 
+            Picker("画面方向", selection: $settings.pictureRotation) {
+                ForEach(PictureRotation.allCases) { rotation in
+                    Text(rotation.title).tag(rotation)
+                }
+            }
+            Text(settings.pictureRotation.detail)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
             Picker("显示通道", selection: $settings.displayMode) {
                 ForEach(DisplayMode.allCases) { mode in
                     Text(mode.title).tag(mode)

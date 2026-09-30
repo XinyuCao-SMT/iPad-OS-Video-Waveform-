@@ -40,16 +40,31 @@ static inline float2 vsChroma(float3 rgb)
     return float2(cb, cr);
 }
 
-/// 钻石图（Tektronix 的 RGB 色域菱形图）：
-/// 把 RGB 立方体沿白轴（R=G=B）投影到平面上，三个轴 R / G / B 分别朝上、左下、右下，
-/// 于是 0–100% 的合法区域是一个「上下两个菱形叠起来」的六边形：
-///   R(0,1) 顶点、M(1,0.5) 右、B(1,-0.5) 右下、C(0,-1) 底、G(-1,-0.5) 左下、Y(-1,0.5) 左，
-///   白色 (1,1,1) 落在中心。任何分量超出 0–100% 都会把点推到六边形外 —— 一眼看出色域越界。
-static inline float2 vsDiamond(float3 rgb)
+/// 钻石图（**Tektronix 原版**，依据应用手册《Color Grading with the Spearhead Display》第 2 节）：
+///   · 上菱形画 **G（左轴）与 B（右轴）**，下菱形画 **G（左轴）与 R（右轴）**；
+///   · 纯黑在两菱形交会的**中心**；纯白分别落在上菱形顶端与下菱形底端；
+///   · 灰阶（R=G=B）因此是正中的一条竖线，中灰落在两个菱形最宽处的中心。
+/// 由此坐标唯一确定：
+///   上菱形 x = B − G（−1…1）、y = (G + B)/2（0…1，向上）
+///   下菱形 x = R − G（−1…1）、y = −(R + G)/2（−1…0，向下）
+/// 分量都在 0–100% 之内时点必在菱形内；超出（超白 / 负值 / 非法 YCbCr 转换结果）
+/// 就跑到菱形外 —— 越界一目了然。
+static inline float2 vsDiamondTop(float3 rgb)
 {
-    float x = 0.86602540 * (rgb.b - rgb.g);            // (√3/2)(B − G)
-    float y = rgb.r - 0.5 * (rgb.g + rgb.b);           // R − (G + B)/2
-    return float2(x / 1.73205080 + 0.5, y * 0.5 + 0.5); // 归一化到 0–1（x: ±√3/2，y: ±1）
+    return float2(rgb.b - rgb.g, (rgb.g + rgb.b) * 0.5);
+}
+
+static inline float2 vsDiamondBottom(float3 rgb)
+{
+    return float2(rgb.r - rgb.g, -(rgb.r + rgb.g) * 0.5);
+}
+
+/// 显示坐标（x、y 均为 −1…1，y 向上）→ 直方图 bin（binY 越大越靠画面顶部）
+static inline uint2 vsDiamondBin(float2 p)
+{
+    float bx = clamp((p.x + 1.0) * 0.5, 0.0, 1.0);
+    float by = clamp((p.y + 1.0) * 0.5, 0.0, 1.0);
+    return uint2(uint(bx * 255.0 + 0.5), uint(by * 255.0 + 0.5));
 }
 
 /// BT.709 传输函数（OETF）的反函数：示波器拿到的是显示伽马编码值，CIE 需要线性光
@@ -135,10 +150,12 @@ kernel void vsAccumulateHistogram(texture2d<float, access::read> source [[textur
     }
 
     if ((mask & 2u) != 0u) {
-        float2 d = vsDiamond(rgb);
-        uint bx = uint(clamp(d.x, 0.0, 1.0) * 255.0 + 0.5);
-        uint by = uint(clamp(d.y, 0.0, 1.0) * 255.0 + 0.5);
-        atomic_fetch_add_explicit(&histogram[vsVectorIndex(bx, by, uint(VS_GAMUT_SECTION_DIAMOND))],
+        // 钻石图：一帧里要累加**两个**点 —— 上菱形（G/B）与下菱形（G/R）
+        uint2 top = vsDiamondBin(vsDiamondTop(rgb));
+        uint2 bottom = vsDiamondBin(vsDiamondBottom(rgb));
+        atomic_fetch_add_explicit(&histogram[vsVectorIndex(top.x, top.y, uint(VS_GAMUT_SECTION_DIAMOND))],
+                                  1u, memory_order_relaxed);
+        atomic_fetch_add_explicit(&histogram[vsVectorIndex(bottom.x, bottom.y, uint(VS_GAMUT_SECTION_DIAMOND))],
                                   1u, memory_order_relaxed);
     }
 

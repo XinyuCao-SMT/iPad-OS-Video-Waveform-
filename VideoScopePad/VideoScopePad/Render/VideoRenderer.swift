@@ -372,7 +372,10 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 guard let video = pane.video else { continue }
                 // 画面永远不越出自己那一格（四分割下贴邻格会很难看）
                 setScissor(encoder, unitRect: pane.panel, drawableSize: drawableSize)
-                encodeQuad(encoder: encoder, rect: video, uv: pane.videoUV ?? fullRect)
+                encodeQuad(encoder: encoder,
+                           rect: video,
+                           uv: pane.videoUV ?? fullRect,
+                           rotationDegrees: pane.rotation)
                 clearScissor(encoder, drawableSize: drawableSize)
             }
         }
@@ -463,12 +466,16 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         encoder.setScissorRect(MTLScissorRect(x: 0, y: 0, width: width, height: height))
     }
 
-    private func encodeQuad(encoder: MTLRenderCommandEncoder, rect: CGRect, uv: CGRect) {
+    private func encodeQuad(encoder: MTLRenderCommandEncoder,
+                            rect: CGRect,
+                            uv: CGRect,
+                            rotationDegrees: Int = 0) {
         var quad = VSQuadUniforms()
         quad.rect = SIMD4<Float>(Float(rect.minX), Float(rect.minY),
                                  Float(rect.width), Float(rect.height))
         quad.uv = SIMD4<Float>(Float(uv.minX), Float(uv.minY),
                                Float(uv.width), Float(uv.height))
+        quad.misc = SIMD4<Float>(Float(rotationDegrees), 0, 0, 0)
         encoder.setVertexBytes(&quad, length: MemoryLayout<VSQuadUniforms>.stride,
                                index: Int(VSBufferIndexQuadUniforms))
         encoder.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)

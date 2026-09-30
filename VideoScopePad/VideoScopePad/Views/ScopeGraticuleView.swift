@@ -280,90 +280,85 @@ struct ScopeGraticuleView: View {
         return max(limit, 0)
     }
 
-    // MARK: - 钻石图（RGB 色域）
+    // MARK: - 钻石图（RGB 色域，Tektronix 原版）
 
-    /// 钻石图刻度：RGB 立方体沿白轴投影后，0–100% 的合法区域是「上下两个菱形叠起来」的六边形。
-    ///   顶点 R(0,1)、右 M(1,0.5)、右下 B(1,-0.5)、底 C(0,-1)、左下 G(-1,-0.5)、左 Y(-1,0.5)
-    ///   白色 (1,1,1) 落在中心。任何分量超出 0–100% 都会把点推到六边形外 → 色域越界。
-    /// 纹理里的坐标是 0–1 的归一化值（x: ±√3/2 归一化、y: ±1 归一化），所以这里直接映射。
+    /// 钻石图刻度（依据 Tektronix 应用手册《Color Grading with the Spearhead Display》第 2 节）：
+    ///   上菱形 = **G（左轴）与 B（右轴）**；下菱形 = **G（左轴）与 R（右轴）**；
+    ///   纯黑在两菱形交会的**中心**，纯白在上菱形顶端 / 下菱形底端；
+    ///   灰阶是正中的竖线，中灰落在两个菱形最宽处的中心。
+    /// 显示坐标 x、y 都是 −1…1（y 向上，原点即纯黑）；分量超出 0–100% 时点会跑出菱形，
+    /// 那就是 R'G'B' 色域越界。
     private func drawDiamond(_ ctx: inout GraphicsContext, rect: CGRect) {
-        let fontSize = min(max(min(rect.width, rect.height) / 22, 7), 11)
+        let fontSize = min(max(min(rect.width, rect.height) / 24, 7), 11)
 
-        /// 归一化坐标（x/y ∈ -1...1，y 向上）→ 绘图区坐标
+        /// 显示坐标 → 绘图区坐标
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: rect.midX + x * rect.width / 2,
                     y: rect.midY - y * rect.height / 2)
         }
 
-        let vertices: [(CGFloat, CGFloat)] = [
-            (0, 1),      // R
-            (1, 0.5),    // M
-            (1, -0.5),   // B
-            (0, -1),     // C
-            (-1, -0.5),  // G
-            (-1, 0.5)    // Y
-        ]
-
-        // 外框（100% 边界）
-        var hex = Path()
-        hex.move(to: point(vertices[0].0, vertices[0].1))
-        for vertex in vertices.dropFirst() { hex.addLine(to: point(vertex.0, vertex.1)) }
-        hex.closeSubpath()
-        stroke(&ctx, hex, color: Color.white.opacity(0.35), width: 1.2)
-
-        // 内框（75% 彩条边界）—— 灰阶以外的区域是否越界一眼可见
-        var inner = Path()
-        for (index, vertex) in vertices.enumerated() {
-            let p = point(vertex.0 * 0.75, vertex.1 * 0.75)
-            if index == 0 { inner.move(to: p) } else { inner.addLine(to: p) }
-        }
-        inner.closeSubpath()
-        stroke(&ctx, inner, color: Color.white.opacity(0.16), width: 1)
-
-        // 三条轴（中心 → R / G / B）
-        for vertex in [vertices[0], vertices[3 + 1], vertices[2]] {
-            var axis = Path()
-            axis.move(to: point(0, 0))
-            axis.addLine(to: point(vertex.0, vertex.1))
-            stroke(&ctx, axis, color: Color.white.opacity(0.20), width: 1)
+        /// 以原点（纯黑）为中心把菱形缩放 level 倍：
+        /// level = 0.25 / 0.5 / 0.75 就是「两分量之和」的等值线，1.0 是 0–100% 的合法边界。
+        func diamondPath(_ level: CGFloat, up: Bool) -> Path {
+            let vertices: [(CGFloat, CGFloat)] = up
+                ? [(0, 0), (-level, level * 0.5), (0, level), (level, level * 0.5)]
+                : [(0, 0), (-level, -level * 0.5), (0, -level), (level, -level * 0.5)]
+            var path = Path()
+            path.move(to: point(vertices[0].0, vertices[0].1))
+            for vertex in vertices.dropFirst() { path.addLine(to: point(vertex.0, vertex.1)) }
+            path.closeSubpath()
+            return path
         }
 
-        // 中心十字（白色所在位置）
-        var cross = Path()
-        cross.move(to: point(-0.12, 0))
-        cross.addLine(to: point(0.12, 0))
-        cross.move(to: point(0, -0.12))
-        cross.addLine(to: point(0, 0.12))
-        stroke(&ctx, cross, color: Color.white.opacity(0.30), width: 1)
-
-        // 240 网格（25% 间隔的辅助菱形边）
+        // 内部等值线
         for level in [0.25, 0.5] as [CGFloat] {
-            var grid = Path()
-            for (index, vertex) in vertices.enumerated() {
-                let p = point(vertex.0 * level, vertex.1 * level)
-                if index == 0 { grid.move(to: p) } else { grid.addLine(to: p) }
-            }
-            grid.closeSubpath()
-            stroke(&ctx, grid, color: Color.white.opacity(0.10), width: 1)
+            stroke(&ctx, diamondPath(level, up: true), color: Color.white.opacity(0.10), width: 1)
+            stroke(&ctx, diamondPath(level, up: false), color: Color.white.opacity(0.10), width: 1)
         }
 
-        // 轴与顶点标注
+        // 100% 边界（越出即越界）与 75% 彩条边界
+        stroke(&ctx, diamondPath(1.0, up: true), color: Color.white.opacity(0.40), width: 1.3)
+        stroke(&ctx, diamondPath(1.0, up: false), color: Color.white.opacity(0.40), width: 1.3)
+        stroke(&ctx, diamondPath(0.75, up: true), color: Color.white.opacity(0.18), width: 1)
+        stroke(&ctx, diamondPath(0.75, up: false), color: Color.white.opacity(0.18), width: 1)
+
+        // 正中竖线 = 灰阶轴；两条水平线 = 两个菱形最宽处（中灰所在）
+        var axes = Path()
+        axes.move(to: point(0, 1))
+        axes.addLine(to: point(0, -1))
+        axes.move(to: point(-1, 0.5))
+        axes.addLine(to: point(1, 0.5))
+        axes.move(to: point(-1, -0.5))
+        axes.addLine(to: point(1, -0.5))
+        stroke(&ctx, axes, color: Color.white.opacity(0.20), width: 1)
+
+        // 中心 = 纯黑
+        let dot: CGFloat = max(fontSize * 0.28, 2)
+        stroke(&ctx, Path(ellipseIn: CGRect(x: rect.midX - dot, y: rect.midY - dot,
+                                            width: dot * 2, height: dot * 2)),
+               color: Color.white.opacity(0.85),
+               width: 1.2)
+
+        // 标注：绿色在两个菱形的左侧，B 在右上、R 在右下，W 在上下顶端
         let labels: [(String, CGFloat, CGFloat, UnitPoint)] = [
-            ("R", 0, 1.06, .center),
-            ("M", 1.06, 0.5, .leading),
-            ("B", 1.06, -0.5, .leading),
-            ("C", 0, -1.06, .center),
-            ("G", -1.06, -0.5, .trailing),
-            ("Y", -1.06, 0.5, .trailing)
+            ("W", 0, 1.07, .center),
+            ("B", 1.04, 0.5, .leading),
+            ("G", -1.04, 0.5, .trailing),
+            ("W", 0, -1.07, .center),
+            ("R", 1.04, -0.5, .leading),
+            ("G", -1.04, -0.5, .trailing)
         ]
-        for label in labels {
-            ctx.draw(self.label(label.0, size: fontSize, weight: .bold, opacity: 0.85),
-                     at: point(label.1, label.2),
-                     anchor: label.3)
+        for item in labels {
+            ctx.draw(label(item.0, size: fontSize, weight: .bold, opacity: 0.85),
+                     at: point(item.1, item.2),
+                     anchor: item.3)
         }
 
-        ctx.draw(self.label("W", size: fontSize * 0.9, weight: .semibold, opacity: 0.5),
-                 at: point(0.06, 0.05),
+        ctx.draw(label("黑", size: fontSize * 0.85, weight: .semibold, opacity: 0.6),
+                 at: CGPoint(x: rect.midX + fontSize * 0.5, y: rect.midY + fontSize * 0.9),
+                 anchor: .leading)
+        ctx.draw(label("灰阶", size: fontSize * 0.85, weight: .semibold, opacity: 0.45),
+                 at: CGPoint(x: rect.midX + fontSize * 0.5, y: rect.minY + fontSize * 1.1),
                  anchor: .leading)
     }
 

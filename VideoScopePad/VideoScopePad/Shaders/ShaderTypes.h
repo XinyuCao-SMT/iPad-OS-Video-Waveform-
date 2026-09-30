@@ -118,6 +118,7 @@ typedef matrix_float3x3 VSMatrix3x3;
 typedef struct VSQuadUniforms {
     vector_float4 rect;  // x, y, width, height (单位空间)
     vector_float4 uv;    // x, y, scaleX, scaleY
+    vector_float4 misc;  // x: 画面顺时针旋转角度（0 / 90 / 180 / 270）；其余保留
 } VSQuadUniforms;
 
 typedef struct VSRenderUniforms {

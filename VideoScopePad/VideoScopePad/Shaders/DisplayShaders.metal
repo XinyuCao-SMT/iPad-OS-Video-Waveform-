@@ -30,7 +30,23 @@ vertex VSVertexOut vsQuadVertex(uint vid [[vertex_id]],
 
     VSVertexOut out;
     out.position = float4(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0, 0.0, 1.0);
-    out.uv = quad.uv.xy + corner * quad.uv.zw;
+
+    // 纹理采样：先按 uv 区域取点，再按需要绕采样区中心旋转
+    // （画面方向跟随设备时用；几何矩形不变，所以不会溢出自己的格子）
+    float2 uv = quad.uv.xy + corner * quad.uv.zw;
+    float rotation = quad.misc.x;
+    if (rotation > 0.5) {
+        float2 center = quad.uv.xy + quad.uv.zw * 0.5;
+        float2 d = uv - center;
+        if (rotation > 45.0 && rotation < 135.0) {
+            uv = center + float2(d.y, -d.x);          // 顺时针 90°
+        } else if (rotation > 225.0 && rotation < 315.0) {
+            uv = center + float2(-d.y, d.x);          // 逆时针 90°（即顺时针 270°）
+        } else {
+            uv = center - d;                          // 180°
+        }
+    }
+    out.uv = uv;
     return out;
 }
 
