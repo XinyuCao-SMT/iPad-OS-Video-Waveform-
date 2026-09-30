@@ -37,6 +37,14 @@ param(
     [string]$Repo   = 'XinyuCao-SMT/iPad-OS-Video-Waveform-',
     [string]$Branch = 'main',
     [string]$LocalRef = 'HEAD',
+    # 显式指定 diff 基点（本地提交 sha）：**当远端 tip 不在本 clone 里时，强烈建议给**。
+    # 语义 = 「远端当前的内容 == 这个本地提交的内容」。给了就跳过下面的自动匹配，
+    # 因为自动匹配基于**整棵树**的 sha 相等，而先前用本脚本上传过的提交树里，
+    # 换行（CRLF/LF）与本地 git 规范化后的树不一致 —— 永远匹配不上，
+    # 于是会退化成「用 HEAD^ 当基点」，那在「一次要推多个提交」时会算错差异。
+    # ⚠️ 参数名不能叫 DiffBase：PowerShell 变量名大小写不敏感，
+    #    会和脚本内部的 $diffBase 撞成同一个变量（实测直接炸）。
+    [string]$BaseCommit = '',
     [switch]$DryRun
 )
 
@@ -163,7 +171,18 @@ $diffBase = $remoteSha
 # error while $ErrorActionPreference is 'Stop'.)
 & git rev-parse --verify --quiet "$remoteSha^{commit}" | Out-Null
 $haveRemoteObject = ($LASTEXITCODE -eq 0)
-if (-not $haveRemoteObject) {
+
+if (-not [string]::IsNullOrWhiteSpace($BaseCommit)) {
+    # 显式基点优先：一次推多个提交时，务必用「内容等于远端 tip 的那个本地提交」，
+    # 否则算出来的差异会漏掉前面几个提交的文件（远端树就少文件了）。
+    $explicit = (& git rev-parse --verify --quiet "$BaseCommit^{commit}")
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($explicit)) {
+        throw ("-BaseCommit {0} is not a commit in this clone" -f $BaseCommit)
+    }
+    $diffBase = $explicit.Trim()
+    Write-Host ("explicit diff base: {0} (assumed to hold the same content as the remote tip)" -f $diffBase)
+}
+elseif (-not $haveRemoteObject) {
     Write-Host "remote tip $remoteSha is not in this clone; matching by tree sha"
     $diffBase = $null
     foreach ($candidate in (& git rev-list -n 100 $LocalRef)) {
