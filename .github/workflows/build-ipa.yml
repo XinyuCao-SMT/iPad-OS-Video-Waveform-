@@ -187,6 +187,14 @@ jobs:
             /usr/libexec/PlistBuddy -c 'Add :NSLocalNetworkUsageDescription string "Streaming needs to reach RTMP/SRT servers on your local network."' "$PLIST"
           fi
 
+          # 音频输入（音柱 / 声画延时测量）需要麦克风用途说明，缺了会闪退
+          if /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' "$PLIST" >/dev/null 2>&1; then
+            echo "NSMicrophoneUsageDescription: 已存在 ✓"
+          else
+            echo "::warning::Info.plist 缺少 NSMicrophoneUsageDescription，已在打包前补上"
+            /usr/libexec/PlistBuddy -c 'Add :NSMicrophoneUsageDescription string "Audio input is used for the level meters and the A/V delay measurement."' "$PLIST"
+          fi
+
           rm -rf Payload VideoScopePad-unsigned.ipa
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/

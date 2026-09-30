@@ -171,6 +171,37 @@ kernel void vsAccumulateHistogram(texture2d<float, access::read> source [[textur
     }
 }
 
+// MARK: - 画面签名（声画延时测量用）
+//
+// 每帧算一次：64×64 采样点的平均亮度与平均饱和度，写进一块小 buffer 由 CPU 回读。
+// 静音黑场（亮度低、饱和度低）与彩条（亮度高、饱和度高）据此就能区分，
+// 「黑场 → 彩条」的那一帧就是声画延时测量里的画面事件。
+
+kernel void vsFrameSignature(texture2d<float, access::read> source [[texture(VSTextureIndexSource)]],
+                             device float *out [[buffer(0)]],
+                             constant uint &gridSize [[buffer(1)]],
+                             uint2 gid [[thread_position_in_grid]])
+{
+    uint width = source.get_width();
+    uint height = source.get_height();
+    if (gid.x >= gridSize || gid.y >= gridSize || width == 0u || height == 0u) {
+        return;
+    }
+
+    uint x = min(gid.x * width / gridSize, width - 1u);
+    uint y = min(gid.y * height / gridSize, height - 1u);
+    float3 rgb = saturate(source.read(uint2(x, y)).rgb);
+
+    float luma = vsLuma(rgb);
+    float mx = max(rgb.r, max(rgb.g, rgb.b));
+    float mn = min(rgb.r, min(rgb.g, rgb.b));
+    float saturation = mx > 1.0e-4 ? (mx - mn) / mx : 0.0;
+
+    uint index = (gid.y * gridSize + gid.x) * 2u;
+    out[index] = luma;
+    out[index + 1u] = saturation;
+}
+
 // MARK: - 全局测量（数值读数）
 
 /// 把采样像素累加进「全局直方图」：

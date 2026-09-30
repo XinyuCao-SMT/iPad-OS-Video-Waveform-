@@ -58,6 +58,7 @@ struct ContentView: View {
             SettingsSheet(settings: settings,
                           capture: capture,
                           lutStore: lutStore,
+                          audio: coordinator.audio,
                           showLUTImporter: $showLUTImporter)
         }
         .sheet(isPresented: $showStreamPanel) {
@@ -66,6 +67,19 @@ struct ContentView: View {
         .onAppear(perform: handleAppear)
         .onChange(of: scenePhase) { _, phase in
             handleScenePhase(phase)
+        }
+        .onChange(of: settings.audioEnabled) { _, newValue in
+            if newValue {
+                coordinator.startAudio(preferredInputID: settings.audioInputID)
+            } else {
+                coordinator.stopAudio()
+            }
+        }
+        .onChange(of: settings.audioInputID) { _, newValue in
+            coordinator.restartAudio(preferredInputID: newValue.isEmpty ? nil : newValue)
+        }
+        .onChange(of: settings.avSyncCompensationMs) { _, newValue in
+            coordinator.avSync.compensationMs = newValue
         }
         .onChange(of: settings.preventSleep) { _, _ in
             applyIdleTimer()
@@ -201,6 +215,21 @@ struct ContentView: View {
                                            metrics: coordinator.stream.metrics,
                                            containerSize: geo.size)
                         .allowsHitTesting(false)
+
+                    // 「声画延时」格子：千周声 vs 彩条的测量结果
+                    AVSyncPaneOverlay(layout: layout,
+                                      meter: coordinator.avSync,
+                                      audio: coordinator.audio,
+                                      containerSize: geo.size)
+                        .allowsHitTesting(false)
+
+                    // 画面左右两侧的音柱
+                    if settings.showAudioMeters {
+                        AudioMeterOverlay(layout: layout,
+                                          audio: coordinator.audio,
+                                          containerSize: geo.size)
+                            .allowsHitTesting(false)
+                    }
 
                     // 每个格子右上角的内容选择菜单（点它切换这一格显示什么）
                     PaneChromeOverlay(layout: layout,

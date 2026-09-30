@@ -22,7 +22,7 @@ const sourcesAbs = path.join(rootDir, sourcesDirName);
 
 // 应用内「设置 → 关于」显示的版本号（MARKETING_VERSION）。
 // 每次发版改这一处，重新生成工程即可，不用手动动 pbxproj。
-const appVersion = '1.7.1';
+const appVersion = '1.8.0';
 
 if (!fs.existsSync(sourcesAbs)) {
     console.error(`找不到源码目录: ${sourcesAbs}`);
@@ -204,6 +204,9 @@ const commonSettings = {
     // iOS 14 起访问局域网设备要用户授权；没有这个键，连权限框都弹不出来，
     // 数据包会被系统静默丢弃 —— SRT / RTMP 连 192.168.x.x 会一直超时。
     INFOPLIST_KEY_NSLocalNetworkUsageDescription: '推流需要连接局域网内的 RTMP / SRT 服务器（例如 192.168.x.x），请允许访问本地网络。',
+    // 音频输入（音柱 / 声画延时测量）需要麦克风权限；
+    // 采集卡或 USB 声卡的音频同样走这个键（iOS 把它们都当作录音输入）
+    INFOPLIST_KEY_NSMicrophoneUsageDescription: '用于显示音频电平（音柱）与测量声画延时（识别测试信号中的千周声）。',
     INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: 'YES',
     INFOPLIST_KEY_UIFileSharingEnabled: 'YES',
     INFOPLIST_KEY_UILaunchScreen_Generation: 'YES',

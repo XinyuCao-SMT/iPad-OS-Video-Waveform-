@@ -68,6 +68,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     case diamond
     case cie
     case streamStats
+    case avSync
 
     var id: String { rawValue }
 
@@ -80,6 +81,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .diamond: return "钻石图（RGB 色域）"
         case .cie: return "马蹄图（CIE 色度）"
         case .streamStats: return "推流状态（近 5 分钟）"
+        case .avSync: return "声画延时（A/V Sync）"
         }
     }
 
@@ -92,6 +94,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .diamond: return "钻石"
         case .cie: return "马蹄"
         case .streamStats: return "推流"
+        case .avSync: return "声画"
         }
     }
 
@@ -104,6 +107,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .diamond: return "diamond"
         case .cie: return "chart.xyaxis.line"
         case .streamStats: return "chart.line.uptrend.xyaxis"
+        case .avSync: return "waveform.badge.mic"
         }
     }
 
@@ -117,13 +121,14 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .diamond: return "Tektronix 钻石图：上菱形画 G（左）与 B（右）、下菱形画 G（左）与 R（右），纯黑在两菱形交会的中心、灰阶是正中竖线；轨迹跑出菱形即 R'G'B' 色域越界"
         case .cie: return "CIE 1931 色度图：画面颜色在 xy 平面的分布 + 709 / 2020 色域三角"
         case .streamStats: return "编码码率 / SRT 估计带宽 / 网络延迟（RTT）近 5 分钟曲线"
+        case .avSync: return "声画延时：测试设备周期发送「静音黑场 → 千周声 + 彩条」，这里测两者的到达时差"
         }
     }
 
-    /// 画面之外的内容对应的示波器种类（推流状态不是 GPU 示波器，所以为 nil）
+    /// 画面之外的内容对应的示波器种类（推流状态与声画延时不是 GPU 示波器，所以为 nil）
     var scopeKind: ScopePanelKind? {
         switch self {
-        case .picture, .streamStats: return nil
+        case .picture, .streamStats, .avSync: return nil
         case .vectorscope: return .vectorscope
         case .waveform: return .waveform
         case .parade: return .parade
@@ -138,7 +143,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     }
 
     /// 纯界面绘制（不走 Metal 示波器管线）
-    var isInterfaceOnly: Bool { self == .streamStats }
+    var isInterfaceOnly: Bool { self == .streamStats || self == .avSync }
 }
 
 /// 波形/矢量图侧边刻度的显示单位

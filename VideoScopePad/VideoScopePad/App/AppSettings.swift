@@ -47,6 +47,10 @@ final class AppSettings: ObservableObject {
         static let warningRaiseCount = prefix + "warningRaiseCount"
         static let showLayoutDebug = prefix + "showLayoutDebug"
         static let pictureRotation = prefix + "pictureRotation"
+        static let audioEnabled = prefix + "audioEnabled"
+        static let audioInputID = prefix + "audioInputID"
+        static let showAudioMeters = prefix + "showAudioMeters"
+        static let avSyncCompensation = prefix + "avSyncCompensation"
     }
 
     // MARK: - 监视器
@@ -67,6 +71,25 @@ final class AppSettings: ObservableObject {
     /// 这样 iPad 转屏时界面与画面方向一致（采集卡画面本身不会跟着设备转）。
     @Published var pictureRotation: PictureRotation = .automatic {
         didSet { UserDefaults.standard.set(pictureRotation.rawValue, forKey: Key.pictureRotation) }
+    }
+
+    // MARK: - 音频（音柱 / 声画延时测量）
+
+    /// 启用音频输入：画面两侧的音柱与声画延时测量都需要它
+    @Published var audioEnabled = false {
+        didSet { UserDefaults.standard.set(audioEnabled, forKey: Key.audioEnabled) }
+    }
+    /// 选定的音频输入设备 uid（空 = 系统默认）
+    @Published var audioInputID: String = "" {
+        didSet { UserDefaults.standard.set(audioInputID, forKey: Key.audioInputID) }
+    }
+    /// 画面两侧是否显示音柱
+    @Published var showAudioMeters = true {
+        didSet { UserDefaults.standard.set(showAudioMeters, forKey: Key.showAudioMeters) }
+    }
+    /// 声画延时的手动补偿（毫秒），用来抵消已知的系统偏差（例如麦克风声程）
+    @Published var avSyncCompensationMs: Double = 0 {
+        didSet { UserDefaults.standard.set(avSyncCompensationMs, forKey: Key.avSyncCompensation) }
     }
 
     @Published var showHUD = true {

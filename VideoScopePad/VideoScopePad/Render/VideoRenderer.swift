@@ -36,6 +36,9 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
     /// 数值读数回调（在 Metal 完成回调线程上，调用方负责切主线程）
     var onMeasurement: ((SignalMeasurement) -> Void)?
 
+    /// 画面签名分析（声画延时测量：找「黑场 → 彩条」的跳变帧）
+    var signatureAnalyzer: FrameSignatureAnalyzer?
+
     /// 每多少帧做一次幅度测量（60fps 下 6 帧 ≈ 10Hz，足够读数又不占性能）
     private let measurementInterval = 6
     /// 测量采样步长（4 表示每 16 个像素取 1 个）
@@ -45,6 +48,8 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
     // 跨线程：待渲染的最新一帧
     private let frameLock = NSLock()
     private var pendingPixelBuffer: CVPixelBuffer?
+    /// 待渲染帧的时刻（主机时钟秒），供画面签名标注时间
+    private var pendingFrameHostTime: TimeInterval?
 
     // 仅主线程
     private var texturePreLUT: MTLTexture?
@@ -73,9 +78,16 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
     // MARK: - 帧投递
 
-    func submit(pixelBuffer: CVPixelBuffer) {
+    func submit(pixelBuffer: CVPixelBuffer, presentationTime: CMTime = .invalid) {
         frameLock.lock()
         pendingPixelBuffer = pixelBuffer
+        // 帧时刻：AVFoundation 给的 PTS 在**主机时钟**上，和音频的 AVAudioTime.hostTime 同一时基，
+        // 所以声画延时可以直接相减。拿不到有效 PTS 时退回当前时刻。
+        if presentationTime.isValid, presentationTime.seconds.isFinite {
+            pendingFrameHostTime = presentationTime.seconds
+        } else {
+            pendingFrameHostTime = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+        }
         frameLock.unlock()
     }
 
@@ -167,6 +179,14 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 }
                 self.onMeasurement?(measurement)
             }
+        }
+
+        // 画面签名（声画延时测量）：每帧一次，只回读 16 KB
+        if let signatureAnalyzer, let frameHostTime = pendingFrameHostTime {
+            signatureAnalyzer.encode(texture: scopeInput,
+                                     hostTime: frameHostTime,
+                                     commandBuffer: commandBuffer)
+            pendingFrameHostTime = nil
         }
 
         encodeOutput(renderPassDescriptor: renderPassDescriptor,

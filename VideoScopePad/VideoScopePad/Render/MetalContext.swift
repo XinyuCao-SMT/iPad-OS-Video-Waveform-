@@ -51,6 +51,8 @@ struct MetalPipelines {
     let normalizeVectorscope: MTLComputePipelineState
     /// 全局测量（CPU 数值读数的数据来源）
     let accumulateMeasurement: MTLComputePipelineState
+    /// 画面签名（声画延时测量：找「黑场 → 彩条」的跳变帧）
+    let frameSignature: MTLComputePipelineState
 }
 
 final class MetalContext {
@@ -161,7 +163,8 @@ final class MetalContext {
             normalizeOverlay: try makeComputePipeline("vsNormalizeOverlay"),
             normalizeParade: try makeComputePipeline("vsNormalizeParade"),
             normalizeVectorscope: try makeComputePipeline("vsNormalizeVectorscope"),
-            accumulateMeasurement: try makeComputePipeline("vsAccumulateMeasurement")
+            accumulateMeasurement: try makeComputePipeline("vsAccumulateMeasurement"),
+            frameSignature: try makeComputePipeline("vsFrameSignature")
         )
 
         return pipelines

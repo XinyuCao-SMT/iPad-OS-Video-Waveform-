@@ -32,6 +32,14 @@ final class RenderCoordinator: ObservableObject {
     /// 录制 / 推流 / 抓帧 / 读数导出
     let stream = StreamController()
 
+    /// 音频输入：音量柱 + 千周声起音检测
+    let audio = AudioMonitor()
+    /// 声画延时测量（千周声 vs 彩条）
+    let avSync = AVSyncMeter()
+    /// 视频侧：找出「黑场 → 彩条」的跳变帧
+    private let barsDetector = VideoBarsDetector()
+    private var signatureAnalyzer: FrameSignatureAnalyzer?
+
     private var placeholderLUT: LUTTextures?
     private var settings: AppSettings?
     private weak var view: MTKView?
@@ -84,12 +92,41 @@ final class RenderCoordinator: ObservableObject {
                 self.applyTracking(measurement)
             }
         }
+
+        // 声画延时：视频侧每帧算一次画面签名（亮度 / 饱和度），找出「黑场 → 彩条」的跳变帧
+        if let analyzer = try? FrameSignatureAnalyzer(device: context.device,
+                                                      pipeline: context.pipelines.frameSignature) {
+            analyzer.onSignature = { [weak self] signature in
+                guard let self else { return }
+                self.barsDetector.ingest(signature)
+            }
+            barsDetector.onBarsOnset = { [weak self] onsetHost, previousHost in
+                guard let self else { return }
+                let interval = max(onsetHost - previousHost, 0)
+                DispatchQueue.main.async {
+                    self.avSync.noteVideoOnset(host: onsetHost, frameInterval: interval)
+                }
+            }
+            signatureAnalyzer = analyzer
+            renderer.signatureAnalyzer = analyzer
+        }
+
+        // 声画延时：音频侧千周声起音
+        audio.onToneOnset = { [weak self] hostTime in
+            DispatchQueue.main.async {
+                self?.avSync.noteAudioOnset(host: hostTime)
+            }
+        }
+        if settings.audioEnabled {
+            startAudio(preferredInputID: settings.audioInputID)
+        }
+
         self.renderer = renderer
         view?.delegate = renderer
 
         capture.onFrame = { [weak self] pixelBuffer, presentationTime in
             guard let self else { return }
-            self.renderer?.submit(pixelBuffer: pixelBuffer)
+            self.renderer?.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
             self.stream.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
             DispatchQueue.main.async { [weak self] in
                 self?.view?.setNeedsDisplay()
@@ -98,6 +135,32 @@ final class RenderCoordinator: ObservableObject {
 
         lutStore.configure(device: context.device, placeholder: placeholderLUT)
         requestRedraw()
+    }
+
+    // MARK: - 音频（音柱 / 声画延时）
+
+    func startAudio(preferredInputID: String?) {
+        AudioMonitor.requestPermission { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                self.avSync.setAudioAvailable(false)
+                return
+            }
+            self.audio.start(preferredInputID: preferredInputID)
+            self.avSync.setAudioAvailable(true)
+        }
+    }
+
+    func stopAudio() {
+        audio.stop()
+        avSync.setAudioAvailable(false)
+    }
+
+    /// 音频输入设备换了：重启一次引擎
+    func restartAudio(preferredInputID: String?) {
+        guard settings?.audioEnabled ?? false else { return }
+        audio.stop()
+        startAudio(preferredInputID: preferredInputID)
     }
 
     // MARK: - 峰值保持 / 报警（主线程，由测量回调驱动）

@@ -12,6 +12,8 @@ struct SettingsSheet: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var capture: CaptureController
     @ObservedObject var lutStore: LUTStore
+    /// 音频输入设备列表与状态（音柱 / 声画延时）
+    @ObservedObject var audio: AudioMonitor
     @Binding var showLUTImporter: Bool
 
     @Environment(\.dismiss) private var dismiss
@@ -22,6 +24,7 @@ struct SettingsSheet: View {
                 inputSection
                 manualFormatSection
                 displaySection
+                audioSection
                 scopeSection
                 assistSection
                 gradeSection
@@ -101,6 +104,52 @@ struct SettingsSheet: View {
                 capture.select(formatID: newValue)
             }
         )
+    }
+
+    // MARK: - 音频（音柱 / 声画延时）
+
+    private var audioSection: some View {
+        Section("音频（音柱 / 声画延时）") {
+            Toggle("启用音频输入", isOn: $settings.audioEnabled)
+
+            if settings.audioEnabled {
+                Toggle("画面两侧显示音柱", isOn: $settings.showAudioMeters)
+
+                Picker("音频输入", selection: $settings.audioInputID) {
+                    Text("系统默认").tag("")
+                    ForEach(audio.inputOptions) { option in
+                        Text(option.name).tag(option.id)
+                    }
+                }
+
+                LabeledContent("当前输入", value: audio.isRunning ? audio.inputName : audio.statusText)
+                LabeledContent("1 kHz 电平", value: String(format: "%.0f dBFS", audio.toneLevelDB))
+
+                HStack {
+                    Text("测量补偿")
+                    Spacer()
+                    Stepper(value: $settings.avSyncCompensationMs, in: -100...100, step: 1) {
+                        Text(String(format: "%+.0f ms", settings.avSyncCompensationMs))
+                            .font(.system(.body, design: .monospaced))
+                    }
+                }
+
+                Text("""
+                · 音柱是左右两个电平柱（L/R，-60…0 dBFS）；只有单声道输入时显示一根。
+                · 声画延时测量需要测试设备周期输出「静音黑场 → 千周声 + 彩条」。
+                  测量用音频起音（1 kHz，采样级）与彩条出现的那一帧（约 ±1 帧）相减。
+                · 想让读数最准，音频输入请选**与画面同一路来源**（采集卡的 HDMI 内嵌音频 / USB 音频）；
+                  用 iPad 麦克风拾音会把声程（约 3 ms/米）算进去，可用「测量补偿」抵消。
+                · 若读数有一个固定的系统偏差，也可以用「测量补偿」一次性校零。
+                """)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("打开后会请求麦克风/音频输入权限。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - 看守辅助（峰值保持 / 斑马纹 / 报警）
