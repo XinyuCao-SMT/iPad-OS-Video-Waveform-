@@ -1,4 +1,4 @@
-# push-via-api.ps1
+﻿# push-via-api.ps1
 #
 # Why this exists: on some networks github.com:443 (the git-over-HTTPS endpoint) is
 # blocked/reset while api.github.com stays reachable. `git push` then fails with
@@ -15,6 +15,19 @@
 #
 # Credentials come from the same store `git push` uses (`git credential fill`),
 # so nothing new is configured and no account setting is touched.
+#
+# ⚠️ 维护这个脚本时注意两件事（都是实测踩过的）：
+#   1) 本文件必须保持 **UTF-8 带 BOM**。Windows PowerShell 5.1 对「无 BOM 的 UTF-8」
+#      会按系统 ANSI 代码页（简中是 GBK）解码，下面的中文注释会整段变成乱码，
+#      进而导致解析失败（报 "Missing closing '}'"/"Unexpected token"）。
+#      用某些编辑器/AI 工具改完这个文件后，记得确认前 3 字节仍是 EF BB BF：
+#        $b = [IO.File]::ReadAllBytes($p); $b[0..2]  # 应该是 239,187,191
+#   2) 取 token 不能用 PowerShell 管道喂 `git credential fill`（多行会被丢掉，
+#      git 报 "refusing to work with credential missing protocol field"），
+#      也不能用 cmd 的 2>&1（$ErrorActionPreference='Stop' 会把 stderr 变成终止错误）。
+#      现在用的是「输入写临时文件 + Start-Process -RedirectStandardInput」。
+#   3) 用户 profile 里可能有名为 git 的函数包装，所以要
+#      `Get-Command git -CommandType Application` 才拿得到真正的可执行文件路径。
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File tools/push-via-api.ps1
@@ -35,12 +48,54 @@ Set-Location $repoRoot
 
 # ---------------------------------------------------------------- credentials
 function Get-GitHubToken {
-    $payload = "protocol=https`nhost=github.com`n`n"
-    $raw = $payload | git credential fill 2>$null
-    foreach ($line in $raw) {
-        if ($line -match '^password=(.+)$') { return $Matches[1] }
+    # ⚠️ 踩过的坑（2026-02 实测）：
+    #   1) PowerShell 管道把多行字符串喂给原生 git → git 报
+    #      "refusing to work with credential missing protocol field"（payload 里明明有 protocol）。
+    #   2) [Diagnostics.Process] + RedirectStandardInput（管道 stdin）→ 同样拿不到输出。
+    #   3) cmd /c "... 2>&1" 在 $ErrorActionPreference='Stop' 下会把 stderr 变成终止错误。
+    #   只有「输入写文件 + 用文件重定向喂进去、stdout/stderr 也各自重定向到文件」最稳。
+    # 注意：用户的 PowerShell profile 里可能有名为 git 的函数/别名包装，
+    # 那样 Get-Command git 拿不到可执行文件路径（.Source 为空），
+    # Start-Process 会报 "ParameterArgumentValidationError"。所以只认 Application。
+    $gitExe = (Get-Command git -CommandType Application -ErrorAction SilentlyContinue |
+               Select-Object -First 1).Source
+    if (-not $gitExe -and (Test-Path 'D:\Software\Git\cmd\git.exe')) {
+        $gitExe = 'D:\Software\Git\cmd\git.exe'
     }
-    throw 'could not read a GitHub token from the git credential store'
+    if (-not $gitExe -or -not (Test-Path $gitExe)) {
+        throw "找不到 git 可执行文件（Get-Command git -CommandType Application 返回空）"
+    }
+    $inFile = Join-Path $env:TEMP 'vsp-cred-in.txt'
+    $outFile = Join-Path $env:TEMP 'vsp-cred-out.txt'
+    $errFile = Join-Path $env:TEMP 'vsp-cred-err.txt'
+
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($inFile, "protocol=https`nhost=github.com`n`n", $utf8)
+    Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue
+
+    try {
+        # 用 splat 传参，避免反引号续行（续行符后面粘上空格就会解析失败）
+        $spArgs = @{
+            FilePath               = $gitExe
+            ArgumentList           = 'credential fill'
+            RedirectStandardInput  = $inFile
+            RedirectStandardOutput = $outFile
+            RedirectStandardError  = $errFile
+            NoNewWindow            = $true
+            Wait                   = $true
+        }
+        Start-Process @spArgs
+
+        $stdout = if (Test-Path $outFile) { Get-Content $outFile -Raw } else { '' }
+        foreach ($line in ($stdout -split "`r?`n")) {
+            if ($line -match '^password=(.+)$') { return $Matches[1] }
+        }
+
+        $stderr = if (Test-Path $errFile) { (Get-Content $errFile -Raw) } else { '' }
+        throw ("could not read a GitHub token from the git credential store. stderr: " + $stderr.Trim())
+    } finally {
+        Remove-Item $inFile, $outFile, $errFile -Force -ErrorAction SilentlyContinue
+    }
 }
 $token = Get-GitHubToken
 Write-Host ("token: {0}...({1} chars)" -f $token.Substring(0, 4), $token.Length)
