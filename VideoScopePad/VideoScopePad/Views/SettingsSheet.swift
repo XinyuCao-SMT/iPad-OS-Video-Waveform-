@@ -415,7 +415,12 @@ struct SettingsSheet: View {
 
     private var aboutSection: some View {
         Section("关于") {
+            HStack {
+                BrandLogoView(height: 16)
+                Spacer()
+            }
             LabeledContent("版本", value: appVersion)
+            LabeledContent("开发者", value: "smt 曹昕宇")
             Text("""
             支持 UVC 采集卡的 iPad 监视器 + 示波器。
 
