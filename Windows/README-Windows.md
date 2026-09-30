@@ -22,6 +22,18 @@ Windows/
 │   │   ├─ RectF.cs            ← 轻量矩形（左上角原点、y 向下，与 SwiftUI/CGRect 习惯一致）
 │   │   ├─ ScopeModels.cs      ← 格内容 / 示波器种类 / 旋转 / 刻度单位
 │   │   └─ ScopeLayout.cs      ← 布局唯一来源（与 ScopeLayout.swift 逐行对应）
+│   ├─ Capture/                ← Media Foundation UVC 采集（本轮新增）
+│   │   ├─ MediaFoundationRuntime.cs ← MFStartup/MFShutdown 的进程级引用计数
+│   │   ├─ VideoDeviceEnumerator.cs  ← 设备枚举 + 打开媒体源（含那个 IMFActivate 坑）
+│   │   ├─ CaptureDevice.cs          ← 源读取器：原生格式 / 生效格式 / 读帧
+│   │   ├─ CaptureFormat.cs          ← IMFMediaType → 格式记录（分辨率/帧率/FourCC/…）
+│   │   ├─ VideoColorInfo.cs         ← 量化范围 + 原色/传输函数/矩阵（决定 IRE 标定）
+│   │   ├─ MediaSubtype.cs           ← 像素格式 GUID ↔ FourCC 反解
+│   │   ├─ MediaAttributes.cs        ← 属性安全读取（缺失不抛）+ 属性集摊开
+│   │   ├─ MediaAttributeCatalog.cs  ← GUID ↔ 字段名（反射建表，不用手抄 mfapi.h）
+│   │   ├─ YuvFrameConverter.cs      ← YUY2 / NV12 → RGBA8（limited→full 的展开）
+│   │   ├─ CapturedFrame.cs          ← 一帧原始码流 + 时间戳
+│   │   └─ CaptureRateMeter.cs       ← 实测帧率（按帧时间戳算，不用墙上时钟）
 │   └─ Render/                 ← D3D11 渲染
 │       ├─ D3DContext.cs       ← 设备 / 离屏渲染目标 / 读回 / 存 PNG
 │       ├─ PngWriter.cs        ← 极简 PNG 编码（不依赖 System.Drawing / WIC）
@@ -29,6 +41,7 @@ Windows/
 │       └─ Shaders/            ← HLSL（由金属着色器逐行移植）
 └─ tools/
     ├─ render-selfcheck/       ← 离屏自检：不开窗口渲染并存 PNG
+    ├─ mf-capture/             ← 采集自检：list / formats / capture / probe（一条命令一个验收点）
     └─ compile-shaders/        ← 只编译 HLSL，专门用来抓语法/绑定点错误
 ```
 
@@ -43,6 +56,12 @@ dotnet run --project Windows\tools\render-selfcheck -- out\selfcheck.png 1920 10
 
 # 只编着色器
 powershell -File Windows\tools\compile-shaders.ps1
+
+# 采集自检（三步走，每步一条命令一个验收点）
+dotnet run --project Windows\tools\mf-capture -- list        # ① 枚举设备
+dotnet run --project Windows\tools\mf-capture -- formats     # ② 原生格式 + 生效格式 + 色彩元数据
+dotnet run --project Windows\tools\mf-capture -- capture 1   # ③ 采 1 秒 + 存 capture-frame.png
+dotnet run --project Windows\tools\mf-capture -- probe       # 诊断：三条打开设备的路都试一遍
 ```
 
 **不需要装 Visual Studio**：.NET 8 SDK 自带 WPF 与 HLSL 所需的一切，
@@ -67,7 +86,8 @@ powershell -File Windows\tools\compile-shaders.ps1
 - [x] HLSL 示波器着色器移植（14/14 入口点编译通过：7 compute + 1 VS + 6 PS）
 - [x] 示波器引擎（GPU 直方图 + 归一化 + 测量回读）—— 波形 / 矢量 / 钻石 / 马蹄全部算对
 - [x] 合成渲染器（画面 + 面板底色 + 轨迹 + 逐格 scissor 裁剪）
-- [ ] Media Foundation UVC 采集
+- [x] Media Foundation 采集前三步：设备枚举 / 原生格式 + 色彩元数据 / 1 秒采集出 PNG
+- [ ] 采集帧接进示波器链路（YUV 直接当纹理喂 GPU，不要 CPU 转一遍）
 - [ ] WPF 界面与实时窗口（含刻度栏覆盖层）
 - [ ] 冻结参考层 + 幅度读数
 - [ ] LUT（.cube 解析 + 1D/3D 纹理）
@@ -92,4 +112,118 @@ powershell -File Windows\tools\compile-shaders.ps1
 
 ⚠️ 写断言时注意：着色器用的是 **int() 向零截断**，断言里用四舍五入会差 1 个 bin；
 CIE 统计别用步长抽样（会正好踩空）。
+
+## 采集链路（Media Foundation）—— 实测记录
+
+三轮验收都跑过了（本机 UT-VID 00K0601910 + 内建摄像头），结论固化在这里，下次不用重跑：
+
+### ① 设备枚举（`mf-capture list`，1 项断言）
+
+本机 6 台视频采集设备（顺序不保证稳定，**一律按名字/符号链接定位，不要写死序号**）：
+
+| # | 名字 | 说明 |
+|---|---|---|
+| 0 | Integrated Camera | 内建摄像头（NV12 为主） |
+| 1–4 | NDI Webcam Video 1–4 | NDI 虚拟摄像头（占位，别误选） |
+| 5 | **UT-VID 00K0601910** | 采集卡，`vid_1f6a&pid_15ae`，USB UVC |
+
+属性键在 **`Vortice.MediaFoundation.CaptureDeviceAttributeKeys`**，是**裸 `Guid` 字段**
+（不是 `MediaAttributeKey<T>`），与 C 宏一一对应：
+
+```
+SourceTypeVidcap                    8AC3587A-4AE7-42D8-99E0-0A6013EEF90F  ← MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID
+SourceType                          C60AC5FE-252A-478F-A0EF-BC8FA5F7CAD3
+SourceTypeVidcapSymbolicLink        58F0AAD8-22BF-4F8A-BB3D-D2C4978C6E2F
+SourceTypeVidcapCategory            77F0AE69-C3BD-4509-941D-467E4D24899E
+SourceTypeVidcapHwSource            DE7046BA-54D6-4487-A2A4-EC7C0D1BD163
+FriendlyName                        60D0E559-52F8-4FA2-BBCE-ACDB34A8EC01
+```
+
+枚举入口是 `MediaFactory.MFEnumVideoDeviceSources()` → `IMFActivateCollection`（可 foreach、可 Dispose）。
+
+### ② 格式与色彩元数据（`mf-capture formats`，12 项断言）
+
+UT-VID 卡给 **128 条原生格式，全部是 YUY2（未压缩）**：最大 1920×1080@60，
+另有 1440×1080 / 1024×576 / 960×540 / 856×480 / 800×600 / 768×576 / 720×576 /
+720×480 / 640×480 / 640×360 / 432×240 / 352×288 / 320×240 / 176×144，
+每档 8 个帧率（60 / 59.94 / 50 / 30 / 29.97 / 25 / 15 / 7.5）。**没有 NV12，也没有 MJPG。**
+
+驱动**确实给了**色彩元数据（这正是 Windows 版比 iPad 版强的地方）：
+
+| 属性 | 值 | 含义 |
+|---|---|---|
+| `VideoNominalRange` | 2 | **16–235（limited / 视频范围）** |
+| `VideoPrimaries` | 2 | BT.709 |
+| `TransferFunction` | 缺失 | 未声明（按 BT.709 处理） |
+| `YuvMatrix` | 2 | **BT.601** ← 1080p 报 601，见下 |
+| `VideoLighting` | 3 | Dim |
+| `DefaultStride` | 3840 | = 1920×2，YUY2 一行正好 2 字节/像素 |
+
+⚠️ **HD 分辨率却声明 BT.601 矩阵**：廉价 UVC 卡的常见默认填法。矢量图的 Cb/Cr 解码
+若照声明走 601，7 条彩条的落点会整体偏一点（601 的红是 (81,90,240)，709 是 (63,102,240)，
+差 18 个码值）。**等接上已知彩条信源实测后再拍板**，系数只在一处
+（`YuvFrameConverter.Coefficients.Select`），改起来是改一行。
+
+### ③ 采集（`mf-capture capture 1`，14 项断言）
+
+```
+生效格式    1920×1080 @ 60 fps  YUY2（自动挑选：优先未压缩 + 最大分辨率）
+实测帧率    59.999 fps（偏差 0.0%）—— 61 帧 / 1.000 秒
+帧间隔      最小 16.66 ms / 最大 16.68 ms / 平均 16.67 ms（抖动 ±0.02 ms，等时传输很稳）
+行跨距      3840（= width×2，驱动没补行），缓冲 4 147 200 字节
+```
+
+内建摄像头（对照，走 NV12 路径）：1280×720@30，实测 29.807 fps（-0.6%），
+行跨距 1280 但**缓冲 1080 行 = 高 × 1.5**（UV 交织平面跟在 Y 后面）。
+
+> ⚠️ **两张卡现在都给出「整幅均匀」的画面**：采集卡 Y 全部 = 16（limited 黑电平，
+> 即 HDMI 没接信号源 / 源在输出黑场），摄像头 Y 全部 = 12（full range 下接近纯黑）。
+> 管道本身已验证正确（见下面的自证断言），**换一个有画面的信号源就能看到内容**；
+> `capture-frame.png` 目前因此是 40.9 KB 的纯黑图。
+
+## Media Foundation 踩坑（都复现过，别再踩）
+
+1. 🔴 **不能把 `IMFActivate` 带出 `IMFActivateCollection` 的作用域。**
+   集合的 `Dispose()` 会连它交给你的子包装一起 Dispose —— 带出去的那个 `IMFActivate`
+   指针已经变成 0，再 `ActivateObject` 抛的是 **`NullReferenceException`**
+   （SharpGen 的 ComObject 在指针为 0 时取 Vtbl 的表现），看着完全不像 COM 错误。
+   `mf-capture probe` 三条路实测：集合内 `ActivateObject` ✓ / 带出后 ✗（`NativePointer = 0`）/
+   `MFCreateDeviceSource` ✓。**所以打开设备走「按符号链接 MFCreateDeviceSource」**，
+   枚举集合只用来取静态信息。
+2. **尺寸与帧率是「两个 UInt32 打包进一个 UInt64」**：`MF_MT_FRAME_SIZE` = high 宽 low 高、
+   `MF_MT_FRAME_RATE` = high 分子 low 分母。直接 `GetUInt64` 当数值用会得到 8246337209400
+   这种数。自检里专门用原始值反解一遍对拍（`MF_MT_FRAME_SIZE 8246337209400 → 1920×1080`）。
+3. **`MFNominalRange` 的枚举名是反的**：`Normal(1)` = **0–255**（full）、
+   `Wide(2)` = **16–235**（limited）。而且 `Normal` 与 `Range0_255` 是同一个值（别名），
+   switch 里同时写会编译报错 —— 判断一律用等值比较。
+4. **「属性缺失」与「值为 Unknown(0)」必须分开**：色彩元数据的 0 就是 Unknown，
+   驱动不给是常态，这时才能回退到推断（MJPEG→full、未压缩 YUV→limited），
+   并且要在界面上标出「这是推断值」。搞混的话 IRE 会差 7.8（16–235 当 0–255 用，
+   100 IRE 会读成 92.2 IRE）。
+5. **行跨距必须用驱动给的值**（`IMF2DBuffer.Lock2D` 的 pitch），不要用 width×bpp 推；
+   而且要**按缓冲实际长度 ÷ 行跨距算行数**：NV12 是 `height × 1.5` 行，按 height 拷就只拿到 Y 平面。
+6. **YUV→RGB 用四舍五入，不是向零截断**：`1.164×(180−16) = 190.90 → 191`（75% 白）。
+   用截断会得到 190，和合成信号的 191 差 1，采集与合成两条链就对不上。
+   ⚠️ 这与「断言用向零截断」那条规矩不冲突：那条说的是**直方图分箱**（着色器 `int()`），
+   这里是**像素换算**（业界 libyuv / swscale / GPU `round()` 都是四舍五入）。
+   将来把这段搬进 HLSL 时，着色器里必须用 `round()` 而不是 `int()`，否则同样差 1。
+7. **同步 `ReadSample` 会阻塞到有帧**，返回 null 只可能是「流 tick / 格式变化」这类无样本调用；
+   遇到就继续读，不要当出错（`MF_SOURCE_READERF_ERROR` 才是真错，标志位里查）。
+8. **`dotnet run` 的进程当前目录取决于你在哪个目录敲的命令**（不是项目目录）——
+   `.NET` 的文件 API 全走进程 CWD，于是同一个命令在两个目录下跑会把图存到两个地方。
+   `mf-capture` 改成从当前目录往上找仓库根（认 `Windows\VideoScopePad.Win` 这个标记），
+   再拼 `<仓库根>\Windows\out`。
+
+### 采集侧的自证断言（怎么在没画面的情况下证明管道是对的）
+
+没有信号源时画面全黑，但**不能因此说"看不出对错"**。这几条能证明管道是通的：
+
+* 整帧单一码值 → 断言 RGBA **整幅均匀**且等于该码值经同一套系数换算的结果
+  （limited 的 16 → (0,0,0)，full 的 12 → (12,12,12)）；
+  ⚠️ 别写成「均匀 = 一定纯黑」，full range 下不成立；
+* 同时断言 **U/V 都是 128** —— 这一条能区分「真黑场」与「把某个平面读错位了」
+  （读错平面会读出 128 而不是 16，或干脆有杂色）；
+* 转换器本身用已知码值对拍：16→0、180→191（75% 白）、235→255、
+  BT.601 纯红 (81,90,240) → 纯红、BT.709 纯红 (63,102,240) → 纯红，NV12 与 YUY2 各测一遍；
+* 帧缓冲长度 = 行跨距 × 缓冲行数；PNG 回读 IHDR 尺寸 = 帧尺寸。
 

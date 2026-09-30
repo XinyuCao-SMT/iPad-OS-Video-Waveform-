@@ -4,6 +4,49 @@
 
 ---
 
+## 🪟 Windows 版（C# / .NET 8 + WPF + Vortice + Media Foundation）
+
+细节与踩坑全部记在 `Windows/README-Windows.md`，这里只放进度与下一步。
+
+### ✅ 已完成
+
+* **渲染链路**：D3D11 离屏出图、合成测试信号、HLSL 示波器（7 compute + 1 VS + 6 PS）、
+  示波器引擎、整机合成 —— **离屏自检 48 项全绿**（RTX 4060 / Level_11_1）。
+* **采集链路前三步**（本轮）—— 一条命令一个验收点，全部跑通：
+  * `mf-capture list`：枚举到 6 台设备，含 **UT-VID 00K0601910**（序号 5）；
+    属性键定位于 `Vortice.MediaFoundation.CaptureDeviceAttributeKeys`（裸 Guid 字段）。
+  * `mf-capture formats`：该卡 **128 条原生格式，全是 YUY2**（最大 1920×1080@60，无 NV12/MJPG）；
+    回读生效格式一致；驱动**确实给了**色彩元数据 —— `VideoNominalRange = 2`
+    （16–235 limited）、`VideoPrimaries = 2`（BT.709）、`YuvMatrix = 2`（BT.601，HD 却报 601）。
+  * `mf-capture capture 1`：**实测 59.999 fps**（61 帧 / 1.000 秒，间隔抖动 ±0.02 ms），
+    行跨距 3840，存出 `Windows/out/capture-frame.png`；另用内建摄像头（NV12 路径）
+    对照实测 29.807 fps。
+* 采集侧配套：MF 运行时引用计数、属性安全读取、FourCC 反解、YUY2/NV12 → RGBA、
+  实测帧率计量（按帧时间戳）、`probe` 诊断命令。
+
+### ⏳ 下一步（按顺序）
+
+1. **采集帧接进示波器链路**：YUV 直接当纹理喂 D3D11（零拷贝方向），
+   着色器里用与 CPU 版**同一套系数**做 YUV→RGB（必须 `round()` 而非截断）；
+   接上已知彩条信源后用「75% 白条落在 bin 191」这类断言验收。
+2. 顺便定案 **BT.601 还是 BT.709** 解码（卡声明 601、分辨率是 HD，要用实测数据拍板）。
+3. WPF 界面与实时窗口（含刻度栏覆盖层）→ 幅度读数 + 冻结参考层 → LUT → 音频套件（WASAPI）。
+
+> ⚠️ 本机两张视频设备（UT-VID 卡、内建摄像头）现在都输出**整幅均匀**的画面
+> （卡 = limited 黑电平 16，摄像头 = full range 12）：**没有接信号源**。
+> 管道正确性已用自证断言兜住（见 `Windows/README-Windows.md` 末节），
+> 接上彩条信源即可看到真实画面。
+
+---
+
+## 📱 iPad 版（v1.11.0 已发布）
+
+* **v1.11.0 冻结参考叠加**（提交 `071e040`，tag `v1.11.0-reference`）已发布。
+* 另有一条 **3 行边界修正**在 main 上（提交 `84beefc`：冻结参考请求在没有示波器格子时
+  不再悬空），**未单独发版** —— 下次 iPad 端发版会带上。
+
+---
+
 ## ✅ 已完成
 
 ### v1.11.0 冻结参考叠加版（提交 `071e040`，tag `v1.11.0-reference`，CI run #37 全绿）

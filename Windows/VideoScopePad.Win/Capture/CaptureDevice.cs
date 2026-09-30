@@ -168,8 +168,12 @@ public sealed class CaptureDevice : IDisposable
     {
         ThrowIfDisposed();
         using IMFMediaType current = _reader.GetCurrentMediaType(VideoStream);
-        return CaptureFormat.FromMediaType(current, -1);
+        _currentFormat = CaptureFormat.FromMediaType(current, -1);
+        return _currentFormat;
     }
+
+    /// <summary>缓存住的当前格式（第一次访问时回读一次）。</summary>
+    public CaptureFormat CurrentFormat => _currentFormat ??= GetCurrentFormat();
 
     /// <summary>
     /// 生效第 nativeIndex 条原生格式（把 GetNativeMediaType 的对象原样交给 SetCurrentMediaType，
@@ -247,6 +251,136 @@ public sealed class CaptureDevice : IDisposable
         _disposed = true;
         _reader.Dispose();
         _source.Dispose();
+    }
+
+    private CaptureFormat? _currentFormat;
+
+    /// <summary>
+    /// 读一帧（已拷进托管内存）。返回 null = 这一轮确实没有画面帧
+    /// （源读取器返回的是「流 tick / 格式变化」这类无样本调用，或走到流末尾）。
+    ///
+    /// ⚠️ 同步模式下 ReadSample 会**阻塞**到有帧为止，所以这里的循环次数上限
+    /// 只在「拿到无样本调用」时才消耗，不会变成忙等。
+    /// </summary>
+    public CapturedFrame? ReadFrame(int maxEmptyReads = 8)
+    {
+        ThrowIfDisposed();
+        if (maxEmptyReads < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxEmptyReads));
+        }
+
+        for (int attempt = 0; attempt < maxEmptyReads; attempt++)
+        {
+            IMFSample? sample = ReadSample(out SourceReaderFlag flags, out long timestamp, out _);
+            if (sample is null)
+            {
+                if ((flags & SourceReaderFlag.EndOfStream) != 0)
+                {
+                    return null;
+                }
+                continue;   // NewStream / NativeMediaTypeChanged / StreamTick：继续读
+            }
+
+            using (sample)
+            {
+                return CopyOut(sample, timestamp);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// 把样本里的像素拷进托管数组。
+    /// 行跨距**用驱动实际给的**（IMF2DBuffer.Lock2D 的 pitch），不是 width×bpp 推的 ——
+    /// UVC 驱动经常按 4/16 字节对齐补行，按推算值读会整幅图斜掉（这个坑很难看出来）。
+    /// </summary>
+    private CapturedFrame CopyOut(IMFSample sample, long timestamp)
+    {
+        CaptureFormat format = CurrentFormat;
+        int width = (int)format.Width;
+        int height = (int)format.Height;
+
+        using IMFMediaBuffer buffer = sample.GetBufferByIndex(0);
+
+        IMF2DBuffer? buffer2D = null;
+        try
+        {
+            buffer2D = buffer.QueryInterface<IMF2DBuffer>();
+        }
+        catch (SharpGenException)
+        {
+            buffer2D = null;   // 少数缓冲不是 2D 的，走一维 Lock
+        }
+
+        try
+        {
+            if (buffer2D is not null)
+            {
+                buffer2D.Lock2D(out IntPtr scanline0, out int pitch);
+                try
+                {
+                    int rows = RowsFor(pitch, height, buffer.CurrentLength);
+                    byte[] data = ReadRows(scanline0, pitch, rows);
+                    return new CapturedFrame(data, width, height, pitch, timestamp, sample.SampleDuration, rows);
+                }
+                finally
+                {
+                    buffer2D.Unlock2D();
+                }
+            }
+            else
+            {
+                buffer.Lock(out IntPtr pointer, out _, out int currentLength);
+                try
+                {
+                    int pitch = height > 0 ? currentLength / height : 0;
+                    if (pitch <= 0)
+                    {
+                        throw new InvalidOperationException($"缓冲长度 {currentLength} 与高度 {height} 算不出行跨距");
+                    }
+                    int rows = RowsFor(pitch, height, currentLength);
+                    byte[] data = ReadRows(pointer, pitch, rows);
+                    return new CapturedFrame(data, width, height, pitch, timestamp, sample.SampleDuration, rows);
+                }
+                finally
+                {
+                    buffer.Unlock();
+                }
+            }
+        }
+        finally
+        {
+            buffer2D?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// 该拷多少行：用**缓冲实际长度 ÷ 行跨距**算，而不是按格式猜。
+    /// YUY2 得到 height；NV12 得到 height×1.5（UV 交织平面跟在 Y 后面）——
+    /// 按格式硬编码的话，NV12 会只拷到 Y 平面，转换出来就是一片灰。
+    /// </summary>
+    private static int RowsFor(int pitch, int height, int currentLength)
+    {
+        int absolutePitch = Math.Abs(pitch);
+        if (absolutePitch <= 0 || currentLength <= 0)
+        {
+            return height;
+        }
+        int rows = currentLength / absolutePitch;
+        return rows >= height ? rows : height;
+    }
+
+    private static byte[] ReadRows(IntPtr scanline0, int pitch, int rows)
+    {
+        int absolutePitch = Math.Abs(pitch);
+        var data = new byte[absolutePitch * rows];
+        for (int y = 0; y < rows; y++)
+        {
+            IntPtr row = IntPtr.Add(scanline0, y * pitch);   // pitch 为负时自动往回走（自下而上）
+            Marshal.Copy(row, data, y * absolutePitch, absolutePitch);
+        }
+        return data;
     }
 
     private void ThrowIfDisposed()

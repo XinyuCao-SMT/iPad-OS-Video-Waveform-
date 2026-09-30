@@ -14,6 +14,7 @@
 
 using System.Globalization;
 using VideoScopePad.Win.Capture;
+using VideoScopePad.Win.Render;
 using Vortice.MediaFoundation;
 
 namespace VideoScopePad.Tools.MfCapture;
@@ -71,7 +72,11 @@ internal static class Program
         Console.WriteLine("  capture [秒数] [选项]  ③ 采集并统计实测 fps，存 capture-frame.png");
         Console.WriteLine("       --device <片段>      选设备");
         Console.WriteLine("       --set <WxH@fps:FourCC>  指定采集格式");
-        Console.WriteLine("       --out <目录>         出图目录（默认 Windows/out）");
+        Console.WriteLine("       --out <目录>         出图目录（默认 &lt;仓库根&gt;\\Windows\\out）");
+        Console.WriteLine("       --name <文件名>      出图文件名（默认 capture-frame.png）");
+        Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
+        Console.WriteLine("  formats 选项：" );
+        Console.WriteLine("       --dump               额外打印原生媒体类型的属性集（默认就是打印当前生效的那条）");
     }
 
     // ------------------------------------------------------------------
@@ -413,12 +418,429 @@ internal static class Program
     }
 
     // ------------------------------------------------------------------
-    //  ③ 采集（下一步实现）
+    //  ③ 采集：1 秒 → 实测 fps + capture-frame.png
     // ------------------------------------------------------------------
     private static int Capture(string[] args)
     {
-        Console.WriteLine("capture 尚未实现（第 3 步）");
-        return 2;
+        double seconds = args.Length > 1 && double.TryParse(args[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double s)
+            ? s : 1.0;
+        string deviceFragment = Option(args, "--device") ?? DefaultDeviceNameFragment;
+        string? requested = Option(args, "--set");
+        string outDirectory = Option(args, "--out") ?? DefaultOutDirectory();
+        string outputName = Option(args, "--name") ?? "capture-frame.png";
+
+        // ---------- 先自检转换器（不碰设备，纯数值）----------
+        // 这一步是「IRE 标定」的根：转换器错了，后面示波器再准也是白搭。
+        Console.WriteLine("转换器自检（YUY2 → RGBA8，limited 16–235 → full 0–255）：");
+        ConverterSelfCheck();
+        Console.WriteLine();
+
+        using var mf = MediaFoundationRuntime.Start();
+        using CaptureDevice device = CaptureDevice.OpenByName(deviceFragment);
+        IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
+        CaptureFormat wanted = requested is { Length: > 0 }
+            ? formats.FirstOrDefault(f => f.MatchesSpec(requested))
+                ?? throw new InvalidOperationException($"没有匹配「{requested}」的原生格式")
+            : CaptureFormat.PickPreferred(formats)
+                ?? throw new InvalidOperationException("设备没有可用的原生格式");
+
+        CaptureFormat effective = device.SetNativeFormat(wanted.NativeIndex);
+        Console.WriteLine($"设备        : [{device.Info.Index}] {device.Info.FriendlyName}");
+        Console.WriteLine($"生效格式    : {effective.Describe()}");
+        Console.WriteLine($"色彩        : {effective.Color.Summary}");
+        Console.WriteLine($"换算系数    : {YuvFrameConverter.Coefficients.Select(effective.Color).Describe()}");
+        Console.WriteLine();
+
+        // ---------- 预热：丢掉最初几帧（UVC 开始传输的头几帧经常是空的/半截的）----------
+        int discarded = 0;
+        for (int i = 0; i < 3; i++)
+        {
+            CapturedFrame? warmup = device.ReadFrame();
+            if (warmup is not null)
+            {
+                discarded++;
+            }
+        }
+
+        // ---------- 按时间戳采满 N 秒 ----------
+        var meter = new CaptureRateMeter();
+        CapturedFrame? middle = null;
+        CapturedFrame? last = null;
+        var intervals = new List<double>();
+        double previousTimestamp = double.NaN;
+        int frames = 0;
+
+        while (true)
+        {
+            CapturedFrame? frame = device.ReadFrame();
+            if (frame is null)
+            {
+                break;   // 设备不再给帧（拔掉了 / 走到流末尾）
+            }
+
+            double timestamp = frame.TimestampSeconds;
+            if (frames > 0 && !double.IsNaN(previousTimestamp))
+            {
+                intervals.Add((timestamp - previousTimestamp) * 1000.0);
+            }
+
+            meter.Add(frame.TimestampHns);
+            frames++;
+            previousTimestamp = timestamp;
+            last = frame;
+
+            // 留中间那一帧出图：第一帧可能还没稳定，最后一帧可能刚好在格式切换点上
+            if (middle is null && meter.ElapsedSeconds >= seconds / 2)
+            {
+                middle = frame;
+            }
+
+            if (meter.ElapsedSeconds >= seconds)
+            {
+                break;
+            }
+            if (frames > 20000)
+            {
+                break;   // 安全阀：声明帧率填错时别把内存吃光
+            }
+        }
+
+        CapturedFrame? snapshot = middle ?? last;
+        double declared = effective.FrameRate;
+        double measured = meter.MeasuredFps;
+        double deviation = declared > 0 ? (measured - declared) * 100.0 / declared : 0;
+
+        Console.WriteLine($"预热丢弃    : {discarded} 帧");
+        Console.WriteLine($"采集        : {frames} 帧 / {meter.ElapsedSeconds:0.000} 秒（按帧时间戳算）");
+        Console.WriteLine($"声明帧率    : {declared:0.###} fps");
+        Console.WriteLine($"实测帧率    : {measured:0.###} fps（偏差 {deviation:+0.0;-0.0;0.0}%）");
+        Console.WriteLine($"帧间隔      : 最小 {meter.MinIntervalMs:0.00} ms / 最大 {meter.MaxIntervalMs:0.00} ms "
+                        + $"/ 平均 {(frames > 1 ? meter.ElapsedSeconds * 1000.0 / (frames - 1) : 0):0.00} ms");
+        if (intervals.Count >= 5)
+        {
+            Console.WriteLine($"前 5 个间隔 : {string.Join("、", intervals.Take(5).Select(v => v.ToString("0.00") + " ms"))}");
+        }
+
+        if (snapshot is null)
+        {
+            Check(false, "采到至少一帧画面", "一帧都没有 —— 卡没在出图（HDMI 没接？被别的程序占用？）");
+            return Report();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine($"出图帧      : {snapshot.Width}×{snapshot.Height}，行跨距 {snapshot.Stride}，"
+                        + $"缓冲 {snapshot.Rows} 行，{snapshot.Length} 字节（{snapshot.Length / 1024.0 / 1024.0:0.00} MB），"
+                        + $"时间戳 {snapshot.TimestampSeconds:0.000000} s");
+
+        // ---------- Y 平面统计（顺便把 IRE 换算走一遍）----------
+        LumaStats planes = MeasureLuma(snapshot, effective.SubtypeName);
+        PlaneStats luma = planes.Y;
+        VideoColorInfo color = effective.Color;
+        Console.WriteLine($"Y 码值      : {luma}");
+        Console.WriteLine($"U / V 码值  : U {planes.U}    V {planes.V}");
+        Console.WriteLine($"对应 IRE    : {color.CodeToIre(luma.Min):0.0} … {color.CodeToIre(luma.Max):0.0} IRE"
+                        + $"（按 {color.RangeDescription}；平均 {color.CodeToIre(luma.Mean):0.0} IRE）");
+
+        // ---------- 转 RGBA 并存 PNG ----------
+        Directory.CreateDirectory(outDirectory);
+        string pngPath = Path.Combine(outDirectory, outputName);
+        byte[] rgba = YuvFrameConverter.ToRgba8(snapshot, effective.SubtypeName, color);
+        PngWriter.Write(pngPath, snapshot.Width, snapshot.Height, rgba);
+        var fileInfo = new FileInfo(pngPath);
+        Console.WriteLine($"出图        : {pngPath}（{fileInfo.Length / 1024.0:0.0} KB）");
+        Console.WriteLine();
+
+        // ---------- 断言 ----------
+        Check(frames >= 2, "采到足够的帧用来算实测帧率", $"{frames} 帧");
+        Check(measured > 0 && Math.Abs(deviation) < 5.0,
+            "实测帧率与声明帧率一致（±5%）",
+            $"{measured:0.###} vs {declared:0.###} fps");
+        Check(snapshot.Width == effective.Width && snapshot.Height == effective.Height,
+            "帧尺寸与生效格式一致", $"{snapshot.Width}×{snapshot.Height}");
+        Check(snapshot.Length == Math.Abs(snapshot.Stride) * snapshot.Rows,
+            "帧缓冲长度 = 行跨距 × 缓冲行数", $"{snapshot.Length} = {Math.Abs(snapshot.Stride)}×{snapshot.Rows}");
+
+        // 画面内容：整帧单一码值时不能说「管道错了」，但必须证明它**确实是均匀画面**，
+        // 且这个均匀值恰好等于该码值经同一套系数换算出来的结果。
+        // ⚠️ 别写成「均匀 → 一定是纯黑」：只有 limited 的 16 才映射到 0；
+        //    full range（内建摄像头就报 full）的 12 会老老实实映射成 12。
+        if (luma.Distinct == 1)
+        {
+            byte expected = UniformProbe(luma.Min, color);
+            bool uniform = IsUniform(rgba, expected, expected, expected, 255);
+            bool neutralChroma = planes.U.Min == 128 && planes.U.Max == 128 && planes.V.Min == 128 && planes.V.Max == 128;
+
+            Check(uniform, $"整帧单一码值 {luma.Min} → RGBA 整幅均匀 ({expected},{expected},{expected},255)"
+                         + "（读的是 Y 平面、码值映射一致）",
+                uniform ? "是" : "否 —— 转换结果不是均匀色，管道有问题");
+            Check(neutralChroma, "U/V 都是 128（无色度）—— 是均匀灰画面，不是读错平面",
+                $"U {planes.U.Min}–{planes.U.Max} / V {planes.V.Min}–{planes.V.Max}");
+            Console.WriteLine();
+            Console.WriteLine($"⚠ 这一帧整幅是**均匀画面**（Y 全部 = {luma.Min}，U/V = 128），所以 PNG 是一张纯色图。可能是：");
+            if (color.IsLimitedRange)
+            {
+                Console.WriteLine($"   · 采集卡没接到信号源 / 信号源输出黑场（limited 黑电平就是码值 16，本帧是 {luma.Min}）");
+                Console.WriteLine("   · 信号源带 HDCP，卡不出图");
+            }
+            else
+            {
+                Console.WriteLine($"   · 摄像头被遮挡、被系统「相机隐私」开关关掉，驱动给的是占位画面");
+                Console.WriteLine("   · 现场太暗（full range 下码值 12 接近纯黑）");
+            }
+            Console.WriteLine("   · 设备被别的程序（OBS / 相机应用）占着");
+            Console.WriteLine("  帧率、行跨距、缓冲行数、码值映射这四项都已验证正确 —— 换一个有画面的信号源即可看到内容。");
+        }
+        else
+        {
+            Check(true, "Y 平面有画面内容", $"码值 {luma.Min}–{luma.Max}，{luma.Distinct} 种");
+        }
+
+        if (fileInfo.Exists)
+        {
+            (int pngWidth, int pngHeight) = ReadPngSize(pngPath);
+            Check(pngWidth == snapshot.Width && pngHeight == snapshot.Height,
+                "PNG 回读尺寸 == 帧尺寸", $"{pngWidth}×{pngHeight}");
+        }
+        else
+        {
+            Check(false, "PNG 已写出", "文件不存在");
+        }
+
+        return Report();
+    }
+
+    /// <summary>
+    /// 转换器自检：用**已知码值**验证 limited → full 的展开与系数选择。
+    /// 180 是本工程合成信号里 75% 白的 limited 码值，展开后必须正好是 191 ——
+    /// 这样「采集进来的画面」和「离屏自检的合成信号」用的是同一套码值口径。
+    /// </summary>
+    private static void ConverterSelfCheck()
+    {
+        var limited601 = new VideoColorInfo(
+            NominalRange.Range16_235, true,
+            VideoPrimaries.Bt709, true,
+            VideoTransferFunction.Func709, true,
+            VideoTransferMatrix.Bt601, true);
+
+        Check(IsColor(ColorAt(16, 128, 128, limited601), 0, 0, 0), "码值 16 → 0（0 IRE 黑）", Describe(ColorAt(16, 128, 128, limited601)));
+        Check(IsColor(ColorAt(180, 128, 128, limited601), 191, 191, 191), "码值 180 → 191（75% 白，与合成信号一致）",
+            Describe(ColorAt(180, 128, 128, limited601)));
+        Check(IsColor(ColorAt(235, 128, 128, limited601), 255, 255, 255), "码值 235 → 255（100 IRE 白）",
+            Describe(ColorAt(235, 128, 128, limited601)));
+
+        (byte r, byte g, byte b) red = ColorAt(81, 90, 240, limited601);
+        Check(red.r > 250 && red.g < 8 && red.b < 8, "BT.601 limited 的纯红 (Y,U,V)=(81,90,240) → 纯红", Describe(red));
+
+        (byte r709, byte g709, byte b709) = ColorAt(63, 102, 240, limited601 with { Matrix = VideoTransferMatrix.Bt709 });
+        Check(r709 > 250 && g709 < 8 && b709 < 8, "BT.709 limited 的纯红 (Y,U,V)=(63,102,240) → 纯红",
+            Describe((r709, g709, b709)));
+
+        // NV12（交织 UV 平面）走一遍：2×2 图，6 字节 = 4 个 Y + 一对 UV
+        YuvFrameConverter.Coefficients coefficients = YuvFrameConverter.Coefficients.Select(limited601);
+        byte[] nv12Gray = { 180, 180, 180, 180, 128, 128 };
+        byte[] nv12GrayRgba = YuvFrameConverter.Nv12ToRgba8(nv12Gray, 2, 2, 2, coefficients);
+        Check(nv12GrayRgba[0] == 191 && nv12GrayRgba[1] == 191 && nv12GrayRgba[2] == 191 &&
+              nv12GrayRgba[4] == 191 && nv12GrayRgba[8] == 191 && nv12GrayRgba[12] == 191,
+            "NV12 2×2 全 180 → 四个像素都是 191",
+            $"({nv12GrayRgba[0]},{nv12GrayRgba[1]},{nv12GrayRgba[2]}) …");
+
+        byte[] nv12Red = { 81, 81, 81, 81, 90, 240 };
+        byte[] nv12RedRgba = YuvFrameConverter.Nv12ToRgba8(nv12Red, 2, 2, 2, coefficients);
+        Check(nv12RedRgba[0] > 250 && nv12RedRgba[1] < 8 && nv12RedRgba[2] < 8,
+            "NV12 纯红 (Y,U,V)=(81,90,240) → 纯红", Describe((nv12RedRgba[0], nv12RedRgba[1], nv12RedRgba[2])));
+    }
+
+    private static bool IsColor((byte R, byte G, byte B) c, byte r, byte g, byte b)
+        => c.R == r && c.G == g && c.B == b;
+
+    private static (byte R, byte G, byte B) ColorAt(byte y, byte u, byte v, VideoColorInfo color)
+    {
+        // 造一帧 2×1 的 YUY2（两组共用同一对 U/V），走真正的转换路径
+        byte[] yuy2 = { y, u, y, v };
+        byte[] rgba = YuvFrameConverter.Yuy2ToRgba8(yuy2, 2, 1, 4,
+            YuvFrameConverter.Coefficients.Select(color));
+        return (rgba[0], rgba[1], rgba[2]);
+    }
+
+    private static string Describe((byte R, byte G, byte B) c) => $"({c.R},{c.G},{c.B})";
+
+    /// <summary>
+    /// 某个 Y 码值（U/V 取 128 无色度）经真正的转换路径会得到什么灰度值 ——
+    /// 用来给「整帧均匀」的画面算出它**应该**是什么颜色（而不是假定一定是黑的）。
+    /// </summary>
+    private static byte UniformProbe(byte y, VideoColorInfo color)
+    {
+        byte[] probe = YuvFrameConverter.Yuy2ToRgba8(
+            new byte[] { y, 128, y, 128 }, 2, 1, 4, YuvFrameConverter.Coefficients.Select(color));
+        return probe[0];
+    }
+
+    /// <summary>整幅 RGBA 是不是同一个颜色（用来证明「全黑帧」确实是黑电平而不是读错平面）。</summary>
+    private static bool IsUniform(ReadOnlySpan<byte> rgba, byte r, byte g, byte b, byte a)
+    {
+        for (int i = 0; i + 3 < rgba.Length; i += 4)
+        {
+            if (rgba[i] != r || rgba[i + 1] != g || rgba[i + 2] != b || rgba[i + 3] != a)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private readonly record struct PlaneStats(byte Min, byte Max, double Mean, int Distinct)
+    {
+        public override string ToString() => $"{Min}–{Max}（平均 {Mean:0.0}，{Distinct} 种）";
+    }
+
+    private readonly record struct LumaStats(PlaneStats Y, PlaneStats U, PlaneStats V);
+
+    /// <summary>
+    /// 统计三个平面。
+    /// YUY2：Y 在偶数下标、U 在 4n+1、V 在 4n+3；
+    /// NV12：Y 平面在缓冲前 height 行，交织 UV 平面紧跟其后（U 在前、V 在后）。
+    /// 顺带看 U/V 是有意的：**全黑帧的 U/V 必须是 128**（无色度），
+    /// 这能区分「卡在输出真黑场」和「我们把某个平面读错位了」。
+    /// </summary>
+    private static LumaStats MeasureLuma(CapturedFrame frame, string subtypeName)
+    {
+        var y = new PlaneStatsBuilder();
+        var u = new PlaneStatsBuilder();
+        var v = new PlaneStatsBuilder();
+
+        int pitch = Math.Abs(frame.Stride);
+        bool nv12 = string.Equals(subtypeName, "NV12", StringComparison.OrdinalIgnoreCase);
+        int chromaPlane = pitch * frame.Height;
+
+        for (int row = 0; row < frame.Height; row++)
+        {
+            int rowStart = row * pitch;
+            if (nv12)
+            {
+                int chromaRow = chromaPlane + (row / 2) * pitch;
+                for (int x = 0; x < frame.Width; x++)
+                {
+                    y.Add(frame.Data[rowStart + x]);
+                    if ((x & 1) == 0)
+                    {
+                        u.Add(frame.Data[chromaRow + x]);
+                        v.Add(frame.Data[chromaRow + x + 1]);
+                    }
+                }
+            }
+            else
+            {
+                for (int x = 0; x < frame.Width; x += 2)
+                {
+                    int i = rowStart + x * 2;
+                    y.Add(frame.Data[i]);
+                    u.Add(frame.Data[i + 1]);
+                    y.Add(frame.Data[i + 2]);
+                    v.Add(frame.Data[i + 3]);
+                }
+            }
+        }
+
+        return new LumaStats(y.Build(), u.Build(), v.Build());
+    }
+
+    private struct PlaneStatsBuilder
+    {
+        private readonly int[] _histogram;
+        private long _sum;
+        private int _count;
+        private byte _min;
+        private byte _max;
+
+        public PlaneStatsBuilder()
+        {
+            _histogram = new int[256];
+            _sum = 0;
+            _count = 0;
+            _min = 255;
+            _max = 0;
+        }
+
+        public void Add(byte value)
+        {
+            _histogram[value]++;
+            _sum += value;
+            _count++;
+            if (value < _min)
+            {
+                _min = value;
+            }
+            if (value > _max)
+            {
+                _max = value;
+            }
+        }
+
+        public PlaneStats Build()
+        {
+            if (_count == 0)
+            {
+                return new PlaneStats(0, 0, 0, 0);
+            }
+            int distinct = 0;
+            foreach (int bin in _histogram)
+            {
+                if (bin > 0)
+                {
+                    distinct++;
+                }
+            }
+            return new PlaneStats(_min, _max, (double)_sum / _count, distinct);
+        }
+    }
+
+    /// <summary>回读 PNG 的 IHDR 尺寸（顺带证明写出来的是合法 PNG）。</summary>
+    private static (int Width, int Height) ReadPngSize(string path)
+    {
+        byte[] header = new byte[24];
+        using var stream = File.OpenRead(path);
+        if (stream.Read(header, 0, header.Length) < header.Length)
+        {
+            return (-1, -1);
+        }
+        ReadOnlySpan<byte> signature = stackalloc byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
+        if (!header.AsSpan(0, 8).SequenceEqual(signature))
+        {
+            return (-1, -1);
+        }
+        if (System.Text.Encoding.ASCII.GetString(header, 12, 4) != "IHDR")
+        {
+            return (-1, -1);
+        }
+        int width = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(16, 4));
+        int height = System.Buffers.Binary.BinaryPrimitives.ReadInt32BigEndian(header.AsSpan(20, 4));
+        return (width, height);
+    }
+
+    /// <summary>
+    /// 出图目录：从当前目录往上找仓库根（认 Windows\VideoScopePad.Win 这个标记），
+    /// 拼出 &lt;仓库根&gt;\Windows\out。
+    ///
+    /// ⚠️ 为什么不直接写相对路径：.NET 的文件 API 走的是**进程当前目录**，
+    /// 而 `dotnet run` 的当前目录取决于你从哪个目录敲的命令（不是项目目录），
+    /// 于是「同一个命令在两个目录下跑，图存到两个地方」—— 这个坑之前踩过，这里按仓库根定位。
+    /// </summary>
+    private static string DefaultOutDirectory()
+    {
+        foreach (string start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var directory = new DirectoryInfo(start);
+            while (directory is not null)
+            {
+                string marker = Path.Combine(directory.FullName, "Windows", "VideoScopePad.Win", "VideoScopePad.Win.csproj");
+                if (File.Exists(marker))
+                {
+                    return Path.Combine(directory.FullName, "Windows", "out");
+                }
+                directory = directory.Parent;
+            }
+        }
+        return Path.Combine(Directory.GetCurrentDirectory(), "out");
     }
 
     // ------------------------------------------------------------------
