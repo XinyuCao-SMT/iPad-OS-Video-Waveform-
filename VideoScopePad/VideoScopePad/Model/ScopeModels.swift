@@ -70,6 +70,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     case streamStats
     case avSync
     case audioPhase
+    case audioSpectrum
 
     var id: String { rawValue }
 
@@ -84,6 +85,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .streamStats: return "推流状态（近 5 分钟）"
         case .avSync: return "声画延时（A/V Sync）"
         case .audioPhase: return "声相（李萨如）"
+        case .audioSpectrum: return "音频频谱 / 响度"
         }
     }
 
@@ -98,6 +100,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .streamStats: return "推流"
         case .avSync: return "声画"
         case .audioPhase: return "声相"
+        case .audioSpectrum: return "频谱"
         }
     }
 
@@ -112,6 +115,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .streamStats: return "chart.line.uptrend.xyaxis"
         case .avSync: return "waveform.badge.mic"
         case .audioPhase: return "circle.hexagongrid"
+        case .audioSpectrum: return "chart.bar.fill"
         }
     }
 
@@ -127,13 +131,14 @@ enum PaneContent: String, CaseIterable, Identifiable {
         case .streamStats: return "编码码率 / SRT 估计带宽 / 网络延迟（RTT）近 5 分钟曲线"
         case .avSync: return "声画延时：测试设备周期发送「静音黑场 → 千周声 + 彩条」，这里测两者的到达时差"
         case .audioPhase: return "声相（李萨如）：立体声 L/R 关系图 —— 竖直中线=单声道/同相，水平=反相，并给出相关度与平衡"
+        case .audioSpectrum: return "音频频谱（1/3 倍频程）+ 响度：Momentary / Short-term LUFS、RMS、峰值"
         }
     }
 
     /// 画面之外的内容对应的示波器种类（推流状态与声画延时不是 GPU 示波器，所以为 nil）
     var scopeKind: ScopePanelKind? {
         switch self {
-        case .picture, .streamStats, .avSync, .audioPhase: return nil
+        case .picture, .streamStats, .avSync, .audioPhase, .audioSpectrum: return nil
         case .vectorscope: return .vectorscope
         case .waveform: return .waveform
         case .parade: return .parade
@@ -148,7 +153,7 @@ enum PaneContent: String, CaseIterable, Identifiable {
     }
 
     /// 纯界面绘制（不走 Metal 示波器管线）
-    var isInterfaceOnly: Bool { self == .streamStats || self == .avSync || self == .audioPhase }
+    var isInterfaceOnly: Bool { self == .streamStats || self == .avSync || self == .audioPhase || self == .audioSpectrum }
 }
 
 /// 波形/矢量图侧边刻度的显示单位

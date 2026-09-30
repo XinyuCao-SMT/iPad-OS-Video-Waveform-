@@ -51,6 +51,7 @@ final class AppSettings: ObservableObject {
         static let audioInputID = prefix + "audioInputID"
         static let showAudioMeters = prefix + "showAudioMeters"
         static let avSyncCompensation = prefix + "avSyncCompensation"
+        static let freezePictureToo = prefix + "freezePictureToo"
     }
 
     // MARK: - 监视器
@@ -111,8 +112,14 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(preventSleep, forKey: Key.preventSleep) }
     }
 
-    /// 冻结画面（便于用示波器读值）
+    /// 冻结**图表**：示波器轨迹与数值读数停在按下那一刻，实时画面照常更新，
+    /// 便于把上一个信号的图形与当前信号的画面放在一起对比（音频相关的一律不冻结）。
     @Published var freeze = false
+
+    /// 冻结时是否连实时画面一起冻住（默认否 = 只冻图表）
+    @Published var freezePictureToo = false {
+        didSet { UserDefaults.standard.set(freezePictureToo, forKey: Key.freezePictureToo) }
+    }
 
     // MARK: - 示波器
 

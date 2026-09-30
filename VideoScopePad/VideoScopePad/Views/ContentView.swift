@@ -223,6 +223,11 @@ struct ContentView: View {
                                       containerSize: geo.size)
                         .allowsHitTesting(false)
 
+                    // 「音频频谱 / 响度」格子
+                    AudioSpectrumPaneOverlay(layout: layout,
+                                             audio: coordinator.audio,
+                                             containerSize: geo.size)
+                        .allowsHitTesting(false)
                     // 「声相（李萨如）」格子
                     AudioPhasePaneOverlay(layout: layout,
                                           audio: coordinator.audio,

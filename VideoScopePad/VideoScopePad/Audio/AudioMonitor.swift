@@ -81,6 +81,8 @@ final class AudioMonitor: ObservableObject {
     @Published private(set) var toneLevelDB: Float = -120
     /// 声相（李萨如）快照：立体声的 L/R 关系图 + 相关度 + 平衡
     @Published private(set) var phase = PhaseSnapshot.empty
+    /// 频谱（1/3 倍频程）与响度（LUFS）
+    @Published private(set) var spectrum = SpectrumAnalyzer.Snapshot.empty
 
     /// 千周声起音 / 结束（主机时钟秒）
     var onToneOnset: ((TimeInterval) -> Void)?
@@ -132,6 +134,9 @@ final class AudioMonitor: ObservableObject {
     private var sumL2: Double = 0                    // 用于 L/R 平衡
     private var sumR2: Double = 0
     private let maxPhasePoints = 1400                // 每帧最多画这么多点
+
+    /// 频谱 / 响度分析（FFT + BS.1770 K 加权），失败时为 nil（不影响其他功能）
+    private var analyzer: SpectrumAnalyzer?
 
     /// 起音判据：带通包络要连续超过阈值这么多秒才算「千周声来了」
     private let confirmSeconds: Double = 0.004
@@ -196,6 +201,15 @@ final class AudioMonitor: ObservableObject {
         biquad = Biquad(center: 1000, sampleRate: Float(format.sampleRate), q: 3)
         envelope = 0
         inBurst = false
+
+        // 频谱 / 响度：按实际采样率配置一次（滤波器系数与频带映射都依赖它）
+        if analyzer == nil {
+            analyzer = try? SpectrumAnalyzer()
+            analyzer?.onSnapshot = { [weak self] snapshot in
+                DispatchQueue.main.async { self?.spectrum = snapshot }
+            }
+        }
+        analyzer?.configure(sampleRate: Float(format.sampleRate))
 
         sampleRate = format.sampleRate
         channelCount = Int(format.channelCount)
@@ -357,6 +371,9 @@ final class AudioMonitor: ObservableObject {
 
         if let onset { onToneOnset?(onset) }
         if let end { onToneEnd?(end) }
+
+        // ---- 频谱 + 响度 ----
+        analyzer?.process(channels: channels, channelCount: channelCount, frames: frames)
     }
 
     /// 把直方图压成点列表（只保留非零点，按强度对数压缩），并算相关度与平衡

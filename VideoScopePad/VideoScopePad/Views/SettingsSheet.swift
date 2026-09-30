@@ -217,11 +217,21 @@ struct SettingsSheet: View {
             Toggle("顶部显示信号 / 读数信息行", isOn: $settings.showHUD)
             Toggle("监视时防止息屏", isOn: $settings.preventSleep)
 
-            Toggle("布局调试叠加层（每格边界与尺寸）", isOn: $settings.showLayoutDebug)
-            if settings.showLayoutDebug {
-                Text("打开后画面上会画出每个格子的实际边界：绿=格子、青=示波器绘图区、黄=刻度栏、品红=画面区，并标出尺寸。排查「不居中 / 显示不全 / 跑到别的格子」时截图即可。")
+            // 冻结 / 调试这两组放进 Group，避免这个 Section 的子视图超过 SwiftUI 的 10 个上限
+            Group {
+                Toggle("冻结时连实时画面一起冻住", isOn: $settings.freezePictureToo)
+                Text(settings.freezePictureToo
+                     ? "当前：「冻结」会把画面与图表一起停住（看静止画面时用）。"
+                     : "当前：「冻结」只停住图表（示波器轨迹与数值读数），实时画面继续更新 —— 可以把上一个信号的图形与当前信号的画面放在一起对比。音频相关显示（音柱 / 声相 / 频谱 / 声画延时）永远不冻结。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                Toggle("布局调试叠加层（每格边界与尺寸）", isOn: $settings.showLayoutDebug)
+                if settings.showLayoutDebug {
+                    Text("打开后画面上会画出每个格子的实际边界：绿=格子、青=示波器绘图区、黄=刻度栏、品红=画面区，并标出尺寸。排查「不居中 / 显示不全 / 跑到别的格子」时截图即可。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }

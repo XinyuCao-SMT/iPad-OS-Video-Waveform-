@@ -125,7 +125,13 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
         var retainedFrameTextures: [CVMetalTexture] = []
 
-        if settings.freeze {
+        // 冻结语义：默认**只冻结图表**（示波器轨迹与数值读数停在按下那一刻），
+        // 实时画面照常更新 —— 这样可以把「上一个信号」的图形与「当前信号」的画面放在一起对比。
+        // 只有显式打开「冻结时连画面一起冻住」才会丢弃新帧（画面也停住）。
+        let freezeScopes = settings.freeze
+        let freezePicture = settings.freeze && settings.freezePictureToo
+
+        if freezePicture {
             _ = takePendingBuffer()
         } else if let pixelBuffer = takePendingBuffer() {
             retainedFrameTextures = encodeFrameConversion(pixelBuffer,
@@ -163,13 +169,14 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
         // 示波器统计源
         let scopeInput = settings.scopeSource == .postLUT ? displaySource : preLUT
-        if !scopeSettings.enabled.isEmpty {
+        // 冻结图表时不重算示波器纹理 —— 纹理保留冻结那一刻的内容
+        if !scopeSettings.enabled.isEmpty, !freezeScopes {
             scopeEngine.encode(commandBuffer: commandBuffer, source: scopeInput, settings: scopeSettings)
         }
 
         // 信号幅度数值读数（低频回读，不阻塞渲染）
         frameIndex &+= 1
-        if settings.showMeasurement, frameIndex % measurementInterval == 0 {
+        if settings.showMeasurement, !freezeScopes, frameIndex % measurementInterval == 0 {
             let isVideoRange = sourceInfo.isVideoRange
             scopeEngine.encodeMeasurement(commandBuffer: commandBuffer,
                                           source: scopeInput,
