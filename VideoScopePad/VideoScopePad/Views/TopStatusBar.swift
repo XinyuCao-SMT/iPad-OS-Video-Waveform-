@@ -60,6 +60,22 @@ struct TopInfoChips: View {
                 ChipLabel(title: "黑位 " + settings.scaleUnit.formatPrecise(value.stableBlackIRE))
                 ChipLabel(title: "平均 " + settings.scaleUnit.formatPrecise(value.averageIRE))
                 ChipLabel(title: String(format: "色度 %.0f%%", value.peakSaturationPercent))
+
+                // 冻结参考：把抓取那一刻的读数与差值一起摆出来（校色时对着调）
+                if settings.freeze, let reference = measurement.reference {
+                    ChipLabel(title: "参考 峰 \(settings.scaleUnit.formatPrecise(reference.stableWhiteIRE))"
+                               + " · 黑 \(settings.scaleUnit.formatPrecise(reference.stableBlackIRE))"
+                               + " · 均 \(settings.scaleUnit.formatPrecise(reference.averageIRE))",
+                              systemImage: "pin.fill",
+                              isActive: true,
+                              tint: .orange)
+
+                    ChipLabel(title: "Δ 峰 " + deltaText(value.stableWhiteIRE,
+                                                        reference.stableWhiteIRE)
+                               + " · 均 " + deltaText(value.averageIRE, reference.averageIRE),
+                              systemImage: "plusminus",
+                              tint: deltaTint(value: value, reference: reference))
+                }
             }
 
             if settings.lutEnabled, let detail = lutStore.detailText {
@@ -90,5 +106,28 @@ struct TopInfoChips: View {
 
     private var deviceName: String {
         capture.devices.first { $0.id == capture.selectedDeviceID }?.name ?? "未选择设备"
+    }
+
+    // MARK: - 冻结参考的差值
+
+    /// 带符号的差值（跟着刻度单位走）
+    private func deltaText(_ current: Double, _ reference: Double) -> String {
+        let delta = current - reference
+        switch settings.scaleUnit {
+        case .ire:       return String(format: "%+.1f IRE", delta)
+        case .millivolt: return String(format: "%+.0f mV", settings.scaleUnit.value(fromIRE: delta))
+        case .percent:   return String(format: "%+.1f%%", delta)
+        }
+    }
+
+    /// 差值很小（校色后基本吻合）显示绿色，明显偏离显示橙色
+    private func deltaTint(value: SignalMeasurement, reference: SignalMeasurement) -> Color {
+        let white = abs(value.stableWhiteIRE - reference.stableWhiteIRE)
+        let black = abs(value.stableBlackIRE - reference.stableBlackIRE)
+        let average = abs(value.averageIRE - reference.averageIRE)
+        let worst = max(white, max(black, average))
+        if worst < 0.5 { return .green }
+        if worst < 2.0 { return .yellow }
+        return .orange
     }
 }

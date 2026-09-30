@@ -219,10 +219,26 @@ struct SettingsSheet: View {
 
             // 冻结 / 调试这两组放进 Group，避免这个 Section 的子视图超过 SwiftUI 的 10 个上限
             Group {
+                Toggle("冻结时把参考层叠在实时图表上", isOn: $settings.freezeReference)
+                Text("「冻结参考」= 抓一份当前图表的快照当基准：实时轨迹照常刷新，冻结那一刻的图形以**琥珀色**叠在上面，读数区同时给出参考值与差值 —— 校色时可以对着冻结前的画面调，不用来回切。关掉这个开关就只是抓一份不显示。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                if settings.freezeReference {
+                    HStack {
+                        Text("参考层不透明度")
+                        Slider(value: $settings.referenceOpacity, in: 0.1...1.0)
+                        Text(String(format: "%.0f%%", settings.referenceOpacity * 100))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+
                 Toggle("冻结时连实时画面一起冻住", isOn: $settings.freezePictureToo)
                 Text(settings.freezePictureToo
-                     ? "当前：「冻结」会把画面与图表一起停住（看静止画面时用）。"
-                     : "当前：「冻结」只停住图表（示波器轨迹与数值读数），实时画面继续更新 —— 可以把上一个信号的图形与当前信号的画面放在一起对比。音频相关显示（音柱 / 声相 / 频谱 / 声画延时）永远不冻结。")
+                     ? "当前：「冻结参考」还会把画面一起停住（看静止画面时用）；图表仍是实时的 + 琥珀色参考层。"
+                     : "当前：「冻结参考」画面照常实时，图表也是实时的，只是多叠了一层冻结参考。音频相关显示（音柱 / 声相 / 频谱 / 声画延时）永远不冻结。")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 

@@ -24,6 +24,10 @@ struct FrameSourceInfo {
     var isVideoRange: Bool = true
 }
 
+/// 冻结参考层的颜色：琥珀色。跟默认的绿色实时轨迹一眼就能分开，
+/// 所以「哪个是现在的信号、哪个是冻结那一刻」不用猜。
+let vsReferenceTint = SIMD3<Float>(1.0, 0.58, 0.12)
+
 final class VideoRenderer: NSObject, MTKViewDelegate {
 
     private let context: MetalContext
@@ -105,6 +109,27 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         // 下一帧会按新的 drawable 尺寸重新合成
     }
 
+    // MARK: - 参考层（冻结）
+
+    /// 参考层请求。渲染线程每帧只处理一次，抓取必须与「本帧的 encode」排在同一个 command buffer 里。
+    enum ReferenceRequest {
+        case none
+        case capture
+        case clear
+    }
+
+    private var referenceRequest: ReferenceRequest = .none
+
+    /// 抓一份参考层（冻结）：图表继续实时跑，冻结那一刻的图形叠在上面
+    func requestReferenceCapture() {
+        referenceRequest = .capture
+    }
+
+    /// 丢掉参考层（解除冻结）
+    func requestReferenceClear() {
+        referenceRequest = .clear
+    }
+
     // MARK: - 绘制
 
     func draw(in view: MTKView) {
@@ -125,10 +150,11 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
         var retainedFrameTextures: [CVMetalTexture] = []
 
-        // 冻结语义：默认**只冻结图表**（示波器轨迹与数值读数停在按下那一刻），
-        // 实时画面照常更新 —— 这样可以把「上一个信号」的图形与「当前信号」的画面放在一起对比。
-        // 只有显式打开「冻结时连画面一起冻住」才会丢弃新帧（画面也停住）。
-        let freezeScopes = settings.freeze
+        // 冻结语义（v1.11.0 起）：
+        //   · 「冻结」= 抓一份**参考层**。实时图表照常刷新，冻结那一刻的图形以琥珀色叠在实时轨迹上，
+        //     校色时可以直接前后对照；数值读数同样会存一份参考值并排显示。
+        //   · 勾上「冻结时连画面一起冻住」才会丢弃新帧（画面也停住）。
+        //   · 音频相关显示（音柱 / 声相 / 频谱 / 声画延时）永不冻结。
         let freezePicture = settings.freeze && settings.freezePictureToo
 
         if freezePicture {
@@ -169,14 +195,24 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
 
         // 示波器统计源
         let scopeInput = settings.scopeSource == .postLUT ? displaySource : preLUT
-        // 冻结图表时不重算示波器纹理 —— 纹理保留冻结那一刻的内容
-        if !scopeSettings.enabled.isEmpty, !freezeScopes {
+        // 图表永远是实时的；「冻结」只是额外抓一份参考层（见 ScopeEngine.captureReference）
+        if !scopeSettings.enabled.isEmpty {
             scopeEngine.encode(commandBuffer: commandBuffer, source: scopeInput, settings: scopeSettings)
+
+            // 参考层抓取：必须紧跟在本帧的 encode 之后，才能拷到刚算完的这一帧
+            if referenceRequest == .capture {
+                scopeEngine.captureReference(commandBuffer: commandBuffer)
+                referenceRequest = .none
+            }
+        }
+        if referenceRequest == .clear {
+            scopeEngine.clearReference()
+            referenceRequest = .none
         }
 
         // 信号幅度数值读数（低频回读，不阻塞渲染）
         frameIndex &+= 1
-        if settings.showMeasurement, !freezeScopes, frameIndex % measurementInterval == 0 {
+        if settings.showMeasurement, frameIndex % measurementInterval == 0 {
             let isVideoRange = sourceInfo.isVideoRange
             scopeEngine.encodeMeasurement(commandBuffer: commandBuffer,
                                           source: scopeInput,
@@ -433,17 +469,23 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
         // 3) 示波器轨迹
         if hasScopes && displaySource != nil {
             encoder.setRenderPipelineState(context.pipelines.scopeTrace)
+            // 参考层：冻结着且有内容时才叠（琥珀色幽灵，叠在实时轨迹上面）
+            let showReference = settings.freeze
+                && settings.freezeReference
+                && scopeEngine.hasReference
+                && settings.referenceOpacity > 0.01
             for pane in panes {
                 guard let kind = pane.content.scopeKind, let plot = pane.plot else { continue }
                 // 轨迹只允许画在自己那格的绘图区里（矢量图放大后也不许溢到邻格）
                 setScissor(encoder, unitRect: pane.panel, drawableSize: drawableSize)
                 let texture = scopeEngine.texture(for: kind, waveformMode: settings.waveformMode)
+                let uv = scopeEngine.uvRect(for: kind, gain: settings.vectorscopeGain)
 
                 var scopeUniforms = VSScopeUniforms()
                 scopeUniforms.params = SIMD4<Float>(1,
                                                     Float(scopeSettings.traceIntensity),
                                                     1,
-                                                    Float(scopeSettings.panelOpacity))
+                                                    1)
                 // RGB Parade / RGB 叠加波形自带通道配色，这里不能再上色，否则颜色会偏
                 let isColorTrace = kind == .parade
                     || (kind == .waveform && settings.waveformMode == .rgbOverlay)
@@ -455,9 +497,21 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
                 encoder.setFragmentTexture(texture, index: Int(VSTextureIndexScope))
                 encoder.setFragmentBytes(&scopeUniforms, length: MemoryLayout<VSScopeUniforms>.stride,
                                          index: Int(VSBufferIndexScopeUniforms))
-                encodeQuad(encoder: encoder,
-                           rect: plot,
-                           uv: scopeEngine.uvRect(for: kind, gain: settings.vectorscopeGain))
+                encodeQuad(encoder: encoder, rect: plot, uv: uv)
+
+                // 冻结参考层：跟实时轨迹用完全相同的矩形与 UV，只是换成琥珀色、按不透明度变淡
+                if showReference {
+                    var ghost = scopeUniforms
+                    ghost.color = SIMD4<Float>(vsReferenceTint.x, vsReferenceTint.y, vsReferenceTint.z, 1)
+                    ghost.params.w = Float(settings.referenceOpacity)
+                    encoder.setFragmentTexture(scopeEngine.referenceTexture(for: kind,
+                                                                           waveformMode: settings.waveformMode),
+                                               index: Int(VSTextureIndexScope))
+                    encoder.setFragmentBytes(&ghost, length: MemoryLayout<VSScopeUniforms>.stride,
+                                             index: Int(VSBufferIndexScopeUniforms))
+                    encodeQuad(encoder: encoder, rect: plot, uv: uv)
+                }
+
                 clearScissor(encoder, drawableSize: drawableSize)
             }
         }

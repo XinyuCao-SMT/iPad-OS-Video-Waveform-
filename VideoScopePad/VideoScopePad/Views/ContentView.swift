@@ -44,7 +44,8 @@ struct ContentView: View {
                                lutStore: lutStore,
                                showSettings: $showSettings,
                                showLUTImporter: $showLUTImporter,
-                               onClearAlarms: { coordinator.clearAlarmsAndPeaks() })
+                               onClearAlarms: { coordinator.clearAlarmsAndPeaks() },
+                               onSetReference: { coordinator.setReference($0) })
                 }
             }
         }
@@ -147,10 +148,10 @@ struct ContentView: View {
             }
 
             Button {
-                settings.freeze.toggle()
+                coordinator.setReference(!settings.freeze)
             } label: {
-                ChipLabel(title: settings.freeze ? "解除冻结" : "冻结",
-                          systemImage: settings.freeze ? "play.fill" : "pause.fill",
+                ChipLabel(title: settings.freeze ? "清除参考" : "冻结参考",
+                          systemImage: settings.freeze ? "pin.slash.fill" : "pin.fill",
                           isActive: settings.freeze,
                           tint: .orange)
             }

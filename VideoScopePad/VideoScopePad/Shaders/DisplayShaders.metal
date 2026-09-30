@@ -208,8 +208,11 @@ fragment float4 fsScopeTrace(VSVertexOut in [[stage_in]],
 
     float4 c = scopeTexture.sample(s, in.uv);
     float intensity = u.params.y;
+    // params.w：叠加倍率。实时轨迹传 1.0；冻结参考层传真不透明度（0~1），
+    // 于是参考层就是一层淡淡的「幽灵」，不会把实时轨迹盖住。
+    float ghost = max(u.params.w, 0.0);
     float energy = max(max(c.r, c.g), c.b);
 
     // 预乘颜色，配合加法混合（src = one, dst = one）得到经典示波器辉光效果
-    return float4(c.rgb * intensity * u.color.rgb, energy * intensity);
+    return float4(c.rgb * intensity * u.color.rgb * ghost, energy * intensity * ghost);
 }

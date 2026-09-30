@@ -216,6 +216,35 @@ final class RenderCoordinator: ObservableObject {
         measurementHub.peakHold = PeakHoldState()
     }
 
+    // MARK: - 参考层（冻结）
+
+    /// 冻结 / 解除冻结。
+    ///
+    /// 「冻结」= 把当前这一帧的示波器图形与数值读数各存一份参考，
+    /// 实时图表与实时读数**继续刷新**，参考层以琥珀色叠在实时图表上（见 VideoRenderer 的参考层绘制），
+    /// 顶部读数区同时给出参考值与差值 —— 校色的时候就能对着冻结前后的图形/数值调。
+    func setReference(_ on: Bool) {
+        guard let settings else { return }
+        settings.freeze = on
+
+        if on {
+            renderer?.requestReferenceCapture()
+            // 读数参考：拿当前这一份实时读数当基准（还没读到就当没有）
+            measurementHub.reference = measurementHub.value
+            measurementHub.referencePeakHold = measurementHub.peakHold.hasData
+                ? measurementHub.peakHold
+                : nil
+        } else {
+            renderer?.requestReferenceClear()
+            measurementHub.reference = nil
+            measurementHub.referencePeakHold = nil
+        }
+        requestRedraw()
+    }
+
+    /// 冻结开关的当前状态（界面按钮直接读它）
+    var isReferenceActive: Bool { settings?.freeze ?? false }
+
     func attach(view: MTKView) {
         self.view = view
         view.delegate = renderer

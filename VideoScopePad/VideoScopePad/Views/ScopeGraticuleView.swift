@@ -46,9 +46,11 @@ struct ScopeGraticuleView: View {
                                      columns: 1,
                                      labels: settings.waveformMode == .luma ? ["Y"] : ["RGB"])
                         drawPeakHold(&layer, rect: plot)
+                        drawReferencePeakHold(&layer, rect: plot)
                     case .parade:
                         drawWaveform(&layer, rect: plot, columns: 3, labels: ["R", "G", "B"])
                         drawPeakHold(&layer, rect: plot)
+                        drawReferencePeakHold(&layer, rect: plot)
                     }
                 }
 
@@ -174,6 +176,42 @@ struct ScopeGraticuleView: View {
                            opacity: 0.95,
                            monospaced: true),
                      at: CGPoint(x: narrow ? rect.minX + 6 : rect.maxX - 6, y: y - 11),
+                     anchor: narrow ? .leading : .trailing)
+        }
+    }
+
+    /// 冻结参考的峰值 / 黑位：抓取那一刻的电平用琥珀色虚线钉在波形上，
+    /// 跟实时游标并排看就知道校色前后差了多少。
+    private func drawReferencePeakHold(_ ctx: inout GraphicsContext, rect: CGRect) {
+        guard settings.freeze, settings.freezeReference, settings.showMeasurement else { return }
+        guard let state = measurement.referencePeakHold, state.hasData else { return }
+
+        let unit = settings.scaleUnit
+        let rows: [(value: Double, name: String)] = [
+            (state.whitePeakIRE, "参考峰"),
+            (state.blackFloorIRE, "参考黑")
+        ]
+
+        for row in rows {
+            let y = yPosition(forIRE: row.value, in: rect)
+            guard y >= rect.minY - 1, y <= rect.maxY + 1 else { continue }
+
+            var path = Path()
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+            stroke(&ctx, path,
+                   color: Color(red: 1.0, green: 0.58, blue: 0.12).opacity(0.95),
+                   width: 1.0,
+                   dash: [2, 3])
+
+            // 实时游标的标注贴在左/右边缘，参考的标注往中间挪一点，避免重叠
+            let narrow = rect.width < 170
+            ctx.draw(label(row.name + " " + unit.formatPrecise(row.value),
+                           size: 10,
+                           weight: .semibold,
+                           opacity: 0.9,
+                           monospaced: true),
+                     at: CGPoint(x: narrow ? rect.minX + 6 : rect.maxX - 6, y: y + 3),
                      anchor: narrow ? .leading : .trailing)
         }
     }

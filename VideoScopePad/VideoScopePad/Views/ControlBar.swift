@@ -18,6 +18,9 @@ struct ControlBar: View {
     /// 清报警与峰值游标（由 ContentView 接到协调器上）
     var onClearAlarms: () -> Void = {}
 
+    /// 冻结 / 清除参考层（由 ContentView 转给 RenderCoordinator）
+    var onSetReference: (Bool) -> Void = { _ in }
+
     @State private var showGrade = false
 
     var body: some View {
@@ -133,10 +136,10 @@ struct ControlBar: View {
                     .buttonStyle(.plain)
 
                     Button {
-                        settings.freeze.toggle()
+                        onSetReference(!settings.freeze)
                     } label: {
-                        ChipLabel(title: settings.freeze ? "解除冻结" : "冻结画面",
-                                  systemImage: settings.freeze ? "play.fill" : "pause.fill",
+                        ChipLabel(title: settings.freeze ? "清除参考" : "冻结参考",
+                                  systemImage: settings.freeze ? "pin.slash.fill" : "pin.fill",
                                   isActive: settings.freeze,
                                   tint: .orange)
                     }

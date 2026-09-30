@@ -44,6 +44,22 @@ final class ScopeEngine {
     let overlayTexture: MTLTexture
     let paradeTexture: MTLTexture
 
+    // MARK: - 参考层（冻结快照）
+    //
+    // 「冻结」不是让图表停下来，而是把按下那一刻的图表**整块拷一份**存起来，
+    // 之后实时图表照常刷新，参考层以琥珀色叠在实时轨迹上面 ——
+    // 校色的时候就能拿冻结前的图形跟当前的图形直接对着看。
+
+    let vectorscopeReference: MTLTexture
+    let diamondReference: MTLTexture
+    let cieReference: MTLTexture
+    let waveformReference: MTLTexture
+    let overlayReference: MTLTexture
+    let paradeReference: MTLTexture
+
+    /// 参考层里是否有内容（没抓过就不要叠，否则会叠一层黑的上去）
+    private(set) var hasReference = false
+
     private let context: MetalContext
 
     /// 测量直方图的 uint 个数（init 里算一次，回读时复用）
@@ -102,6 +118,85 @@ final class ScopeEngine {
         waveformTexture = waveform
         overlayTexture = overlay
         paradeTexture = parade
+
+        // 参考层：尺寸与实时纹理完全一致，才能用同一套 quad / UV 叠着画
+        guard let vectorRef = context.makeScopeTexture(width: scopeSize, height: scopeSize,
+                                                       label: "参考层 矢量示波器"),
+              let diamondRef = context.makeScopeTexture(width: scopeSize, height: scopeSize,
+                                                        label: "参考层 钻石图"),
+              let cieRef = context.makeScopeTexture(width: scopeSize, height: scopeSize,
+                                                    label: "参考层 马蹄图"),
+              let waveformRef = context.makeScopeTexture(width: columns, height: bins,
+                                                         label: "参考层 亮度波形"),
+              let overlayRef = context.makeScopeTexture(width: columns, height: bins,
+                                                        label: "参考层 RGB 叠加波形"),
+              let paradeRef = context.makeScopeTexture(width: columns * 3, height: bins,
+                                                       label: "参考层 RGB Parade") else {
+            throw ScopeEngineError.textureAllocationFailed
+        }
+
+        vectorscopeReference = vectorRef
+        diamondReference = diamondRef
+        cieReference = cieRef
+        waveformReference = waveformRef
+        overlayReference = overlayRef
+        paradeReference = paradeRef
+    }
+
+    // MARK: - 参考层
+
+    /// 抓取参考层：把当前实时图表整块拷进参考纹理。
+    /// 必须编码在 `encode(...)` **之后**的同一个 command buffer 里，才能拷到刚算完的这一帧。
+    func captureReference(commandBuffer: MTLCommandBuffer) {
+        guard let blit = commandBuffer.makeBlitCommandEncoder() else { return }
+        blit.label = "抓取参考层"
+
+        let pairs: [(MTLTexture, MTLTexture)] = [
+            (vectorscopeTexture, vectorscopeReference),
+            (diamondTexture, diamondReference),
+            (cieTexture, cieReference),
+            (waveformTexture, waveformReference),
+            (overlayTexture, overlayReference),
+            (paradeTexture, paradeReference)
+        ]
+
+        for (source, target) in pairs {
+            let size = MTLSize(width: source.width, height: source.height, depth: 1)
+            let origin = MTLOrigin(x: 0, y: 0, z: 0)
+            blit.copy(from: source,
+                      sourceSlice: 0,
+                      sourceLevel: 0,
+                      sourceOrigin: origin,
+                      sourceSize: size,
+                      to: target,
+                      destinationSlice: 0,
+                      destinationLevel: 0,
+                      destinationOrigin: origin)
+        }
+
+        blit.endEncoding()
+        hasReference = true
+    }
+
+    /// 丢掉参考层（解除冻结）
+    func clearReference() {
+        hasReference = false
+    }
+
+    /// 参考层纹理（与 texture(for:) 一一对应）
+    func referenceTexture(for kind: ScopePanelKind, waveformMode: WaveformMode) -> MTLTexture {
+        switch kind {
+        case .vectorscope:
+            return vectorscopeReference
+        case .diamond:
+            return diamondReference
+        case .cie:
+            return cieReference
+        case .waveform:
+            return waveformMode == .luma ? waveformReference : overlayReference
+        case .parade:
+            return paradeReference
+        }
     }
 
     /// 供指定面板显示的纹理

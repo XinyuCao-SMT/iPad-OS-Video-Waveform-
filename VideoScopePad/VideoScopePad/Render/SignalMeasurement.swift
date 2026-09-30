@@ -69,6 +69,11 @@ final class MeasurementHub: ObservableObject {
     @Published var peakHold = PeakHoldState()
     /// 已经「确认」的报警（连续命中若干次才算，避免逐帧闪烁）
     @Published var activeWarnings: [String] = []
+
+    /// 冻结参考：抓取那一刻的读数（实时值照常刷新，两套值并排显示才好校色）
+    @Published var reference: SignalMeasurement?
+    /// 冻结参考：抓取那一刻的峰值保持游标（画成琥珀色虚线钉在波形上）
+    @Published var referencePeakHold: PeakHoldState?
 }
 
 // MARK: - 峰值保持

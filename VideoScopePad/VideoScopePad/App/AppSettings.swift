@@ -52,6 +52,8 @@ final class AppSettings: ObservableObject {
         static let showAudioMeters = prefix + "showAudioMeters"
         static let avSyncCompensation = prefix + "avSyncCompensation"
         static let freezePictureToo = prefix + "freezePictureToo"
+        static let freezeReference = prefix + "freezeReference"
+        static let referenceOpacity = prefix + "referenceOpacity"
     }
 
     // MARK: - 监视器
@@ -112,13 +114,23 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(preventSleep, forKey: Key.preventSleep) }
     }
 
-    /// 冻结**图表**：示波器轨迹与数值读数停在按下那一刻，实时画面照常更新，
-    /// 便于把上一个信号的图形与当前信号的画面放在一起对比（音频相关的一律不冻结）。
+    /// 冻结 = 抓一份**参考层**：实时图表照常刷新，冻结那一刻的图形以琥珀色叠在实时轨迹上，
+    /// 数值读数也会存一份参考值并排显示 —— 校色时前后对照用（音频相关的一律不冻结）。
     @Published var freeze = false
 
-    /// 冻结时是否连实时画面一起冻住（默认否 = 只冻图表）
+    /// 冻结时是否连实时画面一起冻住（默认否 = 画面照常实时）
     @Published var freezePictureToo = false {
         didSet { UserDefaults.standard.set(freezePictureToo, forKey: Key.freezePictureToo) }
+    }
+
+    /// 冻结时把参考层叠在实时图表上（关掉就只是抓一份备用，不显示）
+    @Published var freezeReference = true {
+        didSet { UserDefaults.standard.set(freezeReference, forKey: Key.freezeReference) }
+    }
+
+    /// 参考层不透明度（1.0 = 与实时轨迹一样亮，容易盖住实时曲线）
+    @Published var referenceOpacity: Double = 0.55 {
+        didSet { UserDefaults.standard.set(referenceOpacity, forKey: Key.referenceOpacity) }
     }
 
     // MARK: - 示波器
