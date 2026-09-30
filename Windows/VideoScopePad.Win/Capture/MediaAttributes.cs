@@ -59,6 +59,42 @@ public static class MediaAttributes
     public static uint GetUInt32OrDefault(this IMFAttributes attributes, Guid key, uint defaultValue = 0)
         => MediaFactory.MFGetAttributeUInt32(attributes, key, defaultValue);
 
+    /// <summary>
+    /// 读 UInt32，并区分「读到了 0」与「压根没这个属性」。
+    /// 这个区别在色彩元数据上是**要命的**：VideoNominalRange 的 0 是 Unknown，
+    /// 而缺失同样要按 Unknown 处理 —— 但我们必须知道到底是哪种，才能决定是否回退到推断值。
+    /// </summary>
+    public static bool TryGetUInt32(this IMFAttributes attributes, Guid key, out uint value)
+    {
+        try
+        {
+            value = attributes.GetUInt32(key);
+            return true;
+        }
+        catch (COMException)
+        {
+            value = 0;
+            return false;
+        }
+        catch (SharpGen.Runtime.SharpGenException)
+        {
+            value = 0;
+            return false;
+        }
+    }
+
+    /// <summary>读 UInt32 并当 Int32 用（MF_MT_DEFAULT_STRIDE 是有符号的：负 = 自下而上）。</summary>
+    public static bool TryGetInt32(this IMFAttributes attributes, Guid key, out int value)
+    {
+        if (attributes.TryGetUInt32(key, out uint raw))
+        {
+            value = unchecked((int)raw);
+            return true;
+        }
+        value = 0;
+        return false;
+    }
+
     /// <summary>读 UInt64；缺失返回 default。</summary>
     public static ulong GetUInt64OrDefault(this IMFAttributes attributes, Guid key, ulong defaultValue = 0)
         => MediaFactory.MFGetAttributeUInt64(attributes, key, defaultValue);
@@ -116,4 +152,73 @@ public static class MediaAttributes
 
     /// <summary>调试用：把属性键的 GUID 打印成 MF 头文件那种形式。</summary>
     public static string Describe(Guid key) => key.ToString("D").ToUpperInvariant();
+
+    /// <summary>
+    /// 列出这个属性集里**实际存在**的所有键（值不取，取值的活交给按类型读的方法）。
+    ///
+    /// 为什么值得单独做：采集卡是第三方驱动，它到底给了哪些色彩元数据（以及 MF 在
+    /// 中间插了什么），只能靠把整个属性集摊开来看。这一步是「IRE 标定准不准」的证据链。
+    /// </summary>
+    public static IReadOnlyList<(Guid Key, AttributeType Type)> ListKeys(this IMFAttributes attributes)
+    {
+        var keys = new List<(Guid, AttributeType)>();
+        uint count = attributes.Count;
+        for (uint i = 0; i < count; i++)
+        {
+            try
+            {
+                object item = attributes.GetItemByIndex(i, out Guid key);
+                (item as IDisposable)?.Dispose();
+                keys.Add((key, attributes.GetItemType(key)));
+            }
+            catch (COMException)
+            {
+                break;
+            }
+            catch (SharpGen.Runtime.SharpGenException)
+            {
+                break;
+            }
+        }
+        return keys;
+    }
+
+    /// <summary>按属性自身的类型取一个可打印的值（取不到就给 "?"）。</summary>
+    public static string DescribeValue(this IMFAttributes attributes, Guid key, AttributeType type)
+    {
+        try
+        {
+            switch (type)
+            {
+                case AttributeType.Uint32:
+                    return attributes.GetUInt32(key).ToString();
+
+                case AttributeType.Uint64:
+                    return attributes.GetUInt64(key).ToString();
+
+                case AttributeType.Guid:
+                    return attributes.GetGUID(key).ToString("D");
+
+                case AttributeType.String:
+                    return attributes.GetString(key);
+
+                case AttributeType.Double:
+                    return attributes.GetDouble(key).ToString("0.####");
+
+                case AttributeType.Blob:
+                    return $"{attributes.GetBlobSize(key)} 字节";
+
+                default:
+                    return "?";
+            }
+        }
+        catch (COMException)
+        {
+            return "?";
+        }
+        catch (SharpGen.Runtime.SharpGenException)
+        {
+            return "?";
+        }
+    }
 }

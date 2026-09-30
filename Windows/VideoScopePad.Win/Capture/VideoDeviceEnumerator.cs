@@ -74,44 +74,34 @@ public static class VideoDeviceEnumerator
     }
 
     /// <summary>
-    /// 取出指定设备的 IMFActivate（**调用方负责 Dispose 与全部后续生命周期**）。
-    /// 找不到返回 null。
+    /// 在枚举集合**存活期内**对目标设备调用 ActivateObject，拿到独立的 IMFMediaSource。
+    ///
+    /// 🔴 血泪坑（已用 tools/mf-capture probe 复现，别再犯）：
+    ///   **不能把 IMFActivate 带出 IMFActivateCollection 的作用域。**
+    ///   集合的 Dispose() 会连它交给你的子包装一起 Dispose —— 带出去的那个 IMFActivate
+    ///   其 NativePointer 已经变成 0，再 ActivateObject 只会得到
+    ///   `NullReferenceException`（SharpGen 的 ComObject 在指针为 0 时取 Vtbl 的表现，
+    ///   不是标准的 COMException，看着特别像"代码写错了"）。
+    ///   实测：集合内 ActivateObject ✓、带出后再 ActivateObject ✗（NativePointer = 0）。
+    ///
+    ///   本项目**首选**按符号链接走 MFCreateDeviceSource（见 CaptureDevice），
+    ///   这个方法是「驱动不给符号链接」时的兜底。
     /// </summary>
-    public static IMFActivate? TakeActivate(string nameFragment)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(nameFragment);
-
-        using IMFActivateCollection collection = MediaFactory.MFEnumVideoDeviceSources();
-        int index = 0;
-        foreach (IMFActivate activate in collection)
-        {
-            string name = activate.TryGetString(CaptureDeviceAttributeKeys.FriendlyName) ?? string.Empty;
-            if (name.Contains(nameFragment, StringComparison.OrdinalIgnoreCase))
-            {
-                return activate;   // 不 Dispose：交出去
-            }
-            activate.Dispose();    // 不是它 → 立刻放掉
-            index++;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// 同上，按枚举序号取（界面下拉里选的就是这个序号）。
-    /// </summary>
-    public static IMFActivate? TakeActivateAt(int deviceIndex)
+    public static IMFMediaSource ActivateSourceAt(int deviceIndex)
     {
         using IMFActivateCollection collection = MediaFactory.MFEnumVideoDeviceSources();
+
         int index = 0;
         foreach (IMFActivate activate in collection)
         {
             if (index == deviceIndex)
             {
-                return activate;
+                // 返回的 IMFMediaSource 是独立对象，不受集合 Dispose 影响
+                return activate.ActivateObject<IMFMediaSource>();
             }
-            activate.Dispose();
             index++;
         }
-        return null;
+
+        throw new InvalidOperationException($"没有序号为 {deviceIndex} 的视频采集设备");
     }
 }
