@@ -1,8 +1,8 @@
 # 回滚指南 · 版本保留说明
 
-十六个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
+十七个版本都已固定成**不可变的历史点**，随时可以退回去。每个版本都有独立 tag、独立源码归档、独立 IPA（本地 + GitHub Release 永久附件）。
 
-## 十六个版本
+## 十七个版本
 
 | 版本 | 提交 | Tag / 分支 | 内容 | IPA |
 |---|---|---|---|---|
@@ -21,7 +21,8 @@
 | **v1.8.0 声画延时版** | `5ea9bfd9` | tag `v1.8.0-avsync` | **声画延时（A/V Sync）测量**：音频侧 1 kHz 带通 + 逐样本包络检波（采样级起音），视频侧每帧画面签名（亮度/饱和度）找「黑场 → 彩条」跳变帧，两者同在主机时钟上直接相减 → 报「声音快 / 画面快 xx ms」+ 中位数 / 极差 / 帧间隔量化；新增**画面两侧音柱**（L/R，dB 刻度、峰值保持、CLIP，裁在格子内）；设置新增音频输入选择与测量补偿；Info.plist 增加麦克风权限键 | `dist/VideoScopePad-v1.8.0-avsync-unsigned.ipa` |
 | **v1.9.0 声相版** | `a7c9ca2` | tag `v1.9.0-phase` | 新增格子内容**声相（李萨如 / goniometer）**：按样本累加 (Side, Mid) 二维分布 —— 竖直中线 = 单声道/同相、水平 = 反相、45° = 只有 L 或只有 R；同时给出**相关度**（+1 同相 / 0 无关 / −1 反相，带 −1…+1 条形）与 **L/R 平衡 dB**；纯界面绘制（CPU 直方图，不占 GPU），立体声输入即用 | `dist/VideoScopePad-v1.9.0-phase-unsigned.ipa` |
 | **v1.10.0 音频分析版** | `2eb8338e` | tag `v1.10.0-audio` | 新增**音频频谱 / 响度**格子：vDSP FFT → 1/3 倍频程 31 段（20 Hz–20 kHz 柱状图 + 100/1k/10k 刻度）+ BS.1770 K 加权算 **Momentary(400 ms) / Short-term(3 s) LUFS**（带 −23 EBU / −24 ATSC 目标刻度）与 RMS / 峰值 dBFS；**冻结语义改为「只冻图表」** —— 示波器轨迹与数值读数停在按下那一刻、**实时画面继续更新**（用上一个信号的图形对比当前画面），音频相关显示永不冻结；新增「冻结时连实时画面一起冻住」选项 | `dist/VideoScopePad-v1.10.0-audio-unsigned.ipa` |
-| **v1.10.1 logo/署名版**<br>（最新，**推荐装**） | `29f038e` | tag `v1.10.1-logo` | 软件内 logo 换成 `SMG + SMT 黑底白字.png`（实测白字 + 透明底：62.6% 全透明 + 37.4% 纯白，重新生成 1x/2x/3x，深色顶栏上不会出现黑底方块）；「关于」页新增**开发者：smt 曹昕宇**并在页首放 logo | `dist/VideoScopePad-v1.10.1-logo-unsigned.ipa` |
+| **v1.10.1 logo/署名版** | `29f038e` | tag `v1.10.1-logo` | 软件内 logo 换成 `SMG + SMT 黑底白字.png`（实测白字 + 透明底：62.6% 全透明 + 37.4% 纯白，重新生成 1x/2x/3x，深色顶栏上不会出现黑底方块）；「关于」页新增**开发者：smt 曹昕宇**并在页首放 logo | `dist/VideoScopePad-v1.10.1-logo-unsigned.ipa` |
+| **v1.11.0 冻结参考叠加版**<br>（最新，**推荐装**） | `071e040` | tag `v1.11.0-reference` | 「冻结」升级为**参考层叠加**：不再停住图表，而是把按下那一刻的示波器图形（波形/RGB 叠加/Parade/矢量/钻石/马蹄）整块 blit 拷成参考纹理，**实时图表照常刷新**、参考层以**琥珀色幽灵**叠在实时轨迹上（不透明度可调，实时轨迹恒 100%）；数值读数同样存一份参考，顶部信息行给出「参考 峰/黑/均」与「Δ 峰/均」（差值 <0.5 IRE 绿、<2.0 IRE 黄、更大橙）；峰值保持游标叠一条琥珀色细虚线；着色器 `fsScopeTrace` 新增 `params.w` = 叠加倍率；「冻结时连实时画面一起冻住」保留（默认关） | `dist/VideoScopePad-v1.11.0-reference-unsigned.ipa` |
 
 > ⚠️ **v1.3.0 有已知崩溃**：只要打开「读数」，`PeakHoldTracker` 的独占访问违规就会让 App 崩溃，
 > 而且读数开关是持久化的，**重启后照样崩、根本进不去**。要修只能装 v1.3.1 或更早版本（v1.2.0 及以前没有这个 bug）。
@@ -43,6 +44,9 @@
 > 主程序 8.15 MB，包内出现「钻石图（RGB 色域）」「马蹄图（CIE 色度）」「推流状态（近 5 分钟）」等新文案，`CFBundleShortVersionString = 1.7.0`。
 > v1.7.1 的 metallib 变为 `17A4B77546503A89…`（改了 `DisplayShaders.metal` 的画面旋转与 `ScopeKernels.metal` 的钻石图变换），
 > 主程序 8.17 MB，包内出现「自动跟随界面」等新文案，`CFBundleShortVersionString = 1.7.1`。
+> v1.11.0 的 metallib 变为 `2C9E8DE862AB4BFD…`（**预期**：`DisplayShaders.metal` 的 `fsScopeTrace` 新增参考层倍率 `params.w`，
+> 81 592 bytes），主程序 8.31 MB，`Assets.car` 仍是 1700 KB，
+> 包内出现 `freezeReference` / `referenceOpacity` 两个新设置键，`CFBundleShortVersionString = 1.11.0`。
 
 ## 三种回滚方式
 
@@ -74,8 +78,8 @@ GitHub 上十六个 tag 都已推送，换台机器 `git clone` + `git checkout 
 解压这些归档即可得到完整工程（含 Xcode 工程、scheme、CI 工作流）：
 
 ```
-E:\harness\_backup\src-v1.10.1-logo-<sha>.zip           ← 最新版源码
-E:\harness\_backup\src-v1.10.0-audio-b93368548.zip      ← 上一版源码
+E:\harness\_backup\src-v1.11.0-reference-071e040.zip     ← 最新版源码
+E:\harness\_backup\src-v1.10.1-logo-<sha>.zip           ← 上一版源码
 E:\harness\_backup\src-v1.0.0-monitor-385d8d0.zip       ← 最早那版源码
 E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运行地址与 IPA 哈希
 ```
@@ -103,8 +107,9 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | v1.9.0-phase | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36723156753> |
 | v1.10.0-audio | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36678521214> |
 | v1.10.1-logo | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36737098626> |
+| v1.11.0-reference | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/actions/runs/36680959498> |
 
-十六个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
+十七个版本的 IPA 都已挂到对应 Release 的附件里，**永久可下载**：
 
 - v1.0.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.0.0-monitor>
 - v1.1.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.1.0-quad>
@@ -122,6 +127,7 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 - v1.9.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.9.0-phase>
 - v1.10.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.10.0-audio>
 - v1.10.1：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.10.1-logo>
+- v1.11.0：<https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.11.0-reference>
 
 ## 校验哈希（确认手里的是哪一版）
 
@@ -143,11 +149,12 @@ E:\harness\_backup\build-records.txt                    ← 各版本的 CI 运�
 | `VideoScopePad-v1.9.0-phase-unsigned.ipa` | 4.35 MB | `AD9C5E58F9C4C34D…` |
 | `VideoScopePad-v1.10.0-audio-unsigned.ipa` | 4.36 MB | `B5487B8C72BDB308…` |
 | `VideoScopePad-v1.10.1-logo-unsigned.ipa` | 4.34 MB | `CF998675DBCC0FDE…` |
+| `VideoScopePad-v1.11.0-reference-unsigned.ipa` | 4.35 MB | `2A8EC0592F8592D7…` |
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\dist\VideoScopePad-v1.10.1-logo-unsigned.ipa -Algorithm SHA256
+Get-FileHash .\dist\VideoScopePad-v1.11.0-reference-unsigned.ipa -Algorithm SHA256
 ```
 
 ## 说明

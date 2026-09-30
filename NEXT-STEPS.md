@@ -1,10 +1,45 @@
 # 待办与已完成
 
-> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.10.1-logo**。
+> 版本保留与回滚方式见 `ROLLBACK.md`。当前最新版是 **v1.11.0-reference**。
 
 ---
 
 ## ✅ 已完成
+
+### v1.11.0 冻结参考叠加版（提交 `071e040`，tag `v1.11.0-reference`，CI run #37 全绿）
+
+**需求**：冻结的同时还要能看到实时信息 —— 把要的那一帧的画面信息冻下来，**叠在实时信息上**，校色时当参照。
+
+**一、冻结语义再升级：从「停住」改成「抓一份参考层叠上去」**
+* 按下「冻结参考」后，实时示波器**照常刷新**（不再跳过 `scopeEngine.encode`，测量回读也照常），
+  同时在同一个 command buffer 里用一次 `blit` 把这一帧的 6 张示波器纹理（波形 / RGB 叠加 / Parade /
+  矢量 / 钻石 / 马蹄）整块拷进「参考纹理」（rgba8，合计约 3 MB 显存，零额外 pass）。
+* 绘制轨迹时，实时的照常画（`params.w = 1.0`），参考层再用**同一套 rect + UV** 画第二遍：
+  颜色换成**琥珀色** `vsReferenceTint = (1.0, 0.58, 0.12)`、`params.w` 传不透明度（默认 0.55）→
+  因为管线是加法混合，得到的就是一层淡淡的「幽灵」，实时曲线永远压得住。
+* 抓取请求用 `VideoRenderer.ReferenceRequest`（`.capture` / `.clear`）投递，渲染线程每帧只处理一次，
+  保证「拷的就是刚算完的这一帧」；一格示波器都没显示时请求直接作废，不会留到以后误抓。
+
+**二、读数也存参考 + 差值**
+* `MeasurementHub` 新增 `reference: SignalMeasurement?` 与 `referencePeakHold: PeakHoldState?`；
+  `RenderCoordinator.setReference(_:)` 抓取时顺带存一份当前读数与峰值游标。
+* 顶部信息行实时值旁边给出「参考 峰 · 黑 · 均」与「Δ 峰 · 均」，差值 <0.5 IRE 绿、<2.0 IRE 黄、更大橙
+  —— 校色时能直接看到「差了多少」。
+* 峰值保持游标也叠一条琥珀色细虚线（`drawReferencePeakHold`），与实时游标并排对照。
+
+**三、界面**
+* 顶栏与监视控制条的按钮改为「冻结参考 / 清除参考」（图钉图标），都走 `coordinator.setReference(!settings.freeze)`。
+* 设置 → 显示：「冻结时把参考层叠在实时图表上」（`freezeReference`，默认开）+「参考层不透明度」
+  （`referenceOpacity`，0.1–1.0，默认 0.55）；「冻结时连实时画面一起冻住」保留（默认关）。
+* 音频相关显示（音柱 / 声相 / 频谱 / 声画延时）依旧永不冻结；参考层不写进 AppSettings 持久化，
+  重启后 `freeze` 自然回到关闭状态。
+
+**四、着色器**
+* `fsScopeTrace` 新增 `float ghost = max(u.params.w, 0.0);`，返回值整体乘 `ghost`
+  （实时轨迹传 1.0，因此对旧行为零影响；`params.z` 是 compute 侧的 stride，不能挪用，故选 `params.w`）。
+
+**五、验证**：`default.metallib` 哈希从 `20D723D0C9…` 变为 `2C9E8DE862AB4BFD…`（预期，动了 DisplayShaders），
+主程序 8.31 MB，包内出现 `freezeReference` / `referenceOpacity`，`CFBundleShortVersionString = 1.11.0`。
 
 ### v1.10.1 logo/署名版（提交 `29f038e`，tag `v1.10.1-logo`，CI run #36 全绿）
 
@@ -36,6 +71,8 @@
 * 全部 CPU（Accelerate），不占 GPU；每 100 ms 发一次快照。
 
 **二、冻结语义：只冻图表，画面继续实时**（用户要求）
+> ⚠️ **此语义已被 v1.11.0 取代**：现在冻结不再停住图表，而是抓一份参考层叠在实时图表上
+> （实时图表照常刷新），详见本文件顶部 v1.11.0 那一节。以下为 v1.10.0 当时的行为记录。
 * 冻结点一下后：**示波器轨迹不再重算**（纹理保留当时内容）、**数值读数也停住**，
   但**实时画面照常更新** → 可把上一个信号的图形/读数与当前画面同屏对比；
 * 音频相关显示（音柱 / 声相 / 频谱 / 声画延时）**永远不冻结**；
