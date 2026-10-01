@@ -279,6 +279,12 @@ if ($nothingToPush) {
     $check = Invoke-GitHub GET "/repos/$Repo/git/ref/heads/$Branch"
     Write-Host ("remote $Branch is now {0}" -f $check.object.sha)
     if ($check.object.sha -ne $commit.sha) { throw 'ref update verification failed' }
+
+    # 记下「本地提交 → 服务端提交」的对应关系（dist\ 不进仓库，纯本机用）：
+    # 标签必须指向**远端存在**的提交，而本仓库走 API 推、远端 sha 是 GitHub 生成的，本地没有。
+    $mapPath = Join-Path $repoRoot 'dist\remote-commit-map.txt'
+    New-Item -ItemType Directory -Path (Split-Path $mapPath) -Force | Out-Null
+    Add-Content -Path $mapPath -Value "$localSha $($commit.sha)" -Encoding ASCII
 }
 
 Write-Host ''
@@ -307,13 +313,20 @@ if (-not [string]::IsNullOrWhiteSpace($Tags)) {
         }
 
         $targetSha = (& git rev-list -n 1 $tag).Trim()
-        # 标签要指向**远端存在的**提交。本仓库走 API 推送、提交 sha 由服务端生成，
-        # 所以本地 HEAD 那个 sha 远端往往没有 —— 这时改指"内容等价的那个远端提交"：
-        #   本次推了源码 → 指向这次生成的新提交；只推标签 → 指向远端当前 tip。
-        $target = $targetSha
-        if ($targetSha -eq $localSha) {
+        # 标签要指向**远端存在的**提交。本仓库走 API 推送、远端 sha 由服务端生成，
+        # 所以先查 dist\remote-commit-map.txt 里记的对应关系；查不到就退到远端当前 tip
+        # （内容上是"这一版之后的最新状态"，清单里的提交号才是精确的那一个）。
+        $mapPath = Join-Path $repoRoot 'dist\remote-commit-map.txt'
+        $target = $null
+        if (Test-Path $mapPath) {
+            foreach ($line in (Get-Content $mapPath)) {
+                $parts = $line -split '\s+'
+                if ($parts.Count -ge 2 -and $parts[0] -eq $targetSha) { $target = $parts[1]; break }
+            }
+        }
+        if (-not $target) {
             $target = if ($nothingToPush) { $remoteSha } else { $commit.sha }
-            Write-Host "  $tag 指向本地 HEAD；改指远端等价提交 $($target.Substring(0,8))"
+            Write-Host "  ⚠ $tag 指向的本地提交 $($targetSha.Substring(0,8)) 不在对应表里，改指远端 $($target.Substring(0,8))"
         }
 
         $tagMessage = (& git tag -l --format='%(contents)' $tag) -join "`n"
