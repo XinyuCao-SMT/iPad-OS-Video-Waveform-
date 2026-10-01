@@ -17,12 +17,15 @@
 
 ```
 Windows/
+├─ VideoScopePad.App/          ← **界面程序**（WPF；双击就是实时监视器）
+│   ├─ LiveSession.cs          ← 实时链路：取帧 → GPU 转换 → 示波器 → 合成 → 回读
+│   └─ MainWindow.xaml(.cs)    ← 窗口：源选择 + 实时位图 + 状态行（故意做薄）
 ├─ VideoScopePad.Win/          ← 核心库（不依赖界面，可被自检工具引用）
 │   ├─ Core/                   ← 布局与模型（对应 iPad 版 Model/）
 │   │   ├─ RectF.cs            ← 轻量矩形（左上角原点、y 向下，与 SwiftUI/CGRect 习惯一致）
 │   │   ├─ ScopeModels.cs      ← 格内容 / 示波器种类 / 旋转 / 刻度单位
 │   │   └─ ScopeLayout.cs      ← 布局唯一来源（与 ScopeLayout.swift 逐行对应）
-│   ├─ Capture/                ← Media Foundation UVC 采集（本轮新增）
+│   ├─ Capture/                ← Media Foundation UVC 采集
 │   │   ├─ MediaFoundationRuntime.cs ← MFStartup/MFShutdown 的进程级引用计数
 │   │   ├─ VideoDeviceEnumerator.cs  ← 设备枚举 + 打开媒体源（含那个 IMFActivate 坑）
 │   │   ├─ CaptureDevice.cs          ← 源读取器：原生格式 / 生效格式 / 读帧
@@ -31,17 +34,19 @@ Windows/
 │   │   ├─ MediaSubtype.cs           ← 像素格式 GUID ↔ FourCC 反解
 │   │   ├─ MediaAttributes.cs        ← 属性安全读取（缺失不抛）+ 属性集摊开
 │   │   ├─ MediaAttributeCatalog.cs  ← GUID ↔ 字段名（反射建表，不用手抄 mfapi.h）
-│   │   ├─ YuvFrameConverter.cs      ← YUY2 / NV12 → RGBA8（limited→full 的展开）
+│   │   ├─ YuvFrameConverter.cs      ← YUY2 / NV12 → RGBA8（CPU 版：出 PNG、与 GPU 对拍）
+│   │   ├─ YuvFrameEncoder.cs        ← RGB → YUY2 / NV12（造已知码值的测试帧）
 │   │   ├─ CapturedFrame.cs          ← 一帧原始码流 + 时间戳
 │   │   └─ CaptureRateMeter.cs       ← 实测帧率（按帧时间戳算，不用墙上时钟）
 │   └─ Render/                 ← D3D11 渲染
-│       ├─ D3DContext.cs       ← 设备 / 离屏渲染目标 / 读回 / 存 PNG
+│       ├─ D3DContext.cs       ← 设备 / 离屏目标 / 读回 / 可复用 ReadbackBuffer / 存 PNG
+│       ├─ YuvFrameUploader.cs ← YUV 原样上传 + 一趟 compute 转 R'G'B'（GPU 版）
 │       ├─ PngWriter.cs        ← 极简 PNG 编码（不依赖 System.Drawing / WIC）
-│       ├─ SyntheticSource.cs  ← 合成测试信号（彩条 + PLUGE + 灰阶斜坡）
-│       └─ Shaders/            ← HLSL（由金属着色器逐行移植）
+│       ├─ SyntheticSource.cs  ← 合成测试信号（静态帧 + SyntheticLiveSource 动态叠层）
+│       └─ Shaders/            ← HLSL（金属着色器逐行移植 + ConvertShaders 新写）
 └─ tools/
     ├─ render-selfcheck/       ← 离屏自检：不开窗口渲染并存 PNG
-    ├─ mf-capture/             ← 采集自检：list / formats / capture / probe（一条命令一个验收点）
+    ├─ mf-capture/             ← 采集自检：list / formats / capture / gpu / probe
     └─ compile-shaders/        ← 只编译 HLSL，专门用来抓语法/绑定点错误
 ```
 
@@ -61,7 +66,14 @@ powershell -File Windows\tools\compile-shaders.ps1
 dotnet run --project Windows\tools\mf-capture -- list        # ① 枚举设备
 dotnet run --project Windows\tools\mf-capture -- formats     # ② 原生格式 + 生效格式 + 色彩元数据
 dotnet run --project Windows\tools\mf-capture -- capture 1   # ③ 采 1 秒 + 存 capture-frame.png
+dotnet run --project Windows\tools\mf-capture -- gpu         # ④ 采集帧 → GPU 转换 → 示波器（对拍 CPU 版）
 dotnet run --project Windows\tools\mf-capture -- probe       # 诊断：三条打开设备的路都试一遍
+
+# 界面程序：双击就是实时监视器；也可以无窗口自检（我这边看不到窗口，靠它验收）
+dotnet build Windows\VideoScopePad.App\VideoScopePad.App.csproj
+Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe
+Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe `
+    --snapshot Windows\out\live.png --frames 240 --source synthetic --width 1920 --height 1080
 ```
 
 **不需要装 Visual Studio**：.NET 8 SDK 自带 WPF 与 HLSL 所需的一切，
@@ -86,12 +98,13 @@ dotnet run --project Windows\tools\mf-capture -- probe       # 诊断：三条�
 - [x] HLSL 示波器着色器移植（14/14 入口点编译通过：7 compute + 1 VS + 6 PS）
 - [x] 示波器引擎（GPU 直方图 + 归一化 + 测量回读）—— 波形 / 矢量 / 钻石 / 马蹄全部算对
 - [x] 合成渲染器（画面 + 面板底色 + 轨迹 + 逐格 scissor 裁剪）
-- [x] Media Foundation 采集前三步：设备枚举 / 原生格式 + 色彩元数据 / 1 秒采集出 PNG
-- [ ] 采集帧接进示波器链路（YUV 直接当纹理喂 GPU，不要 CPU 转一遍）
-- [ ] WPF 界面与实时窗口（含刻度栏覆盖层）
+- [x] Media Foundation 采集：设备枚举 / 原生格式 + 色彩元数据 / 1 秒采集出 PNG
+- [x] 采集帧接进示波器链路：YUV 原样上传 GPU + compute 转 R'G'B'（与 CPU 版逐像素对拍）
+- [x] **WPF 实时窗口**（源选择：合成信号 / 采集卡 / 摄像头；四分割实时显示）
+- [ ] 刻度栏覆盖层（IRE 数字、色标框，按 iPad 版做法叠在窗口上）
 - [ ] 冻结参考层 + 幅度读数
 - [ ] LUT（.cube 解析 + 1D/3D 纹理）
-- [ ] 音频套件（WASAPI）
+- [ ] 音频套件（WASAPI；本机采集卡的音频功能是 UT-AUD 00K0601910）
 
 ## 自检现状（48 项全绿）
 
@@ -226,4 +239,66 @@ UT-VID 卡给 **128 条原生格式，全部是 YUY2（未压缩）**：最大 1
 * 转换器本身用已知码值对拍：16→0、180→191（75% 白）、235→255、
   BT.601 纯红 (81,90,240) → 纯红、BT.709 纯红 (63,102,240) → 纯红，NV12 与 YUY2 各测一遍；
 * 帧缓冲长度 = 行跨距 × 缓冲行数；PNG 回读 IHDR 尺寸 = 帧尺寸。
+
+## 实时链路：采集帧 → GPU → 示波器 → 窗口
+
+验收命令：`mf-capture gpu`（18 项断言）+ 界面程序的无窗口自检（4 项断言）。
+
+### 链路长什么样
+
+```
+采集卡（YUY2/NV12 原始码流）
+   │  IMF2DBuffer.Lock2D 拿到行跨距 → 拷进托管数组（CapturedFrame）
+   ▼
+UpdateSubresource（rowPitch = 驱动给的行跨距）
+   │  YUY2：一张 R8G8B8A8 纹理，每个 texel = (Y0,U,Y1,V) 两个像素
+   │  NV12：R8_UNORM ×1（Y 平面）+ R8G8_UNORM ×1（UV 交织平面）
+   ▼
+CSYuy2ToRgb / CSNv12ToRgb（Compute，一趟约 200 万线程）
+   │  系数由 cbuffer 传入（来源 = VideoColorInfo，与 CPU 版同一处选择逻辑）
+   ▼
+R'G'B' 纹理（R8G8B8A8）
+   ├─→ ScopeEngine.Encode（GPU 直方图 → 波形/矢量/Parade 纹理）
+   └─→ VideoRenderer.Render（画面格 + 面板 + 轨迹 → 合成纹理）
+                                    ▼
+                        合成纹理建为 **B8G8R8A8** → 回读 → WPF Bgra32 位图
+```
+
+**为什么先转成 RGB 再进示波器**：示波器是 GPU 直方图（compute 读一张纹理累加），
+它只认「已经转好的 RGB 纹理」，没法边采样边转。多这一趟换来的是显示与统计一行都不用改，
+合成信号那条路用的也是同一张 RGB 纹理。
+
+### 实测数据（RTX 4060 Laptop / Level_11_1）
+
+| 项目 | 结果 |
+|---|---|
+| GPU 与 CPU 转换对拍 | 1920×1080 YUY2：**最大差 1 LSB**，620 万样本里 0 个差 >1 |
+| 已知码值 | 75% 白条 `(191,191,191)`、PLUGE `(0,0,0)`，GPU/CPU 两条链都精确命中 |
+| 示波器落点 | 白条样本 **197 280 = 白条面积**（±5% 内），黑电平 bin 0 有样本 |
+| 上传+转换耗时 | 1080p YUY2 **4.10 ms/帧**、720p NV12 **0.60 ms/帧**（60 fps 预算 16.67 ms） |
+| 窗口实时帧率 | 1920×1080 合成 **144 fps**（6.5 ms/帧：转换 1.6 + 回读 4.9） |
+| 摄像头（NV12 实机） | 采集 29.989 fps（声明 30），画面格取样 `(12,12,12)` = 卡的均匀暗场 |
+| 采集卡（未插） | 不崩：报「找不到设备」并自动退回合成信号 |
+
+### 实时链路的坑（都实测过）
+
+1. **合成纹理用 B8G8R8A8，不要 R8G8B8A8**。WPF 没有 `Rgba32` 这个像素格式，
+   而 D3D 的分量是**按语义**映射的（`.x→R`、`.y→G`、`.z→B`），格式只决定内存排列 ——
+   所以让 D3D 直接以 BGRA 输出，着色器照旧写 (R,G,B)，回读出来的字节顺序正好是 WPF 要的，
+   界面一层一次 memcpy。否则每帧要在 UI 线程上做 200 万次通道交换（白白几毫秒）。
+   ⚠️ 这条要用**非对称颜色**验证：白条抓不到 R/B 互换，得看黄条
+   （BGRA 内存里必须是 `(0,191,191)`）。
+2. **着色器里别再手动 `round()`/`int()`**：输出目标是 UNORM，硬件写入时按就近取偶自动量化
+   （190.90 → 191），与 CPU 版的「+0.5 截断」天然一致。手动截断会得到 190，差 1。
+3. **读回要复用 staging 纹理与数组**（`ReadbackBuffer`）：每帧新建 + 每帧 8 MB 分配，
+   光 GC 就能吃掉一半帧率。
+4. **D3D11 是异步提交**：示波器与合成的 GPU 时间不会记在各自那一项上，
+   而是算进之后的 `Map`（回读）—— 看耗时分解时别以为「示波器 0 ms」是没算。
+5. **取样断言必须走布局的画面区矩形**：画面格里的视频是等比适配的（可能有留白），
+   按帧缓冲比例取样会取到别的彩条上（第一版就这么误报过）。
+   用 `ScopeLayout` 里的 `pane.Video` 做「视频像素 → 帧缓冲像素」换算。
+6. **合成信号别每帧重建整幅图**：1600×900 每帧重算 144 万像素 ×3 次 `Math.Round` = 37 ms/帧，
+   直接掉到 24 fps。静态部分缓存（`SyntheticLiveSource`），每帧只叠动态元素。
+7. **界面线程绝不碰 D3D**：渲染线程独占设备，UI 只做「拷贝最新一帧 → WriteableBitmap」，
+   并用双缓冲 + 锁而不是队列（监视器永远只要最新帧，追不上就丢帧）。
 

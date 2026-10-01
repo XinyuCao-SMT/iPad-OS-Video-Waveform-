@@ -12,30 +12,34 @@
 
 * **渲染链路**：D3D11 离屏出图、合成测试信号、HLSL 示波器（7 compute + 1 VS + 6 PS）、
   示波器引擎、整机合成 —— **离屏自检 48 项全绿**（RTX 4060 / Level_11_1）。
-* **采集链路前三步**（本轮）—— 一条命令一个验收点，全部跑通：
-  * `mf-capture list`：枚举到 6 台设备，含 **UT-VID 00K0601910**（序号 5）；
+* **采集链路**（一条命令一个验收点，全部跑通）：
+  * `mf-capture list`：枚举到 6 台设备，含 **UT-VID 00K0601910**；
     属性键定位于 `Vortice.MediaFoundation.CaptureDeviceAttributeKeys`（裸 Guid 字段）。
   * `mf-capture formats`：该卡 **128 条原生格式，全是 YUY2**（最大 1920×1080@60，无 NV12/MJPG）；
-    回读生效格式一致；驱动**确实给了**色彩元数据 —— `VideoNominalRange = 2`
-    （16–235 limited）、`VideoPrimaries = 2`（BT.709）、`YuvMatrix = 2`（BT.601，HD 却报 601）。
-  * `mf-capture capture 1`：**实测 59.999 fps**（61 帧 / 1.000 秒，间隔抖动 ±0.02 ms），
-    行跨距 3840，存出 `Windows/out/capture-frame.png`；另用内建摄像头（NV12 路径）
-    对照实测 29.807 fps。
-* 采集侧配套：MF 运行时引用计数、属性安全读取、FourCC 反解、YUY2/NV12 → RGBA、
-  实测帧率计量（按帧时间戳）、`probe` 诊断命令。
+    驱动**确实给了**色彩元数据 —— `VideoNominalRange = 2`（16–235 limited）、
+    `VideoPrimaries = 2`（BT.709）、`YuvMatrix = 2`（**BT.601，HD 却报 601**）。
+  * `mf-capture capture 1`：**实测 59.999 fps**（61 帧 / 1.000 秒，抖动 ±0.02 ms）+ 出 PNG。
+  * `mf-capture gpu`：**采集帧 → GPU → 示波器整条链 18 项断言全绿** ——
+    GPU 与 CPU 转换**逐像素对拍最大差 1 LSB**（620 万样本里 0 个差 >1）、
+    75% 白条落 bin 191（样本数正好等于白条面积）、1080p YUY2 上传+转换 **4.10 ms/帧**。
+* **WPF 实时窗口**（`Windows\VideoScopePad.App`，双击即开）：
+  源可选 **合成测试信号 / HDMI 采集卡 / 摄像头**，四分割实时显示（画面 / 亮度波形 / 矢量图 / Parade）；
+  1920×1080 下 **144 fps**（6.5 ms/帧）。采集卡没插时不崩 —— 报「找不到设备」并自动退回合成信号。
+  无窗口自检（我这边看不到窗口，靠它验收）：
+  `VideoScopePad.App.exe --snapshot out\live.png --frames 240 --source synthetic`。
 
 ### ⏳ 下一步（按顺序）
 
-1. **采集帧接进示波器链路**：YUV 直接当纹理喂 D3D11（零拷贝方向），
-   着色器里用与 CPU 版**同一套系数**做 YUV→RGB（必须 `round()` 而非截断）；
-   接上已知彩条信源后用「75% 白条落在 bin 191」这类断言验收。
-2. 顺便定案 **BT.601 还是 BT.709** 解码（卡声明 601、分辨率是 HD，要用实测数据拍板）。
-3. WPF 界面与实时窗口（含刻度栏覆盖层）→ 幅度读数 + 冻结参考层 → LUT → 音频套件（WASAPI）。
+1. **刻度栏覆盖层**：IRE 数字、色标框按 iPad 版的做法做成 WPF 覆盖层，
+   与 GPU 示波器纹理共用同一份 `ScopeLayout`（所以天然对齐）。
+2. 顺手定案 **BT.601 还是 BT.709** 解码（卡声明 601、分辨率是 HD；等接上彩条信源用实测数据拍板）。
+3. 幅度读数 + 冻结参考层 → LUT → 音频套件（WASAPI；本机卡的音频功能是 **UT-AUD 00K0601910**）。
 
-> ⚠️ 本机两张视频设备（UT-VID 卡、内建摄像头）现在都输出**整幅均匀**的画面
-> （卡 = limited 黑电平 16，摄像头 = full range 12）：**没有接信号源**。
-> 管道正确性已用自证断言兜住（见 `Windows/README-Windows.md` 末节），
-> 接上彩条信源即可看到真实画面。
+> ⚠️ **本机采集卡现在是拔掉的状态**（PnP 里 `UT-VID 00K0601910` 状态为 Unknown）。
+> 插上卡 + 接 HDMI 信源后，`mf-capture formats/capture`、`gpu` 的③段、以及窗口里的
+> 「HDMI 采集卡」源才会有真实画面；在那之前这几处都会报「找不到设备」。
+> 内建摄像头可用（NV12 路径已实测 29.989 fps），但它的画面目前是均匀暗场
+> （被遮挡 / 相机隐私开关 / 现场太暗都会这样）。
 
 ---
 

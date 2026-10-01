@@ -32,6 +32,10 @@ public sealed class ShaderLibrary : IDisposable
     public ID3D11ComputeShader NormalizeParade { get; }
     public ID3D11ComputeShader NormalizeVectorscope { get; }
 
+    /// <summary>采集卡的 YUV → RGB 转换（见 Render/Shaders/ConvertShaders.hlsl）</summary>
+    public ID3D11ComputeShader Yuy2ToRgb { get; }
+    public ID3D11ComputeShader Nv12ToRgb { get; }
+
     public ID3D11VertexShader QuadVertex { get; }
     public ID3D11PixelShader VideoBiPlanar { get; }
     public ID3D11PixelShader VideoBgra { get; }
@@ -59,6 +63,7 @@ public sealed class ShaderLibrary : IDisposable
 
         string scopeKernels = Prepare(Path.Combine(shaderDirectory, "ScopeKernels.hlsl"));
         string display = Prepare(Path.Combine(shaderDirectory, "DisplayShaders.hlsl"));
+        string convert = Prepare(Path.Combine(shaderDirectory, "ConvertShaders.hlsl"));
 
         AccumulateHistogram = device.CreateComputeShader(Compile(scopeKernels, "cs_5_0", "CSAccumulateHistogram"));
         AccumulateMeasurement = device.CreateComputeShader(Compile(scopeKernels, "cs_5_0", "CSAccumulateMeasurement"));
@@ -67,6 +72,9 @@ public sealed class ShaderLibrary : IDisposable
         NormalizeOverlay = device.CreateComputeShader(Compile(scopeKernels, "cs_5_0", "CSNormalizeOverlay"));
         NormalizeParade = device.CreateComputeShader(Compile(scopeKernels, "cs_5_0", "CSNormalizeParade"));
         NormalizeVectorscope = device.CreateComputeShader(Compile(scopeKernels, "cs_5_0", "CSNormalizeVectorscope"));
+
+        Yuy2ToRgb = device.CreateComputeShader(Compile(convert, "cs_5_0", "CSYuy2ToRgb"));
+        Nv12ToRgb = device.CreateComputeShader(Compile(convert, "cs_5_0", "CSNv12ToRgb"));
 
         QuadVertex = device.CreateVertexShader(Compile(display, "vs_5_0", "VSQuadVertex"));
         VideoBiPlanar = device.CreatePixelShader(Compile(display, "ps_5_0", "PSVideoBiPlanar"));
@@ -160,6 +168,8 @@ public sealed class ShaderLibrary : IDisposable
         NormalizeOverlay.Dispose();
         NormalizeParade.Dispose();
         NormalizeVectorscope.Dispose();
+        Yuy2ToRgb.Dispose();
+        Nv12ToRgb.Dispose();
         QuadVertex.Dispose();
         VideoBiPlanar.Dispose();
         VideoBgra.Dispose();

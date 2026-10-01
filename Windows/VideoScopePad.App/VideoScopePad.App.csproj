@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    VideoScopePad.App —— Windows 版的**界面程序**（WPF）。
+    目标：双击就能开，实时显示「画面 + 三种示波器」的四分割监视器。
+    渲染与采集全部复用 VideoScopePad.Win 核心库（与自检工具用的是同一份代码）。
+
+    界面这一层故意写得很薄：一栏源选择 + 一张实时位图 + 一行状态。
+    刻度栏（IRE 数字、色标框）以后按 iPad 版的做法作为 WPF 覆盖层画，
+    与 GPU 出来的示波器纹理用同一份 ScopeLayout 对齐。
+
+    无窗口自检（我这边看不到窗口，靠它验证实时链路的速度与画面）：
+      VideoScopePad.App.exe 加参数 snapshot、out\live.png、frames 180、source synthetic
+      结果会写到 &lt;snapshot&gt;.report.txt
+  -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Platforms>x64</Platforms>
+    <RootNamespace>VideoScopePad.App</RootNamespace>
+    <AssemblyName>VideoScopePad.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VideoScopePad.Win\VideoScopePad.Win.csproj" />
+  </ItemGroup>
+
+</Project>

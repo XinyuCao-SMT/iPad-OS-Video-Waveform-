@@ -1,0 +1,9 @@
+<Application x:Class="VideoScopePad.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    启动项在代码里（App.xaml.cs）：带 snapshot 参数时走无窗口自检，
+    否则开主窗口。所以这里不设 StartupUri。
+  -->
+  <Application.Resources />
+</Application>

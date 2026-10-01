@@ -15,6 +15,7 @@
 using System.Globalization;
 using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Render;
+using Vortice.Direct3D11;
 using Vortice.MediaFoundation;
 
 namespace VideoScopePad.Tools.MfCapture;
@@ -43,6 +44,9 @@ internal static class Program
 
                 case "probe":
                     return Probe(args);
+
+                case "gpu":
+                    return GpuCheck(args);
 
                 default:
                     PrintHelp();
@@ -415,6 +419,232 @@ internal static class Program
             index++;
         }
         return null;
+    }
+
+    // ------------------------------------------------------------------
+    //  ④ 采集帧 → GPU（YUV→RGB 转换）→ 示波器：整条链路的数值验收
+    // ------------------------------------------------------------------
+    private static int GpuCheck(string[] args)
+    {
+        string deviceFragment = Option(args, "--device") ?? DefaultDeviceNameFragment;
+        string outDirectory = Option(args, "--out") ?? DefaultOutDirectory();
+        int width = ParseInt(Option(args, "--width") ?? "1920", 1920);
+        int height = ParseInt(Option(args, "--height") ?? "1080", 1080);
+
+        // 用本机那张卡实际声明的色彩元数据（16–235 limited + BT.601）当测试条件，
+        // 测的就是「接上真实信源后会发生什么」，而不是理想条件
+        var cardColor = new VideoColorInfo(
+            NominalRange.Range16_235, true,
+            VideoPrimaries.Bt709, true,
+            VideoTransferFunction.Func709, true,
+            VideoTransferMatrix.Bt601, true);
+
+        using var d3d = D3DContext.Create();
+        Console.WriteLine($"适配器 : {d3d.AdapterName}（{d3d.FeatureLevel}）");
+        string shaderDirectory = Path.Combine(AppContext.BaseDirectory, "Render", "Shaders");
+        using var shaders = ShaderLibrary.Create(d3d.Device, shaderDirectory);
+        using var pipelines = new PipelineLibrary(d3d.Device, shaders);
+        using var uploader = new YuvFrameUploader(d3d.Device, shaders);
+        using var engine = new ScopeEngine(d3d.Device, shaders);
+
+        Directory.CreateDirectory(outDirectory);
+        byte[] reference = SyntheticSource.MakeTestFrame(width, height, out _);
+
+        Console.WriteLine();
+        Console.WriteLine($"① YUY2 链路（{width}×{height} 合成图：75% 彩条 + PLUGE + 灰阶，编成 16–235 limited / BT.601）");
+        RunOneFormat(uploader, engine, d3d, reference, width, height, "YUY2", cardColor,
+                     Path.Combine(outDirectory, "gpu-convert-yuy2.png"));
+
+        Console.WriteLine();
+        Console.WriteLine("② NV12 链路（同一类合成图，420 色度 —— 内建摄像头走的就是它）");
+        int nv12Width = Math.Min(width, 1280);
+        int nv12Height = Math.Min(height, 720);
+        byte[] smallReference = SyntheticSource.MakeTestFrame(nv12Width, nv12Height, out _);
+        RunOneFormat(uploader, engine, d3d, smallReference, nv12Width, nv12Height, "NV12", cardColor,
+                     Path.Combine(outDirectory, "gpu-convert-nv12.png"));
+
+        Console.WriteLine();
+        Console.WriteLine("③ 真实采集卡一帧 → GPU → 回读（这条才是「卡 → GPU」的实况）");
+        try
+        {
+            using var mf = MediaFoundationRuntime.Start();
+            using CaptureDevice device = CaptureDevice.OpenByName(deviceFragment);
+            IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
+            CaptureFormat effective = device.SetNativeFormat(CaptureFormat.PickPreferred(formats)!.NativeIndex);
+
+            CapturedFrame? frame = null;
+            for (int i = 0; i < 4; i++)
+            {
+                frame = device.ReadFrame();
+            }
+
+            if (frame is null)
+            {
+                Check(false, "采到一帧真实画面", "一个样本都没读到");
+            }
+            else
+            {
+                Console.WriteLine($"  生效格式 {effective.Describe()}，行跨距 {frame.Stride}");
+                uploader.Convert(d3d.Context, frame, effective.SubtypeName, effective.Color);
+                d3d.Context.Flush();
+
+                byte[] rgba = d3d.ReadBackRgba8(uploader.RgbTexture!, out int realWidth, out int realHeight);
+                Check(realWidth == frame.Width && realHeight == frame.Height, "真实帧转换后的尺寸正确",
+                    $"{realWidth}×{realHeight}");
+
+                bool uniform = IsUniform(rgba, rgba[0], rgba[1], rgba[2], rgba[3]);
+                Check(uniform, "真实帧转换结果是均匀色（本机卡现在没接信号源，预期就是均匀黑）",
+                    $"({rgba[0]},{rgba[1]},{rgba[2]})");
+                Check(effective.Color.IsRangeUnknown || rgba[0] == 0,
+                    "limited 黑电平 16 → R'G'B' 0（IRE 标定的根）", $"读到 {rgba[0]}");
+
+                string path = Path.Combine(outDirectory, "gpu-capture-frame.png");
+                PngWriter.Write(path, realWidth, realHeight, rgba);
+                Console.WriteLine($"  出图：{path}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠ 真实采集这一段跳过：{ex.GetType().Name}: {ex.Message}");
+        }
+
+        return Report();
+    }
+
+    /// <summary>
+    /// 一种像素格式走完整条路：合成 RGB → 编成原始码流 → 上传 GPU → compute 转 RGB →
+    /// 回读，然后与 CPU 版逐像素对拍 + 已知码值断言 + 示波器直方图断言 + 耗时。
+    /// </summary>
+    private static void RunOneFormat(YuvFrameUploader uploader,
+                                     ScopeEngine engine,
+                                     D3DContext d3d,
+                                     byte[] reference,
+                                     int width,
+                                     int height,
+                                     string subtypeName,
+                                     VideoColorInfo color,
+                                     string pngPath)
+    {
+        bool nv12 = string.Equals(subtypeName, "NV12", StringComparison.OrdinalIgnoreCase);
+        int rgbaStride = width * 4;
+        byte[] raw = nv12
+            ? YuvFrameEncoder.EncodeNv12(reference, width, height, rgbaStride, color)
+            : YuvFrameEncoder.EncodeYuy2(reference, width, height, rgbaStride, color);
+
+        int stride = nv12 ? width : width * 2;
+        int rows = nv12 ? height * 3 / 2 : height;
+        var frame = new CapturedFrame(raw, width, height, stride, 0, 0, rows);
+
+        // 编码自检：75% 白的 limited 码值必须正好是 180、纯黑是 16
+        EncodeCoefficients encode = EncodeCoefficients.For(color.Matrix);
+        (byte whiteY, byte _, byte _) = YuvFrameEncoder.Encode(191, 191, 191, encode);
+        (byte blackY, byte _, byte _) = YuvFrameEncoder.Encode(0, 0, 0, encode);
+        Check(whiteY == 180 && blackY == 16, "编码自检：75% 白 → Y=180、黑 → Y=16",
+            $"白 Y={whiteY}、黑 Y={blackY}");
+
+        // ---------- GPU 转换（顺便量耗时：10 次取平均）----------
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        const int iterations = 10;
+        for (int i = 0; i < iterations; i++)
+        {
+            uploader.Convert(d3d.Context, frame, subtypeName, color);
+        }
+        d3d.Context.Flush();
+        stopwatch.Stop();
+        double perFrameMs = stopwatch.Elapsed.TotalMilliseconds / iterations;
+
+        ID3D11ShaderResourceView sourceSrv = uploader.Convert(d3d.Context, frame, subtypeName, color);
+        d3d.Context.Flush();
+        byte[] gpu = d3d.ReadBackRgba8(uploader.RgbTexture!, out int gpuWidth, out int gpuHeight);
+        Check(gpuWidth == width && gpuHeight == height, "GPU 输出尺寸 = 图像尺寸", $"{gpuWidth}×{gpuHeight}");
+
+        // ---------- 与 CPU 版逐像素对拍（最强的等价性证据）----------
+        byte[] cpu = YuvFrameConverter.ToRgba8(frame, subtypeName, color);
+        long maxDifference = 0;
+        long exact = 0;
+        long offByOne = 0;
+        long worse = 0;
+        for (int i = 0; i + 2 < Math.Min(cpu.Length, gpu.Length); i += 4)
+        {
+            for (int channel = 0; channel < 3; channel++)
+            {
+                int difference = Math.Abs(cpu[i + channel] - gpu[i + channel]);
+                maxDifference = Math.Max(maxDifference, difference);
+                if (difference == 0)
+                {
+                    exact++;
+                }
+                else if (difference == 1)
+                {
+                    offByOne++;
+                }
+                else
+                {
+                    worse++;
+                }
+            }
+        }
+        Check(maxDifference <= 1, "GPU 与 CPU 转换逐像素一致（最大差 ≤ 1 LSB）",
+            $"最大差 {maxDifference}，完全一致 {exact}，差 1 的 {offByOne}，差 >1 的 {worse}");
+        Check(worse == 0, "没有任何像素差到 2 以上", $"{worse} 个");
+
+        // ---------- 已知码值 ----------
+        int barY = height / 6;
+        CheckPixel(gpu, gpuWidth, gpuHeight, width / 14, barY, 191, 191, 191, $"75% 白条（{subtypeName}）");
+        CheckPixel(gpu, gpuWidth, gpuHeight, width / 14, height * 9 / 10, 0, 0, 0, $"PLUGE 0 IRE（{subtypeName}）");
+
+        // ---------- 示波器：白条必须落在 bin 191 ----------
+        var settings = new ScopeRenderSettings
+        {
+            NeedWaveform = true,
+            NeedVectorscope = true,
+            NeedDiamond = false,
+            NeedCie = false,
+            Stride = 1,
+        };
+        engine.Encode(d3d.Context, sourceSrv, settings);
+        d3d.Context.Flush();
+        uint[] histogram = engine.ReadBackHistogram(d3d.Context);
+
+        uint whiteSamples = 0;
+        for (uint column = 0; column < 74; column++)
+        {
+            whiteSamples += histogram[WaveIndex(3, 191, column)];
+        }
+        long expectedWhite = (long)(width / 7.0) * (height * 2 / 3);
+        Check(Math.Abs(whiteSamples - expectedWhite) < expectedWhite * 0.05,
+            $"示波器直方图：75% 白条落在 bin 191（{subtypeName}）",
+            $"{whiteSamples} 个样本 vs 白条面积 {expectedWhite}（±5%）");
+
+        uint blackSamples = 0;
+        for (uint column = 0; column < 512; column++)
+        {
+            blackSamples += histogram[WaveIndex(3, 0, column)];
+        }
+        Check(blackSamples > 0, $"示波器直方图：黑电平 bin 0 有样本（{subtypeName}）", $"{blackSamples} 个");
+
+        Console.WriteLine($"  上传 + 转换：{perFrameMs:0.00} ms/帧（60 fps 的预算是 16.67 ms）");
+        Check(perFrameMs < 16.67, "转换够 60 fps 的实时预算", $"{perFrameMs:0.00} ms");
+
+        PngWriter.Write(pngPath, gpuWidth, gpuHeight, gpu);
+        Console.WriteLine($"  出图：{pngPath}");
+    }
+
+    private static uint WaveIndex(uint plane, uint code, uint column)
+        => plane * 512u * 256u + code * 512u + column;
+
+    private static void CheckPixel(byte[] rgba, int width, int height, int x, int y,
+                                   int expectedR, int expectedG, int expectedB, string what)
+    {
+        if (x < 0 || y < 0 || x >= width || y >= height)
+        {
+            Check(false, what, "取样点越界");
+            return;
+        }
+        int i = (y * width + x) * 4;
+        int r = rgba[i], g = rgba[i + 1], b = rgba[i + 2];
+        bool ok = Math.Abs(r - expectedR) <= 1 && Math.Abs(g - expectedG) <= 1 && Math.Abs(b - expectedB) <= 1;
+        Check(ok, what, $"({r},{g},{b}) 期望 ({expectedR},{expectedG},{expectedB})");
     }
 
     // ------------------------------------------------------------------

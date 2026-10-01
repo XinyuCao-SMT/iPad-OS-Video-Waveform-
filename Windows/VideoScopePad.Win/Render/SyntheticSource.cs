@@ -93,3 +93,64 @@ public static class SyntheticSource
 
     private static byte ToByte(double value) => (byte)Math.Clamp(Math.Round(value * 255.0), 0, 255);
 }
+
+/// <summary>
+/// 「活的」合成信号源：静态测试图**只生成一次**，每帧只在它上面叠动态元素。
+///
+/// ⚠️ 这里踩过一次：一开始每帧都调 MakeTestFrame 重新生成整幅图（1600×900 要算 144 万像素 ×
+/// 3 次 Math.Round），实测一帧要 37 ms —— 光这一条就把实时链路拖到 24 fps。
+/// 静态部分必须缓存，动态部分才是每帧要做的。
+/// </summary>
+public sealed class SyntheticLiveSource
+{
+    private byte[]? _baseFrame;
+    private int _width;
+    private int _height;
+
+    /// <summary>生成一帧「活的」测试图：静态彩条 + 扫掠竖线 + 伸缩码值条</summary>
+    public void Render(Span<byte> destination, int width, int height, long frameIndex)
+    {
+        if (_baseFrame is null || _width != width || _height != height)
+        {
+            _baseFrame = SyntheticSource.MakeTestFrame(width, height, out _);
+            _width = width;
+            _height = height;
+        }
+
+        _baseFrame.AsSpan(0, Math.Min(_baseFrame.Length, destination.Length)).CopyTo(destination);
+
+        int stride = width * 4;
+
+        // 1) 扫掠竖线（100 IRE，宽度约 0.4%）
+        int lineWidth = Math.Max(width / 250, 3);
+        int phase = (int)(frameIndex % width);
+        for (int x = phase; x < Math.Min(phase + lineWidth, width); x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                int offset = y * stride + x * 4;
+                destination[offset] = 255;
+                destination[offset + 1] = 255;
+                destination[offset + 2] = 255;
+            }
+        }
+
+        // 2) 右下角的伸缩码值条（75% 绿，方便在波形 / 矢量图上认出来）
+        int barHeight = Math.Max(height / 60, 4);
+        int barLength = (int)(width / 4.0 * (0.5 + 0.5 * Math.Sin(frameIndex * 0.08)));
+        for (int y = height - barHeight * 2; y < height - barHeight; y++)
+        {
+            if (y < 0)
+            {
+                continue;
+            }
+            for (int x = Math.Max(width - barLength, 0); x < width; x++)
+            {
+                int offset = y * stride + x * 4;
+                destination[offset] = 0;
+                destination[offset + 1] = 191;
+                destination[offset + 2] = 0;
+            }
+        }
+    }
+}
