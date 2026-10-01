@@ -14,6 +14,7 @@
 
 using System.Globalization;
 using VideoScopePad.Win.Capture;
+using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 using Vortice.Direct3D11;
 using Vortice.MediaFoundation;
@@ -598,8 +599,8 @@ internal static class Program
         {
             NeedWaveform = true,
             NeedVectorscope = true,
-            NeedDiamond = false,
-            NeedCie = false,
+            NeedDiamond = true,
+            NeedCie = true,
             Stride = 1,
         };
         engine.Encode(d3d.Context, sourceSrv, settings);
@@ -623,6 +624,12 @@ internal static class Program
         }
         Check(blackSamples > 0, $"示波器直方图：黑电平 bin 0 有样本（{subtypeName}）", $"{blackSamples} 个");
 
+        // ---------- 钻石图 / 马蹄图：纹理里真的有点（不只是直方图里有）----------
+        // ⚠️ 直方图里有样本 ≠ 画得出来：归一化那一趟如果只写了中线（或者纹理根本没写全），
+        //    直方图断言照样过，但画面上只剩一根灰阶竖线。所以这里直接回读**纹理**。
+        CheckTexture(report: null, d3d, engine, ScopePanelKind.Diamond, "钻石图", subtypeName);
+        CheckTexture(report: null, d3d, engine, ScopePanelKind.Cie, "马蹄图", subtypeName);
+
         Console.WriteLine($"  上传 + 转换：{perFrameMs:0.00} ms/帧（60 fps 的预算是 16.67 ms）");
         Check(perFrameMs < 16.67, "转换够 60 fps 的实时预算", $"{perFrameMs:0.00} ms");
 
@@ -632,6 +639,50 @@ internal static class Program
 
     private static uint WaveIndex(uint plane, uint code, uint column)
         => plane * 512u * 256u + code * 512u + column;
+
+    /// <summary>
+    /// 回读某张示波器**纹理**，看「中心列」与「列外」是不是都有非零 texel。
+    /// 钻石图的中线是灰阶（x 恒为 0），彩条则在两侧 —— 只有中线说明彩条没画出来。
+    /// </summary>
+    private static void CheckTexture(object? report,
+                                     D3DContext d3d,
+                                     ScopeEngine engine,
+                                     ScopePanelKind kind,
+                                     string label,
+                                     string subtypeName)
+    {
+        byte[] pixels = engine.ReadBackTexture(d3d.Context, engine.TextureFor(kind, WaveformMode.Luma),
+                                               out int width, out int height);
+        int centerColumn = 0;
+        int offColumn = 0;
+        int midRow = 0;
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                byte value = pixels[(y * width + x) * 4];
+                if (value == 0)
+                {
+                    continue;
+                }
+                if (Math.Abs(x - width / 2) <= 2)
+                {
+                    centerColumn++;
+                }
+                else
+                {
+                    offColumn++;
+                }
+            }
+        }
+
+        // 马蹄图的点不在中线上（色度是散开的），所以判据不同：
+        // 只要求「样本分布在中线以外也有」，再加上总量足够
+        bool ok = offColumn > 0 && (kind != ScopePanelKind.Diamond || centerColumn > 0);
+        Check(ok, $"{label}纹理：非零 texel 分布正常（中线 {centerColumn}、线外 {offColumn}，纹理 {width}×{height}）",
+            subtypeName);
+        _ = midRow;
+    }
 
     private static void CheckPixel(byte[] rgba, int width, int height, int x, int y,
                                    int expectedR, int expectedG, int expectedB, string what)

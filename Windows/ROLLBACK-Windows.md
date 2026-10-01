@@ -8,10 +8,10 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.1.0 监视器版**<br>（第一个可回滚版本） | `cb0060d` | tag `win-v0.1.0-monitor` | Media Foundation UVC 采集（枚举 / 原生格式 / 色彩元数据 / 1 秒采集）、D3D11 + HLSL 示波器（波形 / 矢量 / Parade）、刻度层（IRE·mV·% 刻度栏 + 网格 + 75% 目标框 + 肤色线）、**幅度读数**（峰值 / 稳定 / 黑位 / 平均 / 色度 / R·G·B / 超白超黑）、**冻结参考层**（琥珀幽灵 + 参考读数与 Δ）、峰值保持游标、单文件 exe | `dist/win-v0.1.0-monitor/VideoScopePad-win-v0.1.0-monitor-unsigned.exe` |
+| **win-v0.2.0 布局版**<br>（最新，**推荐装**） | `db699a6` | tag `win-v0.2.0-layout` | 在 0.1.0 基础上：**格子内容可选**（全屏 / 四分割逐格换：画面 · 波形亮度 · 波形 RGB 叠加 · Parade · 矢量 · 钻石图 · 马蹄图），引擎按可见格子决定要算什么；**钻石图刻度**（上下菱形 100%/75%/等值线 + 灰阶竖线 + W/B/G/R 标注）与**马蹄图刻度**（CIE 1931 光谱轨迹 380–700nm + BT.709/2020 三角 + D65） | `dist/win-v0.2.0-layout/VideoScopePad-win-v0.2.0-layout-unsigned.exe` |
+| **win-v0.1.0 监视器版** | `cb0060d` | tag `win-v0.1.0-monitor` | Media Foundation UVC 采集（枚举 / 原生格式 / 色彩元数据 / 1 秒采集）、D3D11 + HLSL 示波器（波形 / 矢量 / Parade）、刻度层（IRE·mV·% 刻度栏 + 网格 + 75% 目标框 + 肤色线）、幅度读数（峰值 / 稳定 / 黑位 / 平均 / 色度 / R·G·B / 超白超黑）、冻结参考层（琥珀幽灵 + 参考读数与 Δ）、峰值保持游标、单文件 exe | `dist/win-v0.1.0-monitor/VideoScopePad-win-v0.1.0-monitor-unsigned.exe` |
 
-> 还没有的：格子内容可选（逐格换示波器）、钻石图与马蹄图的刻度、LUT、音频套件。
-> 冻结参考层与读数已就位，但**「超标报警 / 斑马纹」还没移植**。
+> 还没有的：超标报警 / 斑马纹、LUT（.cube）、音频套件（WASAPI）。
 
 ## 三种回滚方式
 
@@ -54,6 +54,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.2.0-layout-unsigned.exe` | 72,015,252 字节（68.7 MB） | `790CCBF1678D33395FD5F4B2B057FA266697F628F66EDDBD1AFC07D3AE10DF4E` |
 | `VideoScopePad-win-v0.1.0-monitor-unsigned.exe` | 72,007,429 字节（68.7 MB） | `33D08C2A02907A68229CC089D32C888CD572D166ABE830AC15725A6238A3B76B` |
 
 ```powershell

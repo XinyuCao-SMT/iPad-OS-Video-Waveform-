@@ -14,6 +14,7 @@
 using System.Globalization;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using VideoScopePad.Win.Core;
@@ -56,8 +57,147 @@ public partial class MainWindow : Window
         };
         _frameBuffer = new byte[width * height * 4];
 
+        BuildLayoutRow();
         Loaded += OnLoaded;
         Closed += OnClosed;
+    }
+
+    /// <summary>
+    /// 格内容选项表（下拉里显示什么 → 布局里的 PaneContent）。
+    /// 「波形」两种模式在这里就是两个选项 —— 比"先选波形再选模式"少一步，
+    /// 而且不会出现"选了波形但模式还是旧的"这种状态。
+    /// </summary>
+    private static readonly (string Label, PaneContent Content, WaveformMode Mode)[] ContentChoices =
+    {
+        ("画面", PaneContent.Picture, WaveformMode.Luma),
+        ("波形（亮度）", PaneContent.Waveform, WaveformMode.Luma),
+        ("波形（RGB 叠加）", PaneContent.Waveform, WaveformMode.RgbOverlay),
+        ("RGB Parade", PaneContent.Parade, WaveformMode.Luma),
+        ("矢量图", PaneContent.Vectorscope, WaveformMode.Luma),
+        ("钻石图", PaneContent.Diamond, WaveformMode.Luma),
+        ("马蹄图（CIE）", PaneContent.Cie, WaveformMode.Luma),
+    };
+
+    private ComboBox _layoutBox = null!;
+    private ComboBox _fullscreenContentBox = null!;
+    private readonly ComboBox[] _quadBoxes = new ComboBox[4];
+    private StackPanel _fullscreenPanel = null!;
+    private StackPanel _quadPanel = null!;
+    private bool _buildingLayoutRow;
+
+    /// <summary>建「布局 + 格内容」那一行（选项列表只写一处，多个下拉共用）</summary>
+    private void BuildLayoutRow()
+    {
+        _buildingLayoutRow = true;
+
+        LayoutRow.Children.Add(Label("布局"));
+        _layoutBox = MakeComboBox(140);
+        _layoutBox.Items.Add("四分割（逐格可换）");
+        _layoutBox.Items.Add("全屏（一格铺满）");
+        _layoutBox.SelectedIndex = 0;
+        _layoutBox.SelectionChanged += OnLayoutChanged;
+        LayoutRow.Children.Add(_layoutBox);
+
+        // 全屏：一个内容下拉
+        _fullscreenPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        _fullscreenPanel.Children.Add(Label("内容"));
+        _fullscreenContentBox = MakeComboBox(160);
+        AddContentChoices(_fullscreenContentBox, PaneContent.Picture, WaveformMode.Luma);
+        _fullscreenContentBox.SelectionChanged += OnFullscreenContentChanged;
+        _fullscreenPanel.Children.Add(_fullscreenContentBox);
+        _fullscreenPanel.Visibility = Visibility.Collapsed;
+        LayoutRow.Children.Add(_fullscreenPanel);
+
+        // 四分割：四个格各自一个内容下拉
+        _quadPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        for (int slot = 0; slot < 4; slot++)
+        {
+            _quadPanel.Children.Add(Label($"格{slot + 1}"));
+            ComboBox box = MakeComboBox(150);
+            PaneContent content = _session.QuadContents[slot];
+            AddContentChoices(box, content, WaveformMode.Luma);
+            int captured = slot;
+            box.SelectionChanged += (_, _) => OnQuadContentChanged(captured, box);
+            _quadBoxes[slot] = box;
+            _quadPanel.Children.Add(box);
+        }
+        LayoutRow.Children.Add(_quadPanel);
+
+        _buildingLayoutRow = false;
+        UpdateLayoutRowVisibility();
+    }
+
+    private static TextBlock Label(string text) => new()
+    {
+        Text = text,
+        Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA4, 0xB2)),
+        VerticalAlignment = VerticalAlignment.Center,
+        Margin = new Thickness(10, 0, 6, 0),
+    };
+
+    private static ComboBox MakeComboBox(double width) => new()
+    {
+        Width = width,
+        VerticalAlignment = VerticalAlignment.Center,
+        Background = new SolidColorBrush(Color.FromRgb(0x22, 0x26, 0x2E)),
+        Foreground = new SolidColorBrush(Color.FromRgb(0xE6, 0xEA, 0xF0)),
+        BorderBrush = new SolidColorBrush(Color.FromRgb(0x2E, 0x34, 0x40)),
+    };
+
+    private static void AddContentChoices(ComboBox box, PaneContent content, WaveformMode mode)
+    {
+        int selected = 0;
+        for (int i = 0; i < ContentChoices.Length; i++)
+        {
+            box.Items.Add(ContentChoices[i].Label);
+            if (ContentChoices[i].Content == content && ContentChoices[i].Mode == mode)
+            {
+                selected = i;
+            }
+        }
+        box.SelectedIndex = selected;
+    }
+
+    private void OnLayoutChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+        _session.Preset = _layoutBox.SelectedIndex == 1
+            ? MonitorLayoutPreset.Fullscreen
+            : MonitorLayoutPreset.Quad;
+        UpdateLayoutRowVisibility();
+    }
+
+    private void UpdateLayoutRowVisibility()
+    {
+        bool fullscreen = _layoutBox.SelectedIndex == 1;
+        _fullscreenPanel.Visibility = fullscreen ? Visibility.Visible : Visibility.Collapsed;
+        _quadPanel.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void OnFullscreenContentChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+        (string _, PaneContent content, WaveformMode mode) = ContentChoices[_fullscreenContentBox.SelectedIndex];
+        _session.FullscreenContent = content;
+        _session.WaveformMode = mode;
+    }
+
+    private void OnQuadContentChanged(int slot, ComboBox box)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+        (string _, PaneContent content, WaveformMode mode) = ContentChoices[box.SelectedIndex];
+        _session.SetQuadContent(slot, content);
+        // 波形模式是全局的（与 iPad 版的「波形模式」设置一致）：只要某一格选了叠加，整体就按叠加算
+        _session.WaveformMode = mode;
     }
 
     private void OnLoaded(object? sender, RoutedEventArgs e)

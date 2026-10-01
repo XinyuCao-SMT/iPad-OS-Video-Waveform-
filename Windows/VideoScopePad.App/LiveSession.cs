@@ -79,6 +79,7 @@ public sealed class LiveSession : IDisposable
     private LiveStats _stats = LiveStats.Empty;
     private int _videoWidth;
     private int _videoHeight;
+    private ScopeRenderSettings _scopeSettings = new();
 
     private SignalMeasurement _measurement = SignalMeasurement.Empty;
     private SignalMeasurement? _referenceMeasurement;
@@ -88,6 +89,14 @@ public sealed class LiveSession : IDisposable
 
     /// <summary>参考层请求：0 = 无事，1 = 抓取，2 = 清除（渲染线程每帧只处理一次）</summary>
     private int _referenceRequest;
+
+    private volatile MonitorLayoutPreset _preset = MonitorLayoutPreset.Quad;
+    private volatile PaneContent _fullscreenContent = PaneContent.Picture;
+    private volatile WaveformMode _waveformMode = WaveformMode.Luma;
+    private readonly PaneContent[] _quadContents =
+    {
+        PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
+    };
 
     /// <summary>参考层不透明度（0.05…1.0，默认 0.55 —— 与 iPad 版 referenceOpacity 默认值一致）</summary>
     public double ReferenceOpacity { get; set; } = 0.55;
@@ -118,6 +127,45 @@ public sealed class LiveSession : IDisposable
 
     /// <summary>请求清除参考层</summary>
     public void RequestReferenceClear() => Interlocked.Exchange(ref _referenceRequest, 2);
+
+    // ------------------------------------------------------------------
+    //  布局与格内容（与 iPad 版一样：布局是唯一来源，引擎按可见格子决定要算什么）
+    // ------------------------------------------------------------------
+
+    /// <summary>布局预设（全屏 / 四分割 / …）</summary>
+    public MonitorLayoutPreset Preset
+    {
+        get => _preset;
+        set { _preset = value; _rebuildRequested = true; }
+    }
+
+    /// <summary>全屏时那一格显示什么</summary>
+    public PaneContent FullscreenContent
+    {
+        get => _fullscreenContent;
+        set { _fullscreenContent = value; _rebuildRequested = true; }
+    }
+
+    /// <summary>波形模式（亮度 / RGB 叠加）</summary>
+    public WaveformMode WaveformMode
+    {
+        get => _waveformMode;
+        set { _waveformMode = value; _rebuildRequested = true; }
+    }
+
+    /// <summary>四分割每一格显示什么（4 个；界面里逐格可换）</summary>
+    public IReadOnlyList<PaneContent> QuadContents => _quadContents;
+
+    /// <summary>改某一格的内容</summary>
+    public void SetQuadContent(int slot, PaneContent content)
+    {
+        if (slot is < 0 or > 3 || _quadContents[slot] == content)
+        {
+            return;
+        }
+        _quadContents[slot] = content;
+        _rebuildRequested = true;
+    }
 
     /// <summary>无窗口自检用：跑够这么多帧就自己退出（0 = 一直跑）</summary>
     public int StopAfterFrames { get; init; }
@@ -151,6 +199,9 @@ public sealed class LiveSession : IDisposable
 
     /// <summary>当前布局（界面覆盖层与自检取样点都用它，与 GPU 出来的画面严格对齐）</summary>
     public ScopeLayoutResult Layout { get; private set; } = new();
+
+    /// <summary>当前这一帧向引擎要的数据（由布局推出来；自检拿它核对"只算看得见的格子"）</summary>
+    public ScopeRenderSettings ScopeSettings => _scopeSettings;
 
     /// <summary>信号源的原始尺寸（画面格里按它做等比适配）</summary>
     public int VideoWidth => _videoWidth;
@@ -276,14 +327,6 @@ public sealed class LiveSession : IDisposable
             using var mediaFoundation = MediaFoundationRuntime.Start();
 
             var options = new RenderOptions();
-            var scopeSettings = new ScopeRenderSettings
-            {
-                NeedWaveform = true,
-                NeedVectorscope = true,
-                NeedDiamond = false,
-                NeedCie = false,
-                Stride = ScopeStride,
-            };
 
             CaptureDevice? device = null;
             LiveSourceKind currentKind = LiveSourceKind.Synthetic;
@@ -401,7 +444,7 @@ public sealed class LiveSession : IDisposable
                 try
                 {
                     long start = Stopwatch.GetTimestamp();
-                    engine.Encode(d3d.Context, source, scopeSettings);
+                    engine.Encode(d3d.Context, source, _scopeSettings);
                     scopeMs = MsSince(start);
 
                     // 测量（数值读数）：GPU 累加 + 非阻塞回读，回调里更新读数与峰值保持
@@ -441,6 +484,7 @@ public sealed class LiveSession : IDisposable
 
                     options.ShowReference = ShowReference && engine.HasReference;
                     options.ReferenceOpacity = ReferenceOpacity;
+                    options.WaveformMode = _waveformMode;
 
                     start = Stopwatch.GetTimestamp();
                     renderer.Render(d3d.Context, compositeView, _width, _height,
@@ -501,7 +545,15 @@ public sealed class LiveSession : IDisposable
         }
         catch (Exception ex)
         {
-            Volatile.Write(ref _stats, LiveStats.Empty with { Message = $"实时链路启动失败：{ex.GetType().Name}: {ex.Message}" });
+            // 把异常类型与栈的前两行也带出来：这个 catch 是渲染线程的最后一道网，
+            // 只写一句"启动失败"的话，上层（无窗口自检/界面）根本看不出是哪一步炸的。
+            string where = ex.StackTrace is { Length: > 0 } stack
+                ? string.Join(" | ", stack.Split('\n').Take(2).Select(line => line.Trim()))
+                : string.Empty;
+            Volatile.Write(ref _stats, LiveStats.Empty with
+            {
+                Message = $"实时链路启动失败：{ex.GetType().Name}: {ex.Message}　@{where}",
+            });
             _running = false;
         }
     }
@@ -542,8 +594,9 @@ public sealed class LiveSession : IDisposable
     }
 
     /// <summary>
-    /// 四分割布局：画面 / 亮度波形 / 矢量图 / RGB Parade（与 iPad 版默认一致）。
-    /// container 是合成目标尺寸，video 是信号源尺寸（决定画面格里的等比适配）。
+    /// 布局：容器是合成目标尺寸，video 是信号源尺寸（决定画面格里的等比适配）。
+    /// 格内容来自 Preset / FullscreenContent / QuadContents —— 与 iPad 版同一个来源，
+    /// 引擎要不要算什么也由这份布局决定（见 ScopeRenderSettings.ForLayout）。
     /// </summary>
     private void SetLayout(VideoRenderer renderer,
                            int containerWidth,
@@ -558,15 +611,13 @@ public sealed class LiveSession : IDisposable
             containerHeight: containerHeight,
             videoWidth: videoWidth,
             videoHeight: videoHeight,
-            preset: MonitorLayoutPreset.Quad,
+            preset: _preset,
             aspectMode: AspectMode.Fit,
-            fullscreenContent: PaneContent.Picture,
-            quadContents: new[]
-            {
-                PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
-            },
+            fullscreenContent: _fullscreenContent,
+            quadContents: _quadContents,
             legacyPanels: Array.Empty<ScopePanelKind>());
         renderer.Layout = Layout;
+        _scopeSettings = ScopeRenderSettings.ForLayout(Layout, ScopeStride);
     }
 
     public void Dispose()

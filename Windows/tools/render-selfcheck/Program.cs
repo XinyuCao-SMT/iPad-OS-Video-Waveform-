@@ -189,6 +189,42 @@ internal static class Program
             }
             Check(diamondCenter > 0, $"钻石图正中竖线（灰阶）有 {diamondCenter} 个样本");
 
+            // 钻石图的**彩条落点**：上菱形 x=B−G、y=(G+B)/2；下菱形 x=R−G、y=−(R+G)/2。
+            // ⚠️ 这一条以前没写：只验了"正中竖线有样本"，所以"彩条一个都没进钻石图"
+            //    这种毛病一直没被发现（界面上表现为钻石图上只有一根灰阶竖线）。
+            var diamondBars = new (string Name, double R, double G, double B)[]
+            {
+                ("白", 0.75, 0.75, 0.75), ("黄", 0.75, 0.75, 0.0), ("青", 0.0, 0.75, 0.75),
+                ("绿", 0.0, 0.75, 0.0), ("品红", 0.75, 0.0, 0.75), ("红", 0.75, 0.0, 0.0),
+                ("蓝", 0.0, 0.0, 0.75),
+            };
+            int diamondBarHits = 0;
+            var diamondMisses = new List<string>();
+            foreach ((string name, double r, double g, double b) in diamondBars)
+            {
+                // 上菱形（G/B）
+                uint topX = DiamondBin((b - g + 1.0) * 0.5);
+                uint topY = DiamondBin(((g + b) * 0.5 + 1.0) * 0.5);
+                // 下菱形（G/R）
+                uint bottomX = DiamondBin((r - g + 1.0) * 0.5);
+                uint bottomY = DiamondBin((-(r + g) * 0.5 + 1.0) * 0.5);
+
+                bool topHit = histogram[VectorIndex(topX, topY, ShaderConstants.GamutSectionDiamond)] > 0;
+                bool bottomHit = histogram[VectorIndex(bottomX, bottomY, ShaderConstants.GamutSectionDiamond)] > 0;
+                if (topHit && bottomHit)
+                {
+                    diamondBarHits++;
+                }
+                else
+                {
+                    diamondMisses.Add($"{name}(上 {topX},{topY}={(topHit ? "有" : "空")} "
+                                    + $"下 {bottomX},{bottomY}={(bottomHit ? "有" : "空")})");
+                }
+            }
+            Check(diamondBarHits == diamondBars.Length,
+                  $"钻石图 7 条彩条的上下两个落点都有样本（{diamondBarHits}/{diamondBars.Length}）"
+                  + (diamondMisses.Count > 0 ? "　未命中：" + string.Join("、", diamondMisses) : ""));
+
             // 马蹄图：应当有样本落进 CIE 图里（全量统计，别用步长抽样 —— 抽样会正好踩空）
             uint cieCount = 0;
             for (uint x = 0; x < 256; x++)
@@ -433,6 +469,11 @@ internal static class Program
             return 1;
         }
     }
+
+    /// <summary>显示坐标（−1…1）→ 直方图 bin。与 HLSL 的 vsDiamondBin 一样是**截断**（int()），
+    /// 断言里用四舍五入会差 1 个 bin —— 这是本工程反复踩过的坑。</summary>
+    private static uint DiamondBin(double normalized)
+        => (uint)Math.Clamp(normalized * 255.0 + 0.5, 0.0, 255.0);
 
     // ---------- 直方图索引（与 HLSL 里的 vsWaveIndex / vsVectorIndex 完全一致） ----------
 

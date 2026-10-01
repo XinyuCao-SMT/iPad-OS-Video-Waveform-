@@ -113,6 +113,14 @@ public static class ScopeGraticule
                     DrawPeakHold(dc, plot, options);
                     break;
 
+                case ScopePanelKind.Diamond:
+                    DrawDiamond(dc, plot);
+                    break;
+
+                case ScopePanelKind.Cie:
+                    DrawChromaticity(dc, plot);
+                    break;
+
                 // 钻石图 / 马蹄图：现在界面里的四分割用不到它们（ShowDiamond/ShowCie 还没接界面开关），
                 // 等格子内容可选时再按 ScopeGraticuleView.swift 的 drawDiamond/drawChromaticity 移植。
             }
@@ -428,6 +436,187 @@ public static class ScopeGraticule
         }
         return Math.Max(limit, 0);
     }
+
+    // ------------------------------------------------------------------
+    //  钻石图（RGB 色域，泰克原版）
+    // ------------------------------------------------------------------
+    /// <summary>
+    /// 钻石图刻度（依据 Tektronix 应用手册《Color Grading with the Spearhead Display》第 2 节，
+    /// 与 iPad 版 drawDiamond 逐条一致）：
+    ///   上菱形 = G（左轴）与 B（右轴）；下菱形 = G（左轴）与 R（右轴）；
+    ///   纯黑在两菱形交会的**中心**，纯白在上菱形顶端 / 下菱形底端；
+    ///   灰阶是正中的竖线，中灰落在两个菱形最宽处的中心。
+    /// 显示坐标 x、y ∈ −1…1（y 向上，原点即纯黑）；分量超出 0–100% 的点会跑出菱形 —— 那就是色域越界。
+    /// </summary>
+    private static void DrawDiamond(DrawingContext dc, Rect rect)
+    {
+        double fontSize = Math.Clamp(Math.Min(rect.Width, rect.Height) / 24, 7, 11);
+
+        Point Point(double x, double y)
+            => new(rect.X + rect.Width / 2 + x * rect.Width / 2,
+                   rect.Y + rect.Height / 2 - y * rect.Height / 2);
+
+        // 以原点（纯黑）为中心把菱形缩放 level 倍：0.25/0.5/0.75 就是「两分量之和」的等值线
+        void DiamondPath(double level, bool up, Pen pen)
+        {
+            (double X, double Y)[] vertices = up
+                ? new[] { (0.0, 0.0), (-level, level * 0.5), (0.0, level), (level, level * 0.5) }
+                : new[] { (0.0, 0.0), (-level, -level * 0.5), (0.0, -level), (level, -level * 0.5) };
+
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext ctx = geometry.Open())
+            {
+                ctx.BeginFigure(Point(vertices[0].X, vertices[0].Y), isFilled: false, isClosed: true);
+                for (int i = 1; i < vertices.Length; i++)
+                {
+                    ctx.LineTo(Point(vertices[i].X, vertices[i].Y), isStroked: true, isSmoothJoin: false);
+                }
+            }
+            geometry.Freeze();
+            dc.DrawGeometry(null, pen, geometry);
+        }
+
+        // 内部等值线（更淡）→ 75% 彩条边界 → 100% 合法边界（最亮）
+        foreach (double level in new[] { 0.25, 0.5 })
+        {
+            DiamondPath(level, true, GridMinorPen);
+            DiamondPath(level, false, GridMinorPen);
+        }
+        DiamondPath(0.75, true, ThinPen);
+        DiamondPath(0.75, false, ThinPen);
+        DiamondPath(1.0, true, StrongPen);
+        DiamondPath(1.0, false, StrongPen);
+
+        // 正中竖线 = 灰阶轴；两条水平线 = 两个菱形最宽处（中灰所在）
+        dc.DrawLine(NormalPen, Point(0, 1), Point(0, -1));
+        dc.DrawLine(NormalPen, Point(-1, 0.5), Point(1, 0.5));
+        dc.DrawLine(NormalPen, Point(-1, -0.5), Point(1, -0.5));
+
+        // 中心 = 纯黑
+        double dot = Math.Max(fontSize * 0.28, 2);
+        Point center = Point(0, 0);
+        dc.DrawEllipse(null, StrongPen, center, dot, dot);
+
+        // 标注：绿色在两个菱形的左侧，B 在右上、R 在右下，W 在上下顶端
+        (string Name, double X, double Y, TextAlign Align)[] labels =
+        {
+            ("W", 0, 1.07, TextAlign.Center),
+            ("B", 1.04, 0.5, TextAlign.Left),
+            ("G", -1.04, 0.5, TextAlign.Right),
+            ("W", 0, -1.07, TextAlign.Center),
+            ("R", 1.04, -0.5, TextAlign.Left),
+            ("G", -1.04, -0.5, TextAlign.Right),
+        };
+        foreach ((string name, double x, double y, TextAlign align) in labels)
+        {
+            DrawText(dc, name, Sans, fontSize, TextBrush, Point(x, y), align, bold: true);
+        }
+
+        DrawText(dc, "黑", Sans, fontSize * 0.85, TextDimBrush,
+                 new Point(center.X + fontSize * 0.5, center.Y + fontSize * 0.9), TextAlign.Left);
+        DrawText(dc, "灰阶", Sans, fontSize * 0.85, TextDimBrush,
+                 new Point(center.X + fontSize * 0.5, rect.Y + fontSize * 1.1), TextAlign.Left);
+    }
+
+    // ------------------------------------------------------------------
+    //  马蹄图（CIE 1931 色度）
+    // ------------------------------------------------------------------
+    /// <summary>
+    /// CIE 刻度：光谱轨迹（马蹄形）+ BT.709 / BT.2020 色域三角 + D65 白点。
+    /// 坐标映射与着色器完全一致（用 ShaderConstants 里的 VS_CIE_ORIGIN_* / VS_CIE_SPAN）。
+    /// </summary>
+    private static void DrawChromaticity(DrawingContext dc, Rect rect)
+    {
+        double fontSize = Math.Clamp(Math.Min(rect.Width, rect.Height) / 26, 7, 11);
+        double span = ShaderConstants.CieSpan;
+        double originX = ShaderConstants.CieOriginX;
+        double originY = ShaderConstants.CieOriginY;
+
+        Point Point(double x, double y)
+        {
+            double nx = (x + originX) / span;
+            double ny = (y + originY) / span;
+            return new Point(rect.X + nx * rect.Width, rect.Bottom - ny * rect.Height);
+        }
+
+        // 坐标框 + 0.1 网格
+        dc.DrawRectangle(null, NormalPen, rect);
+        for (double step = 0.1; step < 0.9; step += 0.1)
+        {
+            dc.DrawLine(GridMinorPen, Point(step, -originY), Point(step, -originY + span));
+            dc.DrawLine(GridMinorPen, Point(-originX, step), Point(-originX + span, step));
+        }
+
+        // 光谱轨迹（380–700nm，5nm 步长的 CIE 1931 2° 标准观察者数据；末尾闭合补上紫边）
+        var locus = new StreamGeometry();
+        using (StreamGeometryContext ctx = locus.Open())
+        {
+            Point first = Point(SpectralLocus[0].X, SpectralLocus[0].Y);
+            ctx.BeginFigure(first, isFilled: false, isClosed: true);
+            for (int i = 1; i < SpectralLocus.Length; i++)
+            {
+                ctx.LineTo(Point(SpectralLocus[i].X, SpectralLocus[i].Y), isStroked: true, isSmoothJoin: false);
+            }
+        }
+        locus.Freeze();
+        dc.DrawGeometry(null, ThinPen, locus);
+
+        void Triangle(string name, (double X, double Y) r, (double X, double Y) g, (double X, double Y) b, double opacity)
+        {
+            var pen = new Pen(new SolidColorBrush(Color.FromArgb((byte)(opacity * 255), 255, 255, 255)), 1.2);
+            pen.Freeze();
+            var geometry = new StreamGeometry();
+            using (StreamGeometryContext ctx = geometry.Open())
+            {
+                ctx.BeginFigure(Point(r.X, r.Y), isFilled: false, isClosed: true);
+                ctx.LineTo(Point(g.X, g.Y), isStroked: true, isSmoothJoin: false);
+                ctx.LineTo(Point(b.X, b.Y), isStroked: true, isSmoothJoin: false);
+            }
+            geometry.Freeze();
+            dc.DrawGeometry(null, pen, geometry);
+
+            Point center = Point((r.X + g.X + b.X) / 3, (r.Y + g.Y + b.Y) / 3);
+            DrawText(dc, name, Sans, fontSize * 0.9, TextDimBrush,
+                     new Point(center.X, center.Y + fontSize * 0.7), TextAlign.Center, bold: true);
+        }
+
+        Triangle("BT.709", (0.640, 0.330), (0.300, 0.600), (0.150, 0.060), 0.42);
+        Triangle("BT.2020", (0.708, 0.292), (0.170, 0.797), (0.131, 0.046), 0.22);
+
+        // D65 白点
+        Point white = Point(0.3127, 0.3290);
+        double radius = Math.Max(fontSize * 0.4, 3);
+        dc.DrawEllipse(null, StrongPen, white, radius, radius);
+        DrawText(dc, "D65", Sans, fontSize, TextDimBrush,
+                 new Point(white.X + radius + 2, white.Y - fontSize * 0.6), TextAlign.Left);
+
+        DrawText(dc, "x", Sans, fontSize, TextDimBrush,
+                 new Point(rect.Right - fontSize * 1.6, rect.Bottom - fontSize * 1.1), TextAlign.Center, bold: true);
+        DrawText(dc, "y", Sans, fontSize, TextDimBrush,
+                 new Point(rect.X + fontSize * 1.4, rect.Y + fontSize * 1.1), TextAlign.Center, bold: true);
+    }
+
+    /// <summary>CIE 1931 2° 光谱轨迹（380–700nm，5nm 步长）—— 与 iPad 版 spectralLocus 逐点一致</summary>
+    private static readonly (double X, double Y)[] SpectralLocus =
+    {
+        (0.1741, 0.0050), (0.1740, 0.0050), (0.1738, 0.0049), (0.1736, 0.0049),
+        (0.1733, 0.0048), (0.1730, 0.0048), (0.1726, 0.0048), (0.1721, 0.0048),
+        (0.1714, 0.0051), (0.1703, 0.0058), (0.1689, 0.0069), (0.1669, 0.0086),
+        (0.1644, 0.0109), (0.1611, 0.0138), (0.1566, 0.0177), (0.1510, 0.0227),
+        (0.1440, 0.0297), (0.1355, 0.0399), (0.1241, 0.0578), (0.1096, 0.0868),
+        (0.0913, 0.1327), (0.0687, 0.2007), (0.0454, 0.2950), (0.0235, 0.4127),
+        (0.0082, 0.5384), (0.0039, 0.6548), (0.0139, 0.7502), (0.0389, 0.8120),
+        (0.0743, 0.8338), (0.1142, 0.8262), (0.1547, 0.8059), (0.1929, 0.7816),
+        (0.2292, 0.7543), (0.2658, 0.7243), (0.3016, 0.6923), (0.3373, 0.6589),
+        (0.3731, 0.6245), (0.4087, 0.5896), (0.4441, 0.5547), (0.4788, 0.5202),
+        (0.5125, 0.4866), (0.5448, 0.4544), (0.5752, 0.4242), (0.6029, 0.3965),
+        (0.6270, 0.3725), (0.6482, 0.3514), (0.6658, 0.3340), (0.6801, 0.3197),
+        (0.6915, 0.3083), (0.7006, 0.2993), (0.7079, 0.2920), (0.7140, 0.2859),
+        (0.7190, 0.2809), (0.7230, 0.2770), (0.7260, 0.2740), (0.7283, 0.2717),
+        (0.7300, 0.2700), (0.7311, 0.2689), (0.7320, 0.2680), (0.7327, 0.2673),
+        (0.7334, 0.2666), (0.7340, 0.2660), (0.7344, 0.2656), (0.7346, 0.2654),
+        (0.7347, 0.2653),
+    };
 
     // ------------------------------------------------------------------
     //  单位换算与坐标

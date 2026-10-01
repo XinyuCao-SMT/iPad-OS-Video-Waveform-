@@ -88,7 +88,12 @@ if (-not $SkipSelfCheck) {
             $selfCheckLines = Get-Content $reportPath -Encoding UTF8 | Where-Object { $_ -match '^\s*[✓✗]' }
         }
         Write-Host ("  自检退出码：{0}（{1} 项断言）" -f $code, $selfCheckLines.Count)
-        if ($code -ne 0) { throw "独立自检未通过（退出码 $code）—— 不发出这一版" }
+        if ($code -ne 0) {
+            # 失败时把报告留档再抛：否则只看到一句"未通过"，还得手动把那一版重跑一遍才查得出原因
+            $failPath = Join-Path $releaseDir 'SELFCHECK-FAILED.txt'
+            if (Test-Path $reportPath) { Copy-Item $reportPath $failPath -Force }
+            throw "独立自检未通过（退出码 $code）—— 不发出这一版；报告已留档：$failPath"
+        }
     } finally {
         Remove-Item $probeDir -Recurse -Force -ErrorAction SilentlyContinue
     }

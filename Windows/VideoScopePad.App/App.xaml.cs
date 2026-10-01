@@ -56,6 +56,7 @@ public partial class App : Application
         };
 
         int exitCode = 0;
+        string finalStatsLine = "（没取到）";
         try
         {
             using var session = new LiveSession(width, height)
@@ -63,10 +64,12 @@ public partial class App : Application
                 DisplayFpsCap = 0,      // 自检不设上限：要量的是链路真实速度
                 ScopeStride = stride,
                 AnimateSynthetic = false,   // 静态合成图 = 码值完全已知，读数才能精确核对
-                // ⚠️ 要多给一段帧预算：读数断言之后还要抓/清参考层，
-                //    如果 StopAfterFrames 正好等于 frames，链路会在断言跑之前就停了
-                //    （第一版就是这么错的：RequestReferenceCapture 永远没人处理）。
-                StopAfterFrames = frames + 120,
+                // ⚠️ 不要用帧数给链路设停止条件：断言里有好几处要遍历 100 万像素（几十到几百毫秒），
+                //    而 720p 下链路能跑到 ~390 fps —— 那点时间足够把任何"帧预算"烧完，
+                //    于是链路在断言中途自己停了，表现成"还没有可保存的帧"这种莫名其妙的报错
+                //    （实测：给 frames+120 的预算，720p 下断言还没跑完链路就停了）。
+                //    让链路一直跑到方法结束（using 的 Dispose 会停它），要等帧就用 WaitFrames。
+                StopAfterFrames = 0,
             };
             session.SwitchSource(ParseSource(source), device);
             session.Start();
@@ -79,7 +82,7 @@ public partial class App : Application
             }
 
             // ⚠️ 这里**不能** session.Stop()：后面的读数与冻结参考断言还要继续驱动渲染线程
-            //    （抓参考是「下一帧」在渲染线程执行的）。让它继续跑到 StopAfterFrames，
+            //    （抓参考是「下一帧」在渲染线程执行的）。链路一直跑到方法结束，
             //    最后靠 using 的 Dispose 收尾。
             LiveStats stats = session.Stats;
             report.Add($"信号源    : {stats.Source}");
@@ -335,6 +338,161 @@ public partial class App : Application
                 exitCode |= saturationOk ? 0 : 1;
             }
 
+            // ---------- 格子内容可选：布局 / 引擎设置 / 钻石图与马蹄图的刻度 ----------
+            report.Add(string.Empty);
+            report.Add("布局与格内容断言（切布局 → 布局真的变、引擎按可见格子要数据、新图的刻度对得上轨迹）：");
+
+            // ① 切到「全屏 + 矢量图」：应当只剩 1 格，且就是要的那一种
+            session.Preset = MonitorLayoutPreset.Fullscreen;
+            session.FullscreenContent = PaneContent.Vectorscope;
+            WaitFrames(session, 4, 3000);
+            ScopeLayoutResult fullscreenLayout = session.Layout;
+            bool fullscreenOk = fullscreenLayout.Panes.Count == 1
+                             && fullscreenLayout.Panes[0].Content == PaneContent.Vectorscope;
+            report.Add($"  {(fullscreenOk ? "✓" : "✗")} 切到全屏 + 矢量图：格子数 {fullscreenLayout.Panes.Count}，"
+                     + $"内容 {(fullscreenLayout.Panes.Count > 0 ? fullscreenLayout.Panes[0].Content.ToString() : "—")}");
+            exitCode |= fullscreenOk ? 0 : 1;
+
+            // ② 切到「四分割：波形 / 钻石图 / 马蹄图 / Parade」——
+            //    特意避开默认那套，这样"格内容真的换了"是可验证的
+            session.Preset = MonitorLayoutPreset.Quad;
+            session.SetQuadContent(0, PaneContent.Waveform);
+            session.SetQuadContent(1, PaneContent.Diamond);
+            session.SetQuadContent(2, PaneContent.Cie);
+            session.SetQuadContent(3, PaneContent.Parade);
+            WaitFrames(session, 6, 3000);
+
+            ScopeLayoutResult quadLayout = session.Layout;
+            var wanted = new[] { PaneContent.Waveform, PaneContent.Diamond, PaneContent.Cie, PaneContent.Parade };
+            bool quadOk = quadLayout.Panes.Count == 4
+                       && wanted.All(c => quadLayout.Panes.Any(p => p.Content == c));
+            report.Add($"  {(quadOk ? "✓" : "✗")} 四分割逐格换内容：4 格 = "
+                     + string.Join(" / ", quadLayout.Panes.Select(p => p.Content.ToString())));
+            exitCode |= quadOk ? 0 : 1;
+
+            // ③ 引擎只按可见格子要数据（省算力，也是"布局是唯一来源"的体现）
+            ScopeRenderSettings settings = session.ScopeSettings;
+            bool settingsOk = settings.NeedWaveform && settings.NeedDiamond && settings.NeedCie && !settings.NeedVectorscope;
+            report.Add($"  {(settingsOk ? "✓" : "✗")} 引擎按可见格子取数据：波形 {settings.NeedWaveform}、"
+                     + $"矢量 {settings.NeedVectorscope}、钻石 {settings.NeedDiamond}、马蹄 {settings.NeedCie}"
+                     + "（这一套里没有矢量格，所以矢量应为 false）");
+            exitCode |= settingsOk ? 0 : 1;
+
+            byte[] cut = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: true,
+                                                out fw, out fh);
+
+            // ④ 钻石图：灰阶斜坡在钻石图里是一条**正中竖线**（x = 绘图区中线）
+            PaneLayout? diamondPane = quadLayout.Panes.FirstOrDefault(p => p.Content == PaneContent.Diamond);
+            if (diamondPane?.Plot is { } diamondPlotUnit)
+            {
+                var diamondPlot = new Rect(diamondPlotUnit.MinX * fw, diamondPlotUnit.MinY * fh,
+                                           diamondPlotUnit.Width * fw, diamondPlotUnit.Height * fh);
+                double centerX = diamondPlot.X + diamondPlot.Width / 2;
+                int onCenter = 0;
+                int offCenter = 0;
+                for (int y = (int)diamondPlot.Y; y < (int)diamondPlot.Bottom && y < fh; y++)
+                {
+                    for (int x = (int)diamondPlot.X; x < (int)diamondPlot.Right && x < fw; x++)
+                    {
+                        if (!IsTracePixel(cut, (y * fw + x) * 4))
+                        {
+                            continue;
+                        }
+                        if (Math.Abs(x - centerX) <= 6)
+                        {
+                            onCenter++;
+                        }
+                        else
+                        {
+                            offCenter++;
+                        }
+                    }
+                }
+                // 灰阶是正中竖线，那 7 条彩条则散布在别处 —— 所以中线上必须有轨迹，
+                // 但也不能"全在中线上"（那说明映射根本没用上横轴）
+                // 灰阶/黑场都在中线上 → 那里必然有一大段；但**彩条每条只落一个 bin**
+                // （纯色 = 一个点，上屏约 2–4 个像素），所以"线外像素很多"是错的期望。
+                // 正确做法：按上/下菱形的公式算出 7 条彩条各自的落点，逐个要求附近真有轨迹。
+                (string Name, double R, double G, double B)[] bars =
+                {
+                    ("白", 0.75, 0.75, 0.75), ("黄", 0.75, 0.75, 0.0), ("青", 0.0, 0.75, 0.75),
+                    ("绿", 0.0, 0.75, 0.0), ("品红", 0.75, 0.0, 0.75), ("红", 0.75, 0.0, 0.0),
+                    ("蓝", 0.0, 0.0, 0.75),
+                };
+                int hits = 0;
+                var misses = new List<string>();
+                foreach ((string name, double r, double g, double b) in bars)
+                {
+                    // 上菱形 x = B−G、y = (G+B)/2；下菱形 x = R−G、y = −(R+G)/2（y 向上）
+                    bool top = HasTraceNearDisplayPoint(cut, fw, fh, diamondPlot,
+                                                        b - g, (g + b) * 0.5, 4);
+                    bool bottom = HasTraceNearDisplayPoint(cut, fw, fh, diamondPlot,
+                                                           r - g, -(r + g) * 0.5, 4);
+                    if (top && bottom)
+                    {
+                        hits++;
+                    }
+                    else
+                    {
+                        misses.Add($"{name}(上{(top ? "有" : "无")} 下{(bottom ? "有" : "无")})");
+                    }
+                }
+
+                bool diamondOk = hits == bars.Length;
+                report.Add($"  {(diamondOk ? "✓" : "✗")} 钻石图：7 条彩条的上下两个落点都有轨迹（{hits}/7）"
+                         + (misses.Count > 0 ? "　未命中：" + string.Join("、", misses) : "")
+                         + $"　（中线上另有灰阶竖线 {onCenter} 个像素）");
+                exitCode |= diamondOk ? 0 : 1;
+
+                // 诊断：把钻石图按 x 分 8 段数轨迹像素（看彩条到底在不在）
+                int[] bands = new int[8];
+                int total = 0;
+                for (int y = (int)diamondPlot.Y; y < (int)diamondPlot.Bottom && y < fh; y++)
+                {
+                    for (int x = (int)diamondPlot.X; x < (int)diamondPlot.Right && x < fw; x++)
+                    {
+                        if (!IsTracePixel(cut, (y * fw + x) * 4))
+                        {
+                            continue;
+                        }
+                        int band = Math.Clamp((int)((x - diamondPlot.X) / diamondPlot.Width * 8), 0, 7);
+                        bands[band]++;
+                        total++;
+                    }
+                }
+                report.Add($"    钻石图轨迹按 x 分 8 段：{string.Join(" / ", bands)}（合计 {total}）");
+            }
+            else
+            {
+                report.Add("  ✗ 布局里没有钻石图格");
+                exitCode = 1;
+            }
+
+            // ⑤ 马蹄图：75% 白条是中性色 → 应当落在 D65 白点（0.3127, 0.3290）附近。
+            //    这条同时验了三件事：格内容确实切到马蹄图、引擎算了 CIE 那一段二维直方图、
+            //    刻度层的 xy→绘图区映射与着色器用的是同一套常量。
+            PaneLayout? ciePane = quadLayout.Panes.FirstOrDefault(p => p.Content == PaneContent.Cie);
+            if (ciePane?.Plot is { } ciePlotUnit)
+            {
+                var ciePlot = new Rect(ciePlotUnit.MinX * fw, ciePlotUnit.MinY * fh,
+                                       ciePlotUnit.Width * fw, ciePlotUnit.Height * fh);
+                double d65X = ciePlot.X + (0.3127 + ShaderConstants.CieOriginX) / ShaderConstants.CieSpan * ciePlot.Width;
+                double d65Y = ciePlot.Bottom - (0.3290 + ShaderConstants.CieOriginY) / ShaderConstants.CieSpan * ciePlot.Height;
+                int distance = NearestTraceDistance(cut, fw, fh, (int)d65X, (int)d65Y, 14);
+                bool cieOk = distance is >= 0 and <= 14;
+                report.Add($"  {(cieOk ? "✓" : "✗")} 马蹄图：75% 白条（中性色）落在 D65 白点附近"
+                         + $"（期望位置 {d65X:0},{d65Y:0}，最近轨迹 {distance} px）");
+                exitCode |= cieOk ? 0 : 1;
+            }
+            else
+            {
+                report.Add("  ✗ 布局里没有马蹄图格");
+                exitCode = 1;
+            }
+
+            // ⑥ CIE 映射常量与着色器手抄一致（两处都改了才不会错位）
+            exitCode |= CheckCieConstantsMatchShader(report);
+
             // ---------- 冻结参考层：抓取后必须多出「落在轨迹上的琥珀贡献」----------
             // ⚠️ 不能简单地"数琥珀像素"：参考层与实时轨迹是**同一信号**时两者完全重合，
             //    加法混合下绿通道直接饱和，出来的像素反而是白/绿占优 —— 一条都数不到。
@@ -351,7 +509,9 @@ public partial class App : Application
                            wavePlotUnit.Width * fw, wavePlotUnit.Height * fh)
                 : new Rect(0, 0, 0, 0);
 
-            byte[] withoutReference = frame;
+            // 基线要在**当前布局**下现渲染一份：前面切过布局，用旧的 `frame` 比会错位
+            byte[] withoutReference = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: true,
+                                                             out fw, out fh);
             var tracePixels = CollectTracePixels(withoutReference, fw, fh, wavePlot);
 
             session.RequestReferenceCapture();
@@ -426,9 +586,20 @@ public partial class App : Application
             }
             else
             {
-                report.Add("  ✗ 抓取参考后拿不到参考读数");
+                LiveStats late = session.Stats;
+                report.Add($"  ✗ 抓取参考后拿不到参考读数：帧数 {late.Frames}、"
+                         + $"HasReference={session.HasReference}、ReferenceMeasurement="
+                         + $"{(session.ReferenceMeasurement is null ? "null" : "无数据")}"
+                         + $"、链路消息：{(string.IsNullOrEmpty(late.Message) ? "（空）" : late.Message)}");
                 exitCode = 1;
             }
+
+            // 断言跑完时再看一眼链路状态：断言过程中出的错（比如切布局时渲染线程炸了）
+            // 不会出现在开头那份 stats 快照里，不看这一行就会漏掉真正的原因。
+            LiveStats finalStats = session.Stats;
+            finalStatsLine = $"帧数 {finalStats.Frames}、显示帧率 {finalStats.DisplayFps:0.0} fps"
+                           + (string.IsNullOrEmpty(finalStats.Message) ? string.Empty
+                              : $"、消息：{finalStats.Message}");
         }
         catch (Exception ex)
         {
@@ -439,6 +610,7 @@ public partial class App : Application
 
         report.Add(string.Empty);
         report.Add(exitCode == 0 ? "结果：全部通过" : "结果：有失败项");
+        report.Add($"链路收尾：{finalStatsLine}");
 
         string reportPath = snapshotPath + ".report.txt";
         string? directory = Path.GetDirectoryName(Path.GetFullPath(reportPath));
@@ -533,6 +705,75 @@ public partial class App : Application
             return new CpuReference(Ire(peak), Ire(stable), Ire(black), Ire(stableBlack),
                                     Ire(mean), peak, stable, black, stableBlack, mean);
         }
+    }
+
+    /// <summary>
+    /// CIE 映射常量必须与着色器一致（刻度层用 C# 那三个常量把 xy 换算到绘图区，
+    /// 着色器用 hlsli 里的 #define 把像素映射到 xy）。两边是手抄关系，
+    /// 所以这里直接把**嵌入的 hlsli 读出来**正则比对 —— 改了一边忘了另一边会立刻被抓到。
+    /// </summary>
+    private static int CheckCieConstantsMatchShader(List<string> report)
+    {
+        using Stream? stream = typeof(ShaderConstants).Assembly
+            .GetManifestResourceStream("VideoScopePad.Win.Render.Shaders.ShaderTypes.hlsli");
+        if (stream is null)
+        {
+            report.Add("  ✗ 读不到嵌入的 ShaderTypes.hlsli（着色器没嵌进程序集？）");
+            return 1;
+        }
+
+        using var reader = new StreamReader(stream);
+        string source = reader.ReadToEnd();
+
+        static double? FindDefine(string source, string name)
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(source, @"#define\s+" + name + @"\s+([0-9.]+)");
+            if (!match.Success ||
+                !double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+            {
+                return null;
+            }
+            return parsed;
+        }
+
+        double? originX = FindDefine(source, "VS_CIE_ORIGIN_X");
+        double? originY = FindDefine(source, "VS_CIE_ORIGIN_Y");
+        double? span = FindDefine(source, "VS_CIE_SPAN");
+
+        bool ok = originX == ShaderConstants.CieOriginX
+               && originY == ShaderConstants.CieOriginY
+               && span == ShaderConstants.CieSpan;
+        report.Add($"  {(ok ? "✓" : "✗")} CIE 映射常量与着色器一致：hlsli 里 "
+                 + $"origin=({originX},{originY}) span={span}，C# 里 "
+                 + $"origin=({ShaderConstants.CieOriginX},{ShaderConstants.CieOriginY}) span={ShaderConstants.CieSpan}");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// 钻石图里「显示坐标（x、y ∈ −1…1，y 向上）」对应到合成画面上的位置附近有没有轨迹。
+    /// 映射与刻度层、与着色器三方一致：
+    ///   显示坐标 → 绘图区：x 向右、y 向上，原点在绘图区中心；
+    ///   纹理那一侧由 CSNormalizeVectorscope 的 `binY = dstHeight-1-gid.y` 负责翻转。
+    /// </summary>
+    private static bool HasTraceNearDisplayPoint(byte[] frame, int width, int height, Rect plot,
+                                                 double x, double y, int radius)
+    {
+        int pixelX = (int)(plot.X + (x + 1.0) * 0.5 * plot.Width);
+        int pixelY = (int)(plot.Y + (1.0 - y) * 0.5 * plot.Height);
+        return NearestTraceDistance(frame, width, height, pixelX, pixelY, radius) is >= 0;
+    }
+
+    /// <summary>
+    /// 「像轨迹」判据（用于**定位**，比 IsTracePixel 宽松）。
+    /// 为什么需要两档：钻石图/马蹄图里每条彩条只落**一个 texel**，上屏位置又与像素栅格
+    /// 不对齐（720p 时纹理几乎 1:1），双线性采样会把一个点的强度摊到 4 个像素上 ——
+    /// 峰值亮度掉一半以上，用严格阈值就会误判成"没有"（实测 720p 下品红/蓝被判没了）。
+    /// 松档只要求"绿明显强于红"，灰刻度线（r≈g≈b）与面板底色都进不来。
+    /// </summary>
+    private static bool IsTraceLike(byte[] frame, int index)
+    {
+        int b = frame[index], g = frame[index + 1], r = frame[index + 2];
+        return g >= 40 && g - r >= 15;
     }
 
     /// <summary>收集绘图区里的轨迹像素（青绿占优）</summary>
@@ -706,7 +947,7 @@ public partial class App : Application
                     {
                         continue;
                     }
-                    if (IsTracePixel(frame, (py * width + px) * 4))
+                    if (IsTraceLike(frame, (py * width + px) * 4))
                     {
                         return r;
                     }

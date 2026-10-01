@@ -54,6 +54,16 @@ public static class ShaderConstants
     public const int WaveformModeLuma = 0;
     public const int WaveformModeOverlay = 2;
 
+    /// <summary>
+    /// CIE 马蹄图的坐标映射常量 —— 与 ShaderTypes.hlsli 里的 #define 严格一致
+    /// （刻度层要用同一套把 xy 色度坐标换算到绘图区，否则马蹄图上的轨迹与刻度会错位）。
+    /// ⚠️ 两边是**手抄**的关系，所以界面自检里有一条断言：直接把嵌入的 hlsli 读出来
+    ///    正则比对这三个数 —— 改了一边忘了另一边会立刻被抓到。
+    /// </summary>
+    public const double CieOriginX = 0.02;
+    public const double CieOriginY = 0.02;
+    public const double CieSpan = 0.89;
+
     /// <summary>二维直方图位掩码（flags.y）</summary>
     public const int GamutMaskVectorscope = 1;
     public const int GamutMaskDiamond = 2;

@@ -38,7 +38,6 @@ public sealed class ScopeRenderSettings
     public float VectorscopeIntensity { get; set; } = 1.0f;
 
     public bool NeedAnyGamut => NeedVectorscope || NeedDiamond || NeedCie;
-
     public int GamutMask
     {
         get
@@ -49,6 +48,25 @@ public sealed class ScopeRenderSettings
             if (NeedCie) mask |= ShaderConstants.GamutMaskCie;
             return mask;
         }
+    }
+
+    /// <summary>
+    /// 只按**布局里实际显示的格子**要数据（与 iPad 版同一思路）：
+    /// 不看波形就不算波形原子累加、不看矢量图就不跑那一段二维直方图 —— 省的是实打实的算力。
+    /// </summary>
+    public static ScopeRenderSettings ForLayout(Core.ScopeLayoutResult layout, int stride = 1)
+    {
+        ArgumentNullException.ThrowIfNull(layout);
+
+        return new ScopeRenderSettings
+        {
+            NeedWaveform = layout.VisibleScopeKinds.Contains(Core.ScopePanelKind.Waveform)
+                        || layout.VisibleScopeKinds.Contains(Core.ScopePanelKind.Parade),
+            NeedVectorscope = layout.VisibleScopeKinds.Contains(Core.ScopePanelKind.Vectorscope),
+            NeedDiamond = layout.VisibleScopeKinds.Contains(Core.ScopePanelKind.Diamond),
+            NeedCie = layout.VisibleScopeKinds.Contains(Core.ScopePanelKind.Cie),
+            Stride = stride,
+        };
     }
 }
 
