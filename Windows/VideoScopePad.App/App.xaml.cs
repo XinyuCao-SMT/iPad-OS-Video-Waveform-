@@ -62,7 +62,11 @@ public partial class App : Application
             {
                 DisplayFpsCap = 0,      // 自检不设上限：要量的是链路真实速度
                 ScopeStride = stride,
-                StopAfterFrames = frames,
+                AnimateSynthetic = false,   // 静态合成图 = 码值完全已知，读数才能精确核对
+                // ⚠️ 要多给一段帧预算：读数断言之后还要抓/清参考层，
+                //    如果 StopAfterFrames 正好等于 frames，链路会在断言跑之前就停了
+                //    （第一版就是这么错的：RequestReferenceCapture 永远没人处理）。
+                StopAfterFrames = frames + 120,
             };
             session.SwitchSource(ParseSource(source), device);
             session.Start();
@@ -73,8 +77,10 @@ public partial class App : Application
             {
                 Thread.Sleep(100);
             }
-            session.Stop();
 
+            // ⚠️ 这里**不能** session.Stop()：后面的读数与冻结参考断言还要继续驱动渲染线程
+            //    （抓参考是「下一帧」在渲染线程执行的）。让它继续跑到 StopAfterFrames，
+            //    最后靠 using 的 Dispose 收尾。
             LiveStats stats = session.Stats;
             report.Add($"信号源    : {stats.Source}");
             report.Add($"格式      : {stats.Format}");
@@ -281,6 +287,148 @@ public partial class App : Application
             {
                 report.Add($"  ✓ 跑满 {frames} 帧");
             }
+
+            // ---------- 幅度读数 + 冻结参考层 ----------
+            report.Add(string.Empty);
+            report.Add("幅度读数断言（拿同一张合成图在 CPU 上另算一份直方图对拍 —— GPU 统计链的端到端校验）：");
+
+            SignalMeasurement measurement = session.Measurement;
+            if (!measurement.HasData)
+            {
+                report.Add("  ✗ 读数还没出来（测量回读没跑起来？）");
+                exitCode = 1;
+            }
+            else
+            {
+                report.Add($"  实测：峰 {measurement.PeakWhiteIre:0.00} IRE　稳 {measurement.StableWhiteIre:0.00}"
+                         + $"　黑 {measurement.BlackLevelIre:0.00}　均 {measurement.AverageIre:0.00}"
+                         + $"　色度峰 {measurement.PeakSaturationPercent:0.0}%"
+                         + $"　R/G/B 峰 {measurement.RedPeakIre:0}/{measurement.GreenPeakIre:0}/{measurement.BluePeakIre:0}"
+                         + $"　超白 {measurement.AboveWhitePercent:0.00}% 超黑 {measurement.BelowBlackPercent:0.00}%"
+                         + $"　样本 {measurement.SampledPixels}");
+
+                // CPU 侧期望值：同一张合成图（AnimateSynthetic = false 时它是**确定性**的，
+                // 重新生成一份即可逐像素相同），用与着色器相同的码值语义另算一份直方图。
+                byte[] cpuFrame = SyntheticSource.MakeTestFrame(width, height, out _);
+                CpuReference expected = CpuReference.FromFrame(cpuFrame, width, height);
+
+                exitCode |= CheckClose(report, "峰值白", measurement.PeakWhiteIre, expected.PeakIre, 0.5,
+                    $"CPU 最高 luma 码值 {expected.PeakCode}（灰阶斜坡顶到 100 IRE，合成图本来就含它）");
+                exitCode |= CheckClose(report, "稳定白", measurement.StableWhiteIre, expected.StableIre, 0.6,
+                    $"CPU 0.1% 分位码值 {expected.StableCode}（= 斜坡最亮那一小段）");
+                exitCode |= CheckClose(report, "黑位", measurement.BlackLevelIre, expected.BlackIre, 0.5,
+                    $"CPU 最低 luma 码值 {expected.BlackCode}（PLUGE / 黑缝）");
+                exitCode |= CheckClose(report, "平均值", measurement.AverageIre, expected.MeanIre, 0.5,
+                    $"CPU 全帧 luma 平均码值 {expected.MeanCode:0.00}");
+                exitCode |= CheckClose(report, "稳定黑", measurement.StableBlackIre, expected.StableBlackIre, 0.6,
+                    $"CPU 0.1% 分位（从暗端）码值 {expected.StableBlackCode}");
+
+                bool samplesOk = measurement.SampledPixels == (long)width * height;
+                report.Add($"  {(samplesOk ? "✓" : "✗")} 采样像素数 = 全帧像素数（{measurement.SampledPixels} vs {(long)width * height}）");
+                exitCode |= samplesOk ? 0 : 1;
+
+                // ⚠️ 色度峰的期望**不是 75%**：6 个 75% 目标框落在一个「方框」的边上而不是圆上，
+                //    离中心最近的是 B / Yl（75.3%），最远的是 G / Mg（89.4%）——
+                //    合成图的绿条与品红条把色度峰抬到 ~89%。这条断言就是按这个几何来的。
+                bool saturationOk = measurement.PeakSaturationPercent is > 85 and < 95;
+                report.Add($"  {(saturationOk ? "✓" : "✗")} 色度峰 ≈ 89%（75% 目标框最远的那两个：G / Mg；B / Yl 只有 75.3%）");
+                exitCode |= saturationOk ? 0 : 1;
+            }
+
+            // ---------- 冻结参考层：抓取后必须多出「落在轨迹上的琥珀贡献」----------
+            // ⚠️ 不能简单地"数琥珀像素"：参考层与实时轨迹是**同一信号**时两者完全重合，
+            //    加法混合下绿通道直接饱和，出来的像素反而是白/绿占优 —— 一条都数不到。
+            //    正确做法是比对「画参考前后」的同一块区域：
+            //      · 差异像素必须出现（否则参考层根本没参与合成）；
+            //      · 差异必须**落在轨迹上**（靠近原来的轨迹像素）—— 这才说明参考层对的是位置；
+            //      · 差异要往红偏（琥珀），而不是随便变亮。
+            report.Add(string.Empty);
+            report.Add("冻结参考层断言（比对画参考前后同一区域：差异必须出现、必须落在轨迹上、必须往红偏）：");
+
+            PaneLayout? wavePane = session.Layout.Panes.FirstOrDefault(p => p.Content == PaneContent.Waveform);
+            var wavePlot = wavePane?.Plot is { } wavePlotUnit
+                ? new Rect(wavePlotUnit.MinX * fw, wavePlotUnit.MinY * fh,
+                           wavePlotUnit.Width * fw, wavePlotUnit.Height * fh)
+                : new Rect(0, 0, 0, 0);
+
+            byte[] withoutReference = frame;
+            var tracePixels = CollectTracePixels(withoutReference, fw, fh, wavePlot);
+
+            session.RequestReferenceCapture();
+            if (WaitFrames(session, 8, 5000) && session.ReferenceMeasurement is { HasData: true } referenceMeasurement)
+            {
+                byte[] withReference = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: true,
+                                                              out fw, out fh);
+
+                int changed = 0;
+                int onTrace = 0;
+                double redShift = 0;
+                for (int y = (int)wavePlot.Y; y < (int)wavePlot.Bottom && y < fh; y++)
+                {
+                    for (int x = (int)wavePlot.X; x < (int)wavePlot.Right && x < fw; x++)
+                    {
+                        int index = (y * fw + x) * 4;
+                        int before = withoutReference[index + 2];
+                        int after = withReference[index + 2];
+                        if (after - before < 15)
+                        {
+                            continue;
+                        }
+                        changed++;
+                        redShift += after - before;
+                        if (HasTraceWithin(tracePixels, x, y, 4))
+                        {
+                            onTrace++;
+                        }
+                    }
+                }
+
+                bool ghostDrawn = changed > 50;
+                report.Add($"  {(ghostDrawn ? "✓" : "✗")} 抓取后波形格里出现参考层的琥珀贡献（{changed} 个像素变红）");
+                exitCode |= ghostDrawn ? 0 : 1;
+
+                bool onTraceOk = changed > 0 && onTrace == changed;
+                report.Add($"  {(onTraceOk ? "✓" : "✗")} 这些变化**全部落在轨迹上**（{onTrace}/{changed}）—— 参考层对的是位置，不是随便抹一块");
+                exitCode |= onTraceOk ? 0 : 1;
+
+                double meanRedShift = changed > 0 ? redShift / changed : 0;
+                bool amberOk = meanRedShift > 5;
+                report.Add($"  {(amberOk ? "✓" : "✗")} 变化方向是「红升」（平均 +{meanRedShift:0.0}）—— 琥珀色，不是别的颜色");
+                exitCode |= amberOk ? 0 : 1;
+
+                double delta = Math.Abs(session.Measurement.PeakWhiteIre - referenceMeasurement.PeakWhiteIre);
+                bool deltaOk = delta < 0.6;
+                report.Add($"  {(deltaOk ? "✓" : "✗")} 参考读数与实时读数一致（Δ峰 {delta:0.00} IRE —— 同一信号抓的，理应几乎为 0）");
+                exitCode |= deltaOk ? 0 : 1;
+
+                // 清除参考：变化必须消失
+                session.RequestReferenceClear();
+                if (WaitFrames(session, 8, 5000))
+                {
+                    byte[] afterClear = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: true,
+                                                                out fw, out fh);
+                    int changedAfterClear = 0;
+                    for (int y = (int)wavePlot.Y; y < (int)wavePlot.Bottom && y < fh; y++)
+                    {
+                        for (int x = (int)wavePlot.X; x < (int)wavePlot.Right && x < fw; x++)
+                        {
+                            int index = (y * fw + x) * 4;
+                            if (afterClear[index + 2] - withoutReference[index + 2] >= 15)
+                            {
+                                changedAfterClear++;
+                            }
+                        }
+                    }
+                    bool clearOk = changedAfterClear == 0;
+                    report.Add($"  {(clearOk ? "✓" : "✗")} 清除参考后琥珀贡献消失（{changed} → {changedAfterClear} 个像素）");
+                    exitCode |= clearOk ? 0 : 1;
+                }
+            }
+            else
+            {
+                report.Add("  ✗ 抓取参考后拿不到参考读数");
+                exitCode = 1;
+            }
         }
         catch (Exception ex)
         {
@@ -301,6 +449,159 @@ public partial class App : Application
         File.WriteAllLines(reportPath, report, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         Console.WriteLine(string.Join(Environment.NewLine, report));
         return exitCode;
+    }
+
+    /// <summary>断言「测量值 ≈ 期望值」并输出一行证据</summary>
+    private static int CheckClose(List<string> report, string name, double actual, double expected, double tolerance, string detail)
+    {
+        bool ok = Math.Abs(actual - expected) <= tolerance;
+        report.Add($"  {(ok ? "✓" : "✗")} {name}：{actual:0.00} IRE vs 期望 {expected:0.00}（±{tolerance:0.0}）—— {detail}");
+        return ok ? 0 : 1;
+    }
+
+    /// <summary>
+    /// CPU 侧的期望读数：对同一张合成帧自己算一遍 256 bin 的 luma 直方图。
+    /// 与 GPU 侧（CSAccumulateMeasurement）用**同一套码值语义**：
+    ///   luma = 0.2126R + 0.7152G + 0.0722B（ShaderTypes.cs 里的权重），码值 = round(luma)
+    /// 于是这就是「GPU 统计链」的端到端校验，不只是「数字看着差不多」。
+    /// </summary>
+    private readonly record struct CpuReference(
+        double PeakIre, double StableIre, double BlackIre, double StableBlackIre,
+        double MeanIre, int PeakCode, int StableCode, int BlackCode, int StableBlackCode, double MeanCode)
+    {
+        public static CpuReference FromFrame(byte[] rgba, int width, int height)
+        {
+            var histogram = new long[256];
+            int stride = width * 4;
+            long total = 0;
+
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int index = y * stride + x * 4;
+                    double luma = 0.2126 * rgba[index] + 0.7152 * rgba[index + 1] + 0.0722 * rgba[index + 2];
+                    int code = (int)Math.Clamp(luma + 0.5, 0, 255);
+                    histogram[code]++;
+                    total++;
+                }
+            }
+
+            int peak = 255;
+            while (peak > 0 && histogram[peak] == 0)
+            {
+                peak--;
+            }
+            int black = 0;
+            while (black < 255 && histogram[black] == 0)
+            {
+                black++;
+            }
+
+            long tail = Math.Max(1, (long)(total * 0.001));
+            long cumulative = 0;
+            int stable = peak;
+            for (int code = 255; code >= 0; code--)
+            {
+                cumulative += histogram[code];
+                if (cumulative >= tail)
+                {
+                    stable = code;
+                    break;
+                }
+            }
+            cumulative = 0;
+            int stableBlack = black;
+            for (int code = 0; code < 256; code++)
+            {
+                cumulative += histogram[code];
+                if (cumulative >= tail)
+                {
+                    stableBlack = code;
+                    break;
+                }
+            }
+
+            double weighted = 0;
+            for (int code = 0; code < 256; code++)
+            {
+                weighted += (double)code * histogram[code];
+            }
+            double mean = weighted / total;
+
+            static double Ire(double code) => code / 255.0 * 100.0;
+            return new CpuReference(Ire(peak), Ire(stable), Ire(black), Ire(stableBlack),
+                                    Ire(mean), peak, stable, black, stableBlack, mean);
+        }
+    }
+
+    /// <summary>收集绘图区里的轨迹像素（青绿占优）</summary>
+    private static HashSet<(int X, int Y)> CollectTracePixels(byte[] frame, int width, int height, Rect plot)
+    {
+        var set = new HashSet<(int, int)>();
+        for (int y = (int)plot.Y; y < (int)plot.Bottom && y < height; y++)
+        {
+            for (int x = (int)plot.X; x < (int)plot.Right && x < width; x++)
+            {
+                if (IsTracePixel(frame, (y * width + x) * 4))
+                {
+                    set.Add((x, y));
+                }
+            }
+        }
+        return set;
+    }
+
+    /// <summary>(x,y) 附近（切比雪夫距离 radius 内）有没有轨迹像素</summary>
+    private static bool HasTraceWithin(HashSet<(int X, int Y)> tracePixels, int x, int y, int radius)
+    {
+        for (int dy = -radius; dy <= radius; dy++)
+        {
+            for (int dx = -radius; dx <= radius; dx++)
+            {
+                if (tracePixels.Contains((x + dx, y + dy)))
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>等链路再多跑几帧（抓参考 / 清除参考这类请求由渲染线程逐帧处理）</summary>
+    private static bool WaitFrames(LiveSession session, int count, int timeoutMs)
+    {
+        long target = session.Stats.Frames + count;
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (session.Stats.Frames < target && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(20);
+        }
+        return session.Stats.Frames >= target;
+    }
+
+    /// <summary>
+    /// 数「琥珀红」像素：参考层是琥珀色 (1.0, 0.58, 0.12) 的加法幽灵，
+    /// 实时轨迹是青绿 (0.36, 1.0, 0.55)、刻度与文字是灰（r≈g≈b）——
+    /// 所以「红明显大于绿和蓝」这个判据只会数到参考层。
+    /// （⚠️ 只在波形格绘图区里数：矢量图那条橙色肤色线也是红占优的。）
+    /// </summary>
+    private static int CountAmberPixels(byte[] frame, int width, int height, Rect plot)
+    {
+        int count = 0;
+        for (int y = (int)plot.Y; y < (int)plot.Bottom && y < height; y++)
+        {
+            for (int x = (int)plot.X; x < (int)plot.Right && x < width; x++)
+            {
+                int index = (y * width + x) * 4;
+                int b = frame[index], g = frame[index + 1], r = frame[index + 2];   // BGRA 内存序
+                if (r >= 60 && r - g >= 30 && r - b >= 30)
+                {
+                    count++;
+                }
+            }
+        }
+        return count;
     }
 
     private static int CountDistinctColors(byte[] frame, int samples)

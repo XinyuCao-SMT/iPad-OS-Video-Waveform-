@@ -158,14 +158,37 @@ public sealed class VideoRenderer : IDisposable
                 scope.Flags.X = ShaderConstants.WaveformModeOverlay;
             }
 
-            context.UpdateSubresource(in scope, _scopeBuffer);
-            context.PSSetShader(_pipelines.ScopeTrace);
-            context.PSSetConstantBuffer(2, _scopeBuffer);
-            context.PSSetShaderResource(0, engine.SrvFor(kind, options.WaveformMode));
-
             var uv = kind == ScopePanelKind.Vectorscope
                 ? UvRectForGain(options.VectorscopeGain)
                 : new RectF(0, 0, 1, 1);
+
+            // ⚠️ 像素着色器必须在**两次绘制之前**就设好：参考层这一趟如果继承了上一趟的
+            //    PSSolidColor（面板底色用的那个），就会拿面板颜色把整个绘图区糊一遍 ——
+            //    表现为「整块区域都变了颜色」而不是「轨迹上多了一层琥珀」。
+            //    （自检里那条「差异必须全部落在轨迹上」就是专门抓这个的，实测抓到过。）
+            context.PSSetShader(_pipelines.ScopeTrace);
+
+            // 2b-1) 冻结参考层先画：琥珀色幽灵（params.w = 不透明度）
+            //       —— 先画参考、后画实时，实时轨迹永远压在幽灵上面（与 iPad 版同序）。
+            ID3D11ShaderResourceView? reference = options.ShowReference
+                ? engine.SrvForReference(kind, options.WaveformMode)
+                : null;
+            if (reference is not null)
+            {
+                var ghost = scope;
+                ghost.Color = new Vector4(ReferenceTint, 1.0f);
+                ghost.Params = new Vector4(scope.Params.X, scope.Params.Y, scope.Params.Z,
+                                           (float)Math.Clamp(options.ReferenceOpacity, 0.05, 1.0));
+                context.UpdateSubresource(in ghost, _scopeBuffer);
+                context.PSSetConstantBuffer(2, _scopeBuffer);
+                context.PSSetShaderResource(0, reference);
+                DrawQuad(context, plot, uv, 0);
+            }
+
+            // 2b-2) 实时轨迹（params.w = 1.0，满强度）
+            context.UpdateSubresource(in scope, _scopeBuffer);
+            context.PSSetConstantBuffer(2, _scopeBuffer);
+            context.PSSetShaderResource(0, engine.SrvFor(kind, options.WaveformMode));
             DrawQuad(context, plot, uv, 0);
         }
 
@@ -175,6 +198,12 @@ public sealed class VideoRenderer : IDisposable
         context.PSSetShader(null);
         context.VSSetShader(null);
     }
+
+    /// <summary>
+    /// 参考层（冻结参考）的琥珀色 —— 与 iPad 版 v1.11.0 的 vsReferenceTint = (1.0, 0.58, 0.12) 一致。
+    /// 选琥珀色的原因：实时轨迹是青绿色，琥珀与它在任何混合下都不会看混。
+    /// </summary>
+    private static readonly Vector3 ReferenceTint = new(1.0f, 0.58f, 0.12f);
 
     /// <summary>矢量图放大：UV 缩放（与 iPad 版 ScopeEngine.uvRect 一致）</summary>
     private static RectF UvRectForGain(double gain)

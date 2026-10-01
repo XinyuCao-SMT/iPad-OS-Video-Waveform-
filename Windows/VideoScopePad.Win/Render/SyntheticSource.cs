@@ -108,7 +108,7 @@ public sealed class SyntheticLiveSource
     private int _height;
 
     /// <summary>生成一帧「活的」测试图：静态彩条 + 扫掠竖线 + 伸缩码值条</summary>
-    public void Render(Span<byte> destination, int width, int height, long frameIndex)
+    public void Render(Span<byte> destination, int width, int height, long frameIndex, bool animate = true)
     {
         if (_baseFrame is null || _width != width || _height != height)
         {
@@ -118,6 +118,13 @@ public sealed class SyntheticLiveSource
         }
 
         _baseFrame.AsSpan(0, Math.Min(_baseFrame.Length, destination.Length)).CopyTo(destination);
+
+        if (!animate)
+        {
+            // 自检要的是**码值完全已知**的一帧：动态元素（100 IRE 扫掠线、75% 绿条）
+            // 会把峰值顶到 100 IRE、把色度峰抬到 89%，读数断言就没法精确核对了。
+            return;
+        }
 
         int stride = width * 4;
 

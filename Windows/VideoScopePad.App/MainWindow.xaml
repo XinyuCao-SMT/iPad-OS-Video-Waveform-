@@ -30,6 +30,19 @@
                   Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"
                   Click="OnSaveClicked"/>
 
+          <Button x:Name="FreezeButton" Content="冻结参考" Margin="8,0,0,0" Padding="12,4"
+                  Background="#2A2418" Foreground="#F0C86A" BorderBrush="#4A3C1E"
+                  ToolTip="把这一刻的示波器图形冻成琥珀色参考层，实时轨迹照常刷新"
+                  Click="OnFreezeClicked"/>
+          <Button x:Name="ClearReferenceButton" Content="清除参考" Margin="6,0,0,0" Padding="12,4"
+                  Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"
+                  Click="OnClearReferenceClicked"/>
+
+          <TextBlock Text="参考层" Foreground="#9AA4B2" VerticalAlignment="Center" Margin="12,0,6,0"/>
+          <Slider x:Name="OpacitySlider" Width="100" Minimum="0.1" Maximum="1.0" Value="0.55"
+                  VerticalAlignment="Center" ValueChanged="OnOpacityChanged"
+                  ToolTip="参考层不透明度（实时轨迹恒为 100%）"/>
+
           <CheckBox x:Name="GraticuleBox" Content="刻度" IsChecked="True" Margin="14,0,0,0"
                     Foreground="#E6EAF0" VerticalAlignment="Center"
                     Checked="OnGraticuleToggled" Unchecked="OnGraticuleToggled"/>
@@ -53,7 +66,12 @@
     </Border>
 
     <Border DockPanel.Dock="Bottom" Background="#12151A" Padding="10,6">
-      <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"/>
+      <StackPanel>
+        <TextBlock x:Name="MeasurementText" Foreground="#D8DEE8" FontFamily="Consolas"
+                   TextTrimming="CharacterEllipsis"/>
+        <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"
+                   Margin="0,2,0,0"/>
+      </StackPanel>
     </Border>
 
     <Grid Background="#0B0D10">

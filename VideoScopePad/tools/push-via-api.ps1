@@ -45,6 +45,10 @@ param(
     # ⚠️ 参数名不能叫 DiffBase：PowerShell 变量名大小写不敏感，
     #    会和脚本内部的 $diffBase 撞成同一个变量（实测直接炸）。
     [string]$BaseCommit = '',
+    # 顺带把本地标签推到远端（给个通配前缀，默认空 = 不推）。
+    # 标签对回滚很关键：源码回滚靠的就是 tag，远端没有 tag 那台机器就回不去。
+    # 例：-Tags 'win-v*'
+    [string]$Tags = '',
     [switch]$DryRun
 )
 
@@ -264,4 +268,48 @@ if ($check.object.sha -ne $commit.sha) { throw 'ref update verification failed' 
 
 Write-Host ''
 Write-Host 'NOTE: the new commit sha differs from the local one (the API builds the'
-Write-Host 'commit server-side). Re-sync with:  git fetch origin ; git reset --hard origin/'$Branch
+Write-Host 'commit server-side. Re-sync with:  git fetch origin ; git reset --hard origin/'$Branch
+
+# ---------------------------------------------------------------- tags
+# 标签也要能推上去：源端回滚靠的就是 tag。做法是官方那套
+#   ① POST /git/tags   建一个 annotated tag 对象（指向某个 commit）
+#   ② POST /git/refs   建 refs/tags/<名字>
+# 已存在的标签直接跳过（不覆盖 —— 覆盖标签会让"回滚到那一版"变得不可信）。
+if (-not [string]::IsNullOrWhiteSpace($Tags)) {
+    Write-Host ''
+    Write-Host "推送标签（匹配 $Tags）："
+    $localTags = @(& git tag --list $Tags)
+    foreach ($tag in $localTags) {
+        $existing = $null
+        try {
+            $existing = Invoke-GitHub GET "/repos/$Repo/git/ref/tags/$tag"
+        } catch {
+            $existing = $null
+        }
+        if ($existing) {
+            Write-Host "  $tag 已存在，跳过"
+            continue
+        }
+
+        $targetSha = (& git rev-list -n 1 $tag).Trim()
+        # 远端可能没有这个本地提交（本仓库用 API 推、服务端生成新 sha）：
+        # 那就用"内容等价"的本地提交来指（本次推送的 $localSha 就是最新的那个）。
+        $target = $targetSha
+        & git rev-parse --verify --quiet "$remoteSha^{commit}" | Out-Null
+        if ($LASTEXITCODE -ne 0 -and $targetSha -eq $localSha) {
+            $target = $commit.sha
+            Write-Host "  $tag 指向的本地提交不在远端，改指本次推送生成的提交 $($commit.sha.Substring(0,8))"
+        }
+
+        $tagMessage = (& git tag -l --format='%(contents)' $tag) -join "`n"
+        if ([string]::IsNullOrWhiteSpace($tagMessage)) { $tagMessage = $tag }
+
+        $tagObject = Invoke-GitHub POST "/repos/$Repo/git/tags" @{
+            tag     = $tag
+            message = $tagMessage.Trim()
+            object  = @{ sha = $target; type = 'commit' }
+        }
+        Invoke-GitHub POST "/repos/$Repo/git/refs" @{ ref = "refs/tags/$tag"; sha = $tagObject.sha } | Out-Null
+        Write-Host "  ✓ $tag → $($target.Substring(0,8))"
+    }
+}

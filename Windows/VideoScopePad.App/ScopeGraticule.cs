@@ -24,6 +24,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using VideoScopePad.Win.Core;
+using VideoScopePad.Win.Render;
 
 namespace VideoScopePad.App;
 
@@ -32,7 +33,10 @@ public sealed record GraticuleOptions(
     ScaleUnit Unit = ScaleUnit.Ire,
     double VectorscopeGain = 1.0,
     bool VideoRange = false,
-    string WaveformLabel = "Y");
+    string WaveformLabel = "Y",
+    PeakHoldState? PeakHold = null,
+    PeakHoldState? ReferencePeakHold = null,
+    bool ShowPeakHold = true);
 
 /// <summary>示波器刻度绘制（静态方法，画面与出图共用同一份）。</summary>
 public static class ScopeGraticule
@@ -101,10 +105,12 @@ public static class ScopeGraticule
                 case ScopePanelKind.Waveform:
                     DrawWaveform(dc, plot, columns: 1, options,
                                  label: options.WaveformLabel);
+                    DrawPeakHold(dc, plot, options);
                     break;
 
                 case ScopePanelKind.Parade:
                     DrawWaveform(dc, plot, columns: 3, options, label: null);
+                    DrawPeakHold(dc, plot, options);
                     break;
 
                 // 钻石图 / 马蹄图：现在界面里的四分割用不到它们（ShowDiamond/ShowCie 还没接界面开关），
@@ -251,6 +257,73 @@ public static class ScopeGraticule
         }
 
         dc.DrawRectangle(null, BorderPen, rect);
+    }
+
+    // ------------------------------------------------------------------
+    //  峰值保持游标（实时 + 冻结参考）
+    // ------------------------------------------------------------------
+    private static readonly Pen PeakWhitePen = Frozen(new Pen(
+        Frozen(new SolidColorBrush(Color.FromArgb(230, 255, 210, 60))), 1.2)
+    { DashStyle = new DashStyle(new double[] { 5, 3 }, 0) });
+
+    private static readonly Pen BlackFloorPen = Frozen(new Pen(
+        Frozen(new SolidColorBrush(Color.FromArgb(230, 80, 220, 235))), 1.2)
+    { DashStyle = new DashStyle(new double[] { 5, 3 }, 0) });
+
+    private static readonly Brush PeakWhiteBrush = Frozen(new SolidColorBrush(Color.FromArgb(240, 255, 210, 60)));
+    private static readonly Brush BlackFloorBrush = Frozen(new SolidColorBrush(Color.FromArgb(240, 80, 220, 235)));
+
+    /// <summary>参考游标用琥珀色细虚线（比实时的细、且错开一点位置，避免两条叠住看不清）</summary>
+    private static readonly Pen ReferencePen = Frozen(new Pen(
+        Frozen(new SolidColorBrush(Color.FromArgb(240, 255, 148, 31))), 1.0)
+    { DashStyle = new DashStyle(new double[] { 2, 3 }, 0) });
+
+    private static readonly Brush ReferenceBrush = Frozen(new SolidColorBrush(Color.FromArgb(240, 255, 148, 31)));
+
+    /// <summary>
+    /// 把保持住的最高 / 最低电平用虚线钉在波形上（与 iPad 版 drawPeakHold 同一套做法）：
+    /// 实时用黄（峰值）与青（黑位），参考层用琥珀色细线并往中间错一点，两条并排对照。
+    /// </summary>
+    private static void DrawPeakHold(DrawingContext dc, Rect rect, GraticuleOptions options)
+    {
+        if (!options.ShowPeakHold)
+        {
+            return;
+        }
+
+        ScaleUnit unit = options.Unit;
+        bool narrow = rect.Width < 170;
+
+        if (options.PeakHold is { HasData: true } live)
+        {
+            DrawCursor(dc, rect, live.WhitePeakIre, unit, options.VideoRange, PeakWhitePen, PeakWhiteBrush, "峰值", narrow);
+            DrawCursor(dc, rect, live.BlackFloorIre, unit, options.VideoRange, BlackFloorPen, BlackFloorBrush, "黑位", narrow);
+        }
+
+        if (options.ReferencePeakHold is { HasData: true } reference)
+        {
+            DrawCursor(dc, rect, reference.WhitePeakIre, unit, options.VideoRange, ReferencePen, ReferenceBrush,
+                       "参考峰", narrow, labelOffsetY: 11);
+            DrawCursor(dc, rect, reference.BlackFloorIre, unit, options.VideoRange, ReferencePen, ReferenceBrush,
+                       "参考黑", narrow, labelOffsetY: -11);
+        }
+    }
+
+    private static void DrawCursor(DrawingContext dc, Rect rect, double ire, ScaleUnit unit, bool videoRange,
+                                   Pen pen, Brush brush, string name, bool narrow, double labelOffsetY = -11)
+    {
+        double y = YPositionForIre(ire, rect, videoRange);
+        if (y < rect.Y - 1 || y > rect.Bottom + 1)
+        {
+            return;
+        }
+
+        dc.DrawLine(pen, new Point(rect.X, y), new Point(rect.Right, y));
+
+        // 标注放在放得下的一侧（绘图区窄的时候放右边会被裁掉）
+        DrawText(dc, $"{name} {unit.FormatPrecise(ire)}", Monospace, 11, brush,
+                 new Point(narrow ? rect.X + 6 : rect.Right - 6, y + labelOffsetY),
+                 narrow ? TextAlign.Left : TextAlign.Right);
     }
 
     // ------------------------------------------------------------------

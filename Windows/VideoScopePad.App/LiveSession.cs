@@ -80,6 +80,45 @@ public sealed class LiveSession : IDisposable
     private int _videoWidth;
     private int _videoHeight;
 
+    private SignalMeasurement _measurement = SignalMeasurement.Empty;
+    private SignalMeasurement? _referenceMeasurement;
+    private readonly PeakHoldTracker _peakHold = new();
+    private PeakHoldState _peakHoldState;
+    private PeakHoldState? _referencePeakHoldState;
+
+    /// <summary>参考层请求：0 = 无事，1 = 抓取，2 = 清除（渲染线程每帧只处理一次）</summary>
+    private int _referenceRequest;
+
+    /// <summary>参考层不透明度（0.05…1.0，默认 0.55 —— 与 iPad 版 referenceOpacity 默认值一致）</summary>
+    public double ReferenceOpacity { get; set; } = 0.55;
+
+    /// <summary>是否把参考层叠在实时轨迹上（= iPad 版的 freezeReference）</summary>
+    public bool ShowReference { get; set; } = true;
+
+    /// <summary>冻结时连实时画面一起冻住（默认关；与 iPad 版的 freezePictureToo 对应）</summary>
+    public bool FreezePictureToo { get; set; }
+
+    /// <summary>最新一帧的幅度读数</summary>
+    public SignalMeasurement Measurement => Volatile.Read(ref _measurement);
+
+    /// <summary>抓参考那一刻的读数（没抓过就是 null）</summary>
+    public SignalMeasurement? ReferenceMeasurement => Volatile.Read(ref _referenceMeasurement);
+
+    /// <summary>峰值保持游标（实时）</summary>
+    public PeakHoldState PeakHold => _peakHoldState;
+
+    /// <summary>峰值保持游标（参考层）</summary>
+    public PeakHoldState? ReferencePeakHold => _referencePeakHoldState;
+
+    /// <summary>是否已抓有参考层</summary>
+    public bool HasReference => _referenceMeasurement is not null;
+
+    /// <summary>请求抓一份参考层（下一帧在渲染线程上执行，保证抓的就是刚算完的那一帧）</summary>
+    public void RequestReferenceCapture() => Interlocked.Exchange(ref _referenceRequest, 1);
+
+    /// <summary>请求清除参考层</summary>
+    public void RequestReferenceClear() => Interlocked.Exchange(ref _referenceRequest, 2);
+
     /// <summary>无窗口自检用：跑够这么多帧就自己退出（0 = 一直跑）</summary>
     public int StopAfterFrames { get; init; }
 
@@ -88,6 +127,13 @@ public sealed class LiveSession : IDisposable
 
     /// <summary>示波器采样步长（1 = 全采，2 = 隔点采；实时预览用 2 省一半算力）</summary>
     public int ScopeStride { get; init; } = 1;
+
+    /// <summary>
+    /// 合成信号是否加动态元素（扫掠竖线 + 伸缩码值条）。
+    /// 界面里要开（一眼看出画面在刷新）；**自检要关** —— 那根 100 IRE 的白线会把峰值读数
+    /// 顶到 100 IRE、把色度峰抬到 89%，读数就没法用已知码值精确核对了。
+    /// </summary>
+    public bool AnimateSynthetic { get; init; } = true;
 
     public LiveSession(int width, int height)
     {
@@ -246,6 +292,22 @@ public sealed class LiveSession : IDisposable
             string formatText = $"{_width}×{_height} 合成";
             string colorText = "全范围 0–255（合成信号本身就是 R'G'B'）";
 
+            // 「冻结时连实时画面一起冻住」用的画面副本（默认不用，所以先建好但不占几 MB）
+            using var frozenSource = d3d.Device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)_width,
+                Height = (uint)_height,
+                MipLevels = 1,
+                ArraySize = 1,
+                Format = Format.R8G8B8A8_UNorm,
+                SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Default,
+                BindFlags = BindFlags.ShaderResource,
+                CPUAccessFlags = CpuAccessFlags.None,
+            });
+            using var frozenSourceSrv = d3d.Device.CreateShaderResourceView(frozenSource);
+            bool pictureFrozen = false;
+
             var syntheticSource = new SyntheticLiveSource();
             long frames = 0;
             var captureMeter = new CaptureRateMeter();
@@ -307,6 +369,7 @@ public sealed class LiveSession : IDisposable
                 }
 
                 ID3D11ShaderResourceView? source = null;
+                ID3D11Texture2D? sourceTexture = null;
 
                 if (device is not null)
                 {
@@ -319,6 +382,7 @@ public sealed class LiveSession : IDisposable
 
                     CaptureFormat current = device.CurrentFormat;
                     source = uploader.Convert(d3d.Context, frame, current.SubtypeName, current.Color);
+                    sourceTexture = uploader.RgbTexture;
                     captureMeter.Add(frame.TimestampHns);
                     sourceMs = MsSince(start);
                     frames++;
@@ -326,9 +390,10 @@ public sealed class LiveSession : IDisposable
                 else
                 {
                     long start = Stopwatch.GetTimestamp();
-                    syntheticSource.Render(syntheticPixels, _width, _height, frames);
+                    syntheticSource.Render(syntheticPixels, _width, _height, frames, AnimateSynthetic);
                     d3d.Context.UpdateSubresource<byte>(syntheticPixels, synthetic, 0, (uint)(_width * 4), 0, null);
                     source = syntheticSrv;
+                    sourceTexture = synthetic;
                     sourceMs = MsSince(start);
                     frames++;
                 }
@@ -339,8 +404,47 @@ public sealed class LiveSession : IDisposable
                     engine.Encode(d3d.Context, source, scopeSettings);
                     scopeMs = MsSince(start);
 
+                    // 测量（数值读数）：GPU 累加 + 非阻塞回读，回调里更新读数与峰值保持
+                    engine.EncodeMeasurement(d3d.Context, source, ScopeStride, counts =>
+                    {
+                        if (SignalMeasurementBuilder.FromMeasureBuffer(counts) is { } measured)
+                        {
+                            Volatile.Write(ref _measurement, measured);
+                            _peakHold.Update(measured, stopwatch.Elapsed.TotalSeconds);
+                            _peakHoldState = _peakHold.Snapshot();
+                        }
+                    });
+
+                    // 冻结参考层请求（抓取必须在 Encode 之后：抓到的才是刚算完的这一帧）
+                    int request = Interlocked.Exchange(ref _referenceRequest, 0);
+                    if (request == 1)
+                    {
+                        engine.CaptureReference(d3d.Context);
+                        Volatile.Write(ref _referenceMeasurement, _measurement);
+                        _referencePeakHoldState = _peakHold.Snapshot();
+
+                        // 「冻结时连实时画面一起冻住」（默认关）：把当前画面源也拷一份，
+                        // 之后画面格用这份冻结纹理，而示波器仍从实时源算 —— 与 iPad 版语义一致。
+                        if (FreezePictureToo && sourceTexture is not null && frozenSource is not null)
+                        {
+                            d3d.Context.CopyResource(frozenSource, sourceTexture);
+                            pictureFrozen = true;
+                        }
+                    }
+                    else if (request == 2)
+                    {
+                        engine.ClearReference();
+                        Volatile.Write(ref _referenceMeasurement, null);
+                        _referencePeakHoldState = null;
+                        pictureFrozen = false;
+                    }
+
+                    options.ShowReference = ShowReference && engine.HasReference;
+                    options.ReferenceOpacity = ReferenceOpacity;
+
                     start = Stopwatch.GetTimestamp();
-                    renderer.Render(d3d.Context, compositeView, _width, _height, source, engine, options);
+                    renderer.Render(d3d.Context, compositeView, _width, _height,
+                                    pictureFrozen ? frozenSourceSrv! : source, engine, options);
                     compositeMs = MsSince(start);
 
                     start = Stopwatch.GetTimestamp();

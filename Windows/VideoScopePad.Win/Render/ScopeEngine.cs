@@ -107,6 +107,19 @@ public sealed class ScopeEngine : IDisposable
     private readonly ScopeTexture _diamond;
     private readonly ScopeTexture _cie;
 
+    // 冻结参考层：按下「冻结参考」时把当时的示波器纹理整块拷一份，
+    // 之后实时轨迹照常刷新，参考层以琥珀色幽灵叠在上面（与 iPad 版 v1.11.0 同一套做法）。
+    // 懒创建：不用这功能就不占显存。
+    private ScopeTexture? _waveformRef;
+    private ScopeTexture? _overlayRef;
+    private ScopeTexture? _paradeRef;
+    private ScopeTexture? _vectorscopeRef;
+    private ScopeTexture? _diamondRef;
+    private ScopeTexture? _cieRef;
+
+    /// <summary>当前是否已抓有参考层</summary>
+    public bool HasReference { get; private set; }
+
     /// <summary>测量直方图的内容（EncodeMeasurement 之后有效）</summary>
     private readonly uint[] _measureData = new uint[ShaderConstants.MeasureUintCount];
 
@@ -199,6 +212,51 @@ public sealed class ScopeEngine : IDisposable
         Core.ScopePanelKind.Parade => _parade.Srv,
         _ => _waveform.Srv,
     };
+
+    /// <summary>参考层纹理的 SRV（没抓过参考就返回 null）</summary>
+    public ID3D11ShaderResourceView? SrvForReference(Core.ScopePanelKind kind, Core.WaveformMode waveformMode)
+    {
+        if (!HasReference)
+        {
+            return null;
+        }
+        return kind switch
+        {
+            Core.ScopePanelKind.Vectorscope => _vectorscopeRef?.Srv,
+            Core.ScopePanelKind.Diamond => _diamondRef?.Srv,
+            Core.ScopePanelKind.Cie => _cieRef?.Srv,
+            Core.ScopePanelKind.Waveform => waveformMode == Core.WaveformMode.Luma ? _waveformRef?.Srv : _overlayRef?.Srv,
+            Core.ScopePanelKind.Parade => _paradeRef?.Srv,
+            _ => _waveformRef?.Srv,
+        };
+    }
+
+    /// <summary>
+    /// 抓一份参考层：把这一帧刚算完的示波器纹理整块拷过去。
+    /// 与 iPad 版一样用 GPU 拷贝（CopyResource），不做 pass、不回读 CPU。
+    /// 必须在 <see cref="Encode"/> 之后调用，抓到的才是"刚算完的这一帧"。
+    /// </summary>
+    public void CaptureReference(ID3D11DeviceContext context)
+    {
+        _waveformRef ??= new ScopeTexture(_device, 512, 256, "ref-waveform");
+        _overlayRef ??= new ScopeTexture(_device, 512, 256, "ref-overlay");
+        _paradeRef ??= new ScopeTexture(_device, 1536, 256, "ref-parade");
+        _vectorscopeRef ??= new ScopeTexture(_device, 256, 256, "ref-vectorscope");
+        _diamondRef ??= new ScopeTexture(_device, 256, 256, "ref-diamond");
+        _cieRef ??= new ScopeTexture(_device, 256, 256, "ref-cie");
+
+        context.CopyResource(_waveformRef.Texture, _waveform.Texture);
+        context.CopyResource(_overlayRef.Texture, _overlay.Texture);
+        context.CopyResource(_paradeRef.Texture, _parade.Texture);
+        context.CopyResource(_vectorscopeRef.Texture, _vectorscope.Texture);
+        context.CopyResource(_diamondRef.Texture, _diamond.Texture);
+        context.CopyResource(_cieRef.Texture, _cie.Texture);
+
+        HasReference = true;
+    }
+
+    /// <summary>清除参考层（下次渲染就不会再叠幽灵了）</summary>
+    public void ClearReference() => HasReference = false;
 
     /// <summary>一帧调用一次：清零 → 累计 → 归一化</summary>
     public void Encode(ID3D11DeviceContext context,
@@ -463,6 +521,12 @@ public sealed class ScopeEngine : IDisposable
         _vectorscope.Dispose();
         _diamond.Dispose();
         _cie.Dispose();
+        _waveformRef?.Dispose();
+        _overlayRef?.Dispose();
+        _paradeRef?.Dispose();
+        _vectorscopeRef?.Dispose();
+        _diamondRef?.Dispose();
+        _cieRef?.Dispose();
         _histogramUav.Dispose();
         _histogramBuffer.Dispose();
         _measureUav.Dispose();
