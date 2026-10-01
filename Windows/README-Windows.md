@@ -17,6 +17,7 @@
 
 ```
 Windows/
+├─ run-app.cmd                 ← **双击启动器**（自动编译 + 开窗口）
 ├─ VideoScopePad.App/          ← **界面程序**（WPF；双击就是实时监视器）
 │   ├─ LiveSession.cs          ← 实时链路：取帧 → GPU 转换 → 示波器 → 合成 → 回读
 │   └─ MainWindow.xaml(.cs)    ← 窗口：源选择 + 实时位图 + 状态行（故意做薄）
@@ -70,6 +71,7 @@ dotnet run --project Windows\tools\mf-capture -- gpu         # ④ 采集帧 →
 dotnet run --project Windows\tools\mf-capture -- probe       # 诊断：三条打开设备的路都试一遍
 
 # 界面程序：双击就是实时监视器；也可以无窗口自检（我这边看不到窗口，靠它验收）
+Windows\run-app.cmd                                    # ← 双击这个（自动编译再开窗口）
 dotnet build Windows\VideoScopePad.App\VideoScopePad.App.csproj
 Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe
 Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe `
