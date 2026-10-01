@@ -18,9 +18,13 @@
 ```
 Windows/
 ├─ run-app.cmd                 ← **双击启动器**（自动编译 + 开窗口）
+├─ build-release.cmd           ← **打包单文件 exe**（dist\VideoScopePad.exe，可单独拷给别人）
 ├─ VideoScopePad.App/          ← **界面程序**（WPF；双击就是实时监视器）
 │   ├─ LiveSession.cs          ← 实时链路：取帧 → GPU 转换 → 示波器 → 合成 → 回读
-│   └─ MainWindow.xaml(.cs)    ← 窗口：源选择 + 实时位图 + 状态行（故意做薄）
+│   ├─ ScopeGraticule.cs       ← 刻度层（IRE 数字/网格/矢量目标框…，移植自 iPad 版）
+│   ├─ GraticuleElement.cs     ← 刻度层的承载元素（自绘，铺在实时位图之上）
+│   ├─ LiveSnapshot.cs         ← 「最新一帧 + 刻度」渲染成 PNG
+│   └─ MainWindow.xaml(.cs)    ← 窗口：源选择 + 单位 + 实时位图 + 状态行（故意做薄）
 ├─ VideoScopePad.Win/          ← 核心库（不依赖界面，可被自检工具引用）
 │   ├─ Core/                   ← 布局与模型（对应 iPad 版 Model/）
 │   │   ├─ RectF.cs            ← 轻量矩形（左上角原点、y 向下，与 SwiftUI/CGRect 习惯一致）
@@ -76,6 +80,9 @@ dotnet build Windows\VideoScopePad.App\VideoScopePad.App.csproj
 Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe
 Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe `
     --snapshot Windows\out\live.png --frames 240 --source synthetic --width 1920 --height 1080
+
+# 打包成单文件 exe（给别人用；dist\ 不进仓库）
+Windows\build-release.cmd                              # → dist\VideoScopePad.exe（约 69 MB）
 ```
 
 **不需要装 Visual Studio**：.NET 8 SDK 自带 WPF 与 HLSL 所需的一切，
@@ -103,8 +110,10 @@ Windows\VideoScopePad.App\bin\Debug\net8.0-windows\VideoScopePad.App.exe `
 - [x] Media Foundation 采集：设备枚举 / 原生格式 + 色彩元数据 / 1 秒采集出 PNG
 - [x] 采集帧接进示波器链路：YUV 原样上传 GPU + compute 转 R'G'B'（与 CPU 版逐像素对拍）
 - [x] **WPF 实时窗口**（源选择：合成信号 / 采集卡 / 摄像头；四分割实时显示）
-- [ ] 刻度栏覆盖层（IRE 数字、色标框，按 iPad 版做法叠在窗口上）
-- [ ] 冻结参考层 + 幅度读数
+- [x] **刻度层**：IRE/mV/% 刻度栏 + 网格 + 矢量图 75% 目标框 / 肤色线 / B-Y·R-Y 轴
+- [x] **单文件发布**：`build-release.cmd` → `dist\VideoScopePad.exe`（69 MB，自包含，可直接分享）
+- [ ] 冻结参考层 + 幅度读数（峰值/黑位游标；读数面板）
+- [ ] 格子内容可选（全屏/四分割每格换示波器；钻石图与马蹄图刻度按 iPad 版补上）
 - [ ] LUT（.cube 解析 + 1D/3D 纹理）
 - [ ] 音频套件（WASAPI；本机采集卡的音频功能是 UT-AUD 00K0601910）
 
@@ -303,4 +312,55 @@ R'G'B' 纹理（R8G8B8A8）
    直接掉到 24 fps。静态部分缓存（`SyntheticLiveSource`），每帧只叠动态元素。
 7. **界面线程绝不碰 D3D**：渲染线程独占设备，UI 只做「拷贝最新一帧 → WriteableBitmap」，
    并用双缓冲 + 锁而不是队列（监视器永远只要最新帧，追不上就丢帧）。
+
+## 刻度层（IRE 数字、网格、矢量目标框）
+
+逐条移植 iPad 版 `Views/ScopeGraticuleView.swift`，两边共用同一份 `ScopeLayout`，
+所以刻度与轨迹严格对齐（`plot` / `gutter` / `panel` 是同一组矩形）。
+
+| 画什么 | 与 iPad 版一致的细节 |
+|---|---|
+| 侧边刻度栏 | 单位名（IRE/mV/%）+ 刻度线 + 数字；字号跟栏宽走（7–12pt）；栏宽 < 22 只留刻度线 |
+| 标注密度 | 绘图区 ≥ 240 px 全标、≥ 130 px 只标主刻度、更矮只留 首/中/末 三档 |
+| 波形 / Parade | 每 10 单位一条横线（主刻度加亮）+ 每列 1/4·1/2·3/4 竖线 + Parade 三列分隔与 R/G/B 名 |
+| 矢量图 | 25/50/75/100% 圈（75% 加亮）+ 十字轴 + **6 个 75% 目标框**（R/Mg/B/Cy/G/Yl）+ 肤色线（123°）+ B-Y / R-Y 轴名 |
+| 出图 | 「存一帧 PNG」= 实时帧 + 刻度层一起渲染（`LiveSnapshot`），所以分享出去的图是完整的 |
+
+### ⚠️ 刻度层踩的坑（都实测过）
+
+1. 🔴 **纵轴必须用「全范围」映射**。本工程在采集入口就把 limited(16–235) 展开成 full(0–255)
+   （`YuvFrameConverter`），示波器直方图也按展开后的码值分箱，所以刻度是
+   **0 IRE = 码值 0、100 IRE = 码值 255**。若照 iPad 版传 `videoRange = true`
+   （0 IRE = 16、100 IRE = 235），所有刻度会整体偏 **8%**，而且画面看着"挺正常"。
+   自检里专门钉了一条：`YPositionForIre(0) == 绘图区底、YPositionForIre(100) == 顶`。
+2. **判据不能只看绿通道**：刻度层里有白色的目标框标签（灰、绿通道高达 234），
+   比轨迹还亮 —— 用「绿通道最亮」去找轨迹，会把标签当成轨迹，
+   得出"所有目标都偏 15 px"的假结论。正确判据是**绿明显大于红**（轨迹是青绿加法混合，
+   灰线/文字的 g−r 恒为 0）。
+3. **判据还得是分辨率无关的**：720p 时轨迹整体更暗，写死绝对阈值会把暗的那两条判成"没有"
+   （实测 G / Yl 在 720p 下亮度掉到阈值以下）。改成「窗口内 g−r 的峰值 ≥ 20」就同时站得住。
+4. **别拿「最亮的那一行」当波形定位判据**：样本最多的码值不是白条 ——
+   蓝条亮度只有 14 却占更大面积，实测最亮行是 483（码值 14）。
+   正确做法是直接量 75 IRE 那一行有没有整段白条轨迹（75% 白的码值 191 = 74.9% ≈ 75 IRE），
+   并检查上下偏 12 px 处几乎为空。
+5. **解码后的"目标框"位置与轨迹的实测偏差 ≤ 2 px**（1080p 实测：Yl 338↔339、R 449↔449、
+   B 626↔625、中心 482↔482…），这条就是刻度可用的证据，已写成 6/6 命中断言。
+
+## 打包：一个能直接分享的 exe
+
+```powershell
+Windows\build-release.cmd     # → dist\VideoScopePad.exe（约 69 MB，自包含单文件）
+```
+
+* **自包含**（`--self-contained`）：目标机器**不需要装 .NET**。
+* **单文件**（`PublishSingleFile`）：着色器已经**嵌进程序集**
+  （csproj 里 `EmbeddedResource`），所以不用带着 `Render\Shaders` 目录跑。
+  `ShaderLibrary` 优先读嵌入资源、读不到才退回目录 —— 开发期改 HLSL 免编译即生效，
+  发布版又只靠一个 exe。（这个「单文件里外部文件不会被打进去」的坑很隐蔽：
+  第一次发布出来的 exe 会在启动时报找不到 ScopeKernels.hlsl。）
+* 唯一的系统依赖是 **`d3dcompiler_47.dll`**（启动时编译 HLSL 用），Win10/11 自带。
+* 未签名 exe 首次运行会有 SmartScreen 提示 →「更多信息」→「仍要运行」。
+* 验证方式（**别只在仓库里跑**）：把 exe 单独拷到一个空目录，在那里跑
+  `VideoScopePad.exe --snapshot out.png --frames 90 --source synthetic`，
+  看 `out.png.report.txt` 是否全绿 —— 这一步同时证明了「自包含」与「着色器已内嵌」。
 

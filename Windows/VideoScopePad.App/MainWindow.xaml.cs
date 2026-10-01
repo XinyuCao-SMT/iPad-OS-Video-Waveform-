@@ -16,6 +16,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 
 namespace VideoScopePad.App;
@@ -48,7 +49,10 @@ public partial class MainWindow : Window
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _session.Start();
+        Graticule.SetFrameSize(_session.Width, _session.Height);
+        Graticule.Options = new GraticuleOptions();
         CompositionTarget.Rendering += OnRendering;
+        SizeChanged += (_, _) => Graticule.InvalidateVisual();
         DetailText.Text = $"链路就绪：{_session.Width}×{_session.Height} 四分割（画面 / 亮度波形 / 矢量图 / RGB Parade）";
     }
 
@@ -84,7 +88,41 @@ public partial class MainWindow : Window
                            + $"一帧 {stats.TotalMs:0.0} ms（示波器 {stats.ScopeMs:0.0} / 合成 {stats.CompositeMs:0.0} / 回读 {stats.ReadbackMs:0.0}）";
             DetailText.Text = $"{stats.Source}　·　{stats.Format}　·　{stats.Color}";
             MessageText.Text = stats.Message;
+
+            // 布局是渲染线程算出来的：按引用变化同步给刻度层（换分辨率/换源时会重建）
+            Graticule.Layout = _session.Layout;
+            Graticule.SetFrameSize(_session.Width, _session.Height);
         }
+    }
+
+    private void OnGraticuleToggled(object sender, RoutedEventArgs e)
+    {
+        // ⚠️ XAML 里写的事件处理器会在 InitializeComponent **解析过程中**就触发
+        //    （CheckBox 的 IsChecked="True" 立刻引发 Checked），那时后面的字段
+        //    （Graticule 元素）还没赋值 —— 不加这道判断就是启动即 NullReferenceException。
+        //    同一个坑也适用于 ComboBox 的 SelectionChanged（那边用 IsLoaded 兜住）。
+        if (!IsLoaded || Graticule is null)
+        {
+            return;
+        }
+        Graticule.ShowGraticule = GraticuleBox.IsChecked == true;
+        Graticule.InvalidateVisual();
+    }
+
+    private void OnUnitChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+        var unit = UnitBox.SelectedIndex switch
+        {
+            1 => ScaleUnit.Millivolt,
+            2 => ScaleUnit.Percent,
+            _ => ScaleUnit.Ire,
+        };
+        Graticule.Options = Graticule.Options with { Unit = unit };
+        Graticule.InvalidateVisual();
     }
 
     private void OnSourceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -107,10 +145,9 @@ public partial class MainWindow : Window
         try
         {
             string directory = Path.Combine(AppContext.BaseDirectory, "snapshots");
-            string path = Path.Combine(directory,
-                $"vsp-{DateTime.Now:yyyyMMdd-HHmmss}.png");
-            _session.SaveLatestFramePng(path);
-            SaveHint.Text = $"已存：{path}";
+            string path = Path.Combine(directory, $"vsp-{DateTime.Now:yyyyMMdd-HHmmss}.png");
+            LiveSnapshot.Save(_session, path, Graticule.Options, Graticule.ShowGraticule);
+            SaveHint.Text = $"已存（含刻度）：{path}";
         }
         catch (Exception ex)
         {

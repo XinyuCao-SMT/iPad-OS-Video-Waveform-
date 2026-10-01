@@ -171,4 +171,30 @@ public static class ScaleUnitExtensions
         ScaleUnit.Percent => ire.ToString("0.0") + "%",
         _ => ire.ToString("0.0") + " IRE",
     };
+
+    /// <summary>刻度栏顶部那一行单位名（iPad 版同为 IRE / mV / %）</summary>
+    public static string ShortTitle(this ScaleUnit unit) => unit switch
+    {
+        ScaleUnit.Millivolt => "mV",
+        ScaleUnit.Percent => "%",
+        _ => "IRE",
+    };
+
+    /// <summary>
+    /// 刻度轴上要标注的位置（单位 = 当前单位）。与 iPad 版 ScaleUnit.tickValues() 逐一对应：
+    /// IRE / % 每 10 一格（0…100），mV 每 70 一格（0…700，等效电平 100 IRE = 700 mV）。
+    /// </summary>
+    public static IReadOnlyList<double> TickValues(this ScaleUnit unit) => unit switch
+    {
+        ScaleUnit.Millivolt => new double[] { 0, 70, 140, 210, 280, 350, 420, 490, 560, 630, 700 },
+        _ => new double[] { 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 },
+    };
+
+    /// <summary>主要刻度（画粗线、写大字）：IRE/% 是 25 的倍数，mV 是 175 的倍数</summary>
+    public static bool IsMajorTick(this ScaleUnit unit, double value) => unit switch
+    {
+        ScaleUnit.Millivolt => Math.Abs(value / 70 - Math.Round(value / 70)) < 1e-9
+                               && Math.Abs((int)value % 175) == 0,
+        _ => Math.Abs(value % 25) < 1e-9,
+    };
 }

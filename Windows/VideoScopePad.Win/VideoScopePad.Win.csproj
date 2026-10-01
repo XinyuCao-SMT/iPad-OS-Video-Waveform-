@@ -36,10 +36,15 @@
   </ItemGroup>
 
   <!-- 着色器随输出一起拷贝，运行时按文件名编译（HLSL 用系统的 d3dcompiler_47.dll，
-       不需要装 Visual Studio / fxc.exe） -->
+       不需要装 Visual Studio / fxc.exe）。
+       ⚠️ 同时**嵌进程序集**：单文件发布（PublishSingleFile）时外部文件不会被塞进 exe，
+       而发行版必须是一个能单独拷走的 exe。ShaderLibrary 优先读嵌入资源、
+       读不到再退回目录 —— 于是开发期改 HLSL 不用重编译也能生效，发布版又只靠一个 exe。 -->
   <ItemGroup>
     <None Include="Render\Shaders\*.hlsl" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Render\Shaders\*.hlsli" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Render\Shaders\*.hlsl" />
+    <EmbeddedResource Include="Render\Shaders\*.hlsli" />
   </ItemGroup>
 
 </Project>

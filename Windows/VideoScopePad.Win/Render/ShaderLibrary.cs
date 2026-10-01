@@ -50,14 +50,19 @@ public sealed class ShaderLibrary : IDisposable
     public IReadOnlyList<string> Log => _log;
 
     private readonly List<string> _log = new();
+    private readonly string _shaderDirectory;
     private readonly string _tempDirectory;
     private readonly ShaderFlags _flags;
+
+    /// <summary>嵌入资源名的前缀（默认根命名空间 + 目录），与 csproj 里的 EmbeddedResource 对应</summary>
+    private const string ShaderResourcePrefix = "VideoScopePad.Win.Render.Shaders";
 
     private ShaderLibrary(ID3D11Device device, string shaderDirectory, bool debug)
     {
         _flags = ShaderFlags.PackMatrixColumnMajor
                | (debug ? ShaderFlags.Debug | ShaderFlags.SkipOptimization : ShaderFlags.OptimizationLevel3);
 
+        _shaderDirectory = shaderDirectory;
         _tempDirectory = Path.Combine(Path.GetTempPath(), "vsp-shaders-" + Environment.ProcessId);
         Directory.CreateDirectory(_tempDirectory);
 
@@ -99,32 +104,45 @@ public sealed class ShaderLibrary : IDisposable
     public static ShaderLibrary Create(ID3D11Device device, string shaderDirectory, bool debug = false)
         => new(device, shaderDirectory, debug);
 
-    /// <summary>内联 `#include "*.hlsli"` 并写到临时文件（原因见文件头第 1、2 条）</summary>
+    /// <summary>
+    /// 读着色器源码并内联 `#include "*.hlsli"`，写到一个临时文件（原因见文件头第 1、2 条）。
+    ///
+    /// 源码来源优先**嵌入资源**（发行版只有单个 exe，没有外部的 Render\Shaders 目录），
+    /// 读不到再退回输出目录里的文件（开发期想改 HLSL 不用重新编译程序集）。
+    /// </summary>
     private string Prepare(string hlslPath)
     {
-        if (!File.Exists(hlslPath))
-        {
-            throw new FileNotFoundException(
-                $"找不到着色器文件：{hlslPath}（确认 Render/Shaders/*.hlsl 已拷到输出目录）", hlslPath);
-        }
-
-        string directory = Path.GetDirectoryName(hlslPath)!;
-        string source = File.ReadAllText(hlslPath, Encoding.UTF8);
+        string fileName = Path.GetFileName(hlslPath);
+        string source = ReadShaderSource(fileName)
+            ?? throw new FileNotFoundException(
+                $"找不到着色器：{fileName}（既不在嵌入资源里，也不在 {hlslPath}）", hlslPath);
 
         source = Regex.Replace(source, @"^\s*#include\s+""([^""]+)""\s*$", match =>
         {
-            string includePath = Path.Combine(directory, match.Groups[1].Value);
-            if (!File.Exists(includePath))
-            {
-                throw new FileNotFoundException($"着色器 #include 找不到：{includePath}", includePath);
-            }
-            string included = File.ReadAllText(includePath, Encoding.UTF8);
-            return $"// ---- 内联自 {match.Groups[1].Value} ----\n{included}\n// ---- 内联结束 ----";
+            string includeName = match.Groups[1].Value;
+            string included = ReadShaderSource(includeName)
+                ?? throw new FileNotFoundException($"着色器 #include 找不到：{includeName}", includeName);
+            return $"// ---- 内联自 {includeName} ----\n{included}\n// ---- 内联结束 ----";
         }, RegexOptions.Multiline);
 
-        string target = Path.Combine(_tempDirectory, Path.GetFileName(hlslPath));
+        string target = Path.Combine(_tempDirectory, fileName);
         File.WriteAllText(target, source, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         return target;
+    }
+
+    /// <summary>先找嵌入资源，再找同目录文件；都没有返回 null</summary>
+    private string? ReadShaderSource(string fileName)
+    {
+        string resourceName = $"{ShaderResourcePrefix}.{fileName}";
+        using Stream? stream = typeof(ShaderLibrary).Assembly.GetManifestResourceStream(resourceName);
+        if (stream is not null)
+        {
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            return reader.ReadToEnd();
+        }
+
+        string path = Path.Combine(_shaderDirectory, fileName);
+        return File.Exists(path) ? File.ReadAllText(path, Encoding.UTF8) : null;
     }
 
     private Blob Compile(string preprocessedPath, string profile, string entryPoint)
