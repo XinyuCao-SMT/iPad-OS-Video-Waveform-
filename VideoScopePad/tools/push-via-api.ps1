@@ -129,7 +129,11 @@ function Invoke-GitHub {
             if ($null -eq $Body) {
                 return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers -TimeoutSec 90
             }
-            $json  = $Body | ConvertTo-Json -Depth 12 -Compress
+            # $Body 给字符串时按「已经是 JSON」发出去：
+            # PS 5.1 的 ConvertTo-Json 会把**嵌套哈希表**序列化成 "{sha => …, type => …}"
+            # 这种 PowerShell 自己的字符串形式（建 tag 对象时被 GitHub 以 422 打回：
+            # "For 'properties/object', {...} is not a string"）。所以嵌套结构自己拼 JSON。
+            $json  = if ($Body -is [string]) { $Body } else { $Body | ConvertTo-Json -Depth 12 -Compress }
             $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
             return Invoke-RestMethod -Method $Method -Uri $uri -Headers $headers `
                 -Body $bytes -ContentType 'application/json; charset=utf-8' -TimeoutSec 180
@@ -217,7 +221,12 @@ elseif (-not $haveRemoteObject) {
 
 # ---------------------------------------------------------------- diff
 $diffLines = & git diff --name-status $diffBase $localSha
-if (-not $diffLines) { throw 'no diff between remote tip and local HEAD' }
+# 没有差异时：如果这次只是想推标签（-Tags），那就继续往下走；
+# 否则确实是"没东西可推"，直接报错更清楚。
+if (-not $diffLines -and [string]::IsNullOrWhiteSpace($Tags)) {
+    throw 'no diff between remote tip and local HEAD'
+}
+$nothingToPush = -not $diffLines
 
 $changes = @()
 foreach ($line in $diffLines) {
@@ -252,19 +261,25 @@ foreach ($c in $changes) {
 if ($DryRun) { Write-Host 'dry run: stopping before tree/commit/ref update'; exit 0 }
 
 # ---------------------------------------------------------------- commit + ref
-$newTree = Invoke-GitHub POST "/repos/$Repo/git/trees" @{ base_tree = $baseTree; tree = $tree }
-$commit  = Invoke-GitHub POST "/repos/$Repo/git/commits" @{
-    message = $localMsg
-    tree    = $newTree.sha
-    parents = @($remoteSha)
+if ($nothingToPush) {
+    # 只推标签的场景（源码早就推过了）：远端 tip 保持不变
+    Write-Host '没有源码差异：跳过提交，只处理标签'
+    $commit = @{ sha = $remoteSha }
+} else {
+    $newTree = Invoke-GitHub POST "/repos/$Repo/git/trees" @{ base_tree = $baseTree; tree = $tree }
+    $commit  = Invoke-GitHub POST "/repos/$Repo/git/commits" @{
+        message = $localMsg
+        tree    = $newTree.sha
+        parents = @($remoteSha)
+    }
+    Write-Host "new commit = $($commit.sha)"
+
+    Invoke-GitHub PATCH "/repos/$Repo/git/refs/heads/$Branch" @{ sha = $commit.sha; force = $false } | Out-Null
+
+    $check = Invoke-GitHub GET "/repos/$Repo/git/ref/heads/$Branch"
+    Write-Host ("remote $Branch is now {0}" -f $check.object.sha)
+    if ($check.object.sha -ne $commit.sha) { throw 'ref update verification failed' }
 }
-Write-Host "new commit = $($commit.sha)"
-
-Invoke-GitHub PATCH "/repos/$Repo/git/refs/heads/$Branch" @{ sha = $commit.sha; force = $false } | Out-Null
-
-$check = Invoke-GitHub GET "/repos/$Repo/git/ref/heads/$Branch"
-Write-Host ("remote $Branch is now {0}" -f $check.object.sha)
-if ($check.object.sha -ne $commit.sha) { throw 'ref update verification failed' }
 
 Write-Host ''
 Write-Host 'NOTE: the new commit sha differs from the local one (the API builds the'
@@ -292,24 +307,25 @@ if (-not [string]::IsNullOrWhiteSpace($Tags)) {
         }
 
         $targetSha = (& git rev-list -n 1 $tag).Trim()
-        # 远端可能没有这个本地提交（本仓库用 API 推、服务端生成新 sha）：
-        # 那就用"内容等价"的本地提交来指（本次推送的 $localSha 就是最新的那个）。
+        # 标签要指向**远端存在的**提交。本仓库走 API 推送、提交 sha 由服务端生成，
+        # 所以本地 HEAD 那个 sha 远端往往没有 —— 这时改指"内容等价的那个远端提交"：
+        #   本次推了源码 → 指向这次生成的新提交；只推标签 → 指向远端当前 tip。
         $target = $targetSha
-        & git rev-parse --verify --quiet "$remoteSha^{commit}" | Out-Null
-        if ($LASTEXITCODE -ne 0 -and $targetSha -eq $localSha) {
-            $target = $commit.sha
-            Write-Host "  $tag 指向的本地提交不在远端，改指本次推送生成的提交 $($commit.sha.Substring(0,8))"
+        if ($targetSha -eq $localSha) {
+            $target = if ($nothingToPush) { $remoteSha } else { $commit.sha }
+            Write-Host "  $tag 指向本地 HEAD；改指远端等价提交 $($target.Substring(0,8))"
         }
 
         $tagMessage = (& git tag -l --format='%(contents)' $tag) -join "`n"
         if ([string]::IsNullOrWhiteSpace($tagMessage)) { $tagMessage = $tag }
 
-        $tagObject = Invoke-GitHub POST "/repos/$Repo/git/tags" @{
-            tag     = $tag
-            message = $tagMessage.Trim()
-            object  = @{ sha = $target; type = 'commit' }
-        }
-        Invoke-GitHub POST "/repos/$Repo/git/refs" @{ ref = "refs/tags/$tag"; sha = $tagObject.sha } | Out-Null
-        Write-Host "  ✓ $tag → $($target.Substring(0,8))"
+        # ⚠️ 这里建的是**轻量标签**（ref 直接指向提交），不是 annotated tag 对象。
+        #    实测 POST /git/tags 在这个 token 上一直返回 422（响应体还是空的），
+        #    而 POST /git/refs 直接指提交一次就成 —— 回滚只需要「tag 名字 → 提交」这一层，
+        #    注释信息本地 tag 里有就够了。真要 annotated 对象，等 github.com:443 通了用
+        #    `git push origin --tags` 推一次即可。
+        Invoke-GitHub POST "/repos/$Repo/git/refs" (
+            '{"ref":"refs/tags/' + $tag + '","sha":"' + $target + '"}') | Out-Null
+        Write-Host "  ✓ $tag → $($target.Substring(0,8))（轻量标签）"
     }
 }
