@@ -68,6 +68,38 @@ public static class AudioDeviceEnumerator
     private const string PkeyDeviceFormat = "{f19f064d-082c-4e27-bc73-6882a1bb8e4c},0";
     private const string PkeyOemFormat = "{f19f064d-082c-4e27-bc73-6882a1bb8e4c},1";
 
+    /// <summary>诊断：打印某个端点 Properties 下的值名与二进制块长度（用来核对 C# 与注册表视图的差异）</summary>
+    public static IReadOnlyList<string> Describe(int index = 0)
+    {
+        var lines = new List<string>();
+        using RegistryKey? root = Registry.LocalMachine.OpenSubKey(CaptureRoot);
+        if (root is null) { lines.Add("读不到 Capture 根键"); return lines; }
+
+        string[] ids = root.GetSubKeyNames();
+        if (index >= ids.Length) { lines.Add($"端点序号 {index} 超范围（共 {ids.Length}）"); return lines; }
+
+        using RegistryKey? deviceKey = root.OpenSubKey(ids[index]);
+        using RegistryKey? properties = deviceKey?.OpenSubKey("Properties");
+        if (properties is null) { lines.Add("没有 Properties 子键"); return lines; }
+
+        string[] names = properties.GetValueNames();
+        lines.Add($"端点 {ids[index]}：Properties 下 {names.Length} 个值");
+        foreach (string name in names)
+        {
+            object? value = properties.GetValue(name);
+            string kind = value is byte[] blob ? $"byte[{blob.Length}]" :
+                          value is null ? "null" : $"{value.GetType().Name}";
+            string extra = string.Empty;
+            if (value is byte[] b && b.Length >= 8)
+            {
+                extra = $"  → nChannels={BitConverter.ToUInt16(b, 2)} rate={BitConverter.ToUInt32(b, 4)}"
+                      + $" 前8字节={BitConverter.ToString(b, 0, 8)}";
+            }
+            lines.Add($"   {name} = {kind}{extra}");
+        }
+        return lines;
+    }
+
     /// <summary>列出所有音频采集端点（含未插入/已禁用的，方便判断"卡没插好"）</summary>
     public static IReadOnlyList<AudioDeviceInfo> Enumerate()
     {

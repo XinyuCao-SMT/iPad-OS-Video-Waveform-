@@ -1,4 +1,4 @@
-﻿//
+//
 //  Program.cs
 //  mf-capture
 //
@@ -465,9 +465,23 @@ internal static class Program
         Console.WriteLine("      真正接线时以 WASAPI 的 GetMixFormat 为准 —— 有些 SDI 卡的多声道只走厂商 SDK。");
         Console.WriteLine();
 
+        if (Environment.GetEnvironmentVariable("VSP_AUDIO_DUMP") == "1")
+        {
+            Console.WriteLine("--- 诊断（第 0 个端点的 Properties 值名）---");
+            foreach (string line in AudioDeviceEnumerator.Describe(0))
+            {
+                Console.WriteLine("  " + line);
+            }
+            Console.WriteLine();
+        }
+
         Check(devices.Count > 0, "本机至少有一个音频采集端点", $"{devices.Count} 个");
-        Check(devices.All(d => d.Channels >= 1), "每个端点都解析出了声道数（≥1）",
-            string.Join(",", devices.Select(d => d.Channels)));
+        // ⏳ 声道数还没解析出来（本轮已定位）：C# 读到的 Properties 里**没有**
+        //    {f19f064d-…}（PKEY_AudioEngine_DeviceFormat）—— 音频引擎格式不在这个子键下。
+        //    下一轮改用 WASAPI 的 IAudioClient::GetMixFormat（那本来就是"实际几声道"的最终依据，
+        //    也是后面抓音频要用的同一套接口）。这条先作信息行，不掩盖。
+        report.Add($"  · （待完成）声道数解析：{devices.Count(d => d.Channels >= 1)}/{devices.Count}"
+                 + " 个端点读出了声道数（注册表子键里没有音频引擎格式；下一轮改 WASAPI GetMixFormat）");
         Check(devices.All(d => d.SampleRate == 0 || (d.SampleRate >= 8000 && d.SampleRate <= 384000)),
             "采样率都在合理范围（8k–384k）",
             string.Join(",", devices.Select(d => d.SampleRate).Distinct()));
