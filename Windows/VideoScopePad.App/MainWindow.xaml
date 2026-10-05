@@ -142,14 +142,15 @@
                    TextTrimming="CharacterEllipsis"/>
         <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"
                    Margin="0,2,0,0"/>
-        <!-- 署名（与 iPad 版 v1.10.1 的 logo/署名对应） -->
-        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-          <!-- 品牌 logo：直接用 iPad 版 Resources/Assets.xcassets/BrandLogo 的原图（@3x） -->
-          <Image x:Name="BrandLogoImage" Source="Assets/BrandLogo.png" Height="16"
-                 VerticalAlignment="Center" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
-          <TextBlock x:Name="CreditsText" Foreground="#7C8797" VerticalAlignment="Center"
-                     TextTrimming="CharacterEllipsis"/>
-        </StackPanel>
+        <!-- 署名行：左边署名文字，**右下角放品牌 logo**（与 iPad 版左上角的 BrandLogo 同一个资源） -->
+        <DockPanel Margin="0,4,0,0" LastChildFill="True">
+          <TextBlock x:Name="CreditsText" DockPanel.Dock="Left" Foreground="#7C8797"
+                     VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+          <!-- logo 用 iPad 版 Resources/Assets.xcassets/BrandLogo 的原图（@3x），高度与 iPad 一致（18） -->
+          <Image x:Name="BrandLogoImage" Source="Assets/BrandLogo.png" Height="18"
+                 HorizontalAlignment="Right" VerticalAlignment="Center"
+                 Margin="8,0,0,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+        </DockPanel>
       </StackPanel>
     </Border>
 

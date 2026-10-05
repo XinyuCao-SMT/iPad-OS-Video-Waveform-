@@ -30,7 +30,7 @@
 
     <!-- 版本号：界面标题栏显示它，发版清单也记它（发版脚本 Windows\release.ps1 会核对） -->
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
     <Product>VideoScopePad（Windows 版）</Product>
     <Company>smt 曹昕宇</Company>
     <Copyright>© smt 曹昕宇</Copyright>
