@@ -59,6 +59,9 @@ internal static class Program
                 case "audio":
                     return AudioDevices();
 
+                case "wasapi":
+                    return WasapiFormats();
+
                 case "audiodsp":
                     return AudioDsp();
 
@@ -113,7 +116,8 @@ internal static class Program
         Console.WriteLine("  phase               ⑪ 声相自检（相关性：同相 / 反相 / 90° / 单声道）");
         Console.WriteLine("  meters              ⑫ 8 声道电平表自检（峰值保持 / 衰减 / CLIP 锁存）");
         Console.WriteLine("  audioreport         ⑬ 一帧音频报告自检（2ch / 8ch 组装，界面只需读它）");
-        Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
+        Console.WriteLine("  audio               ⑦ 音频采集端点侦察（注册表：名字/状态）");
+        Console.WriteLine("  wasapi              ⑭ **真实格式**侦察（IAudioClient::GetMixFormat —— 几声道看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
         Console.WriteLine("       --dump               额外打印原生媒体类型的属性集（默认就是打印当前生效的那条）");
@@ -463,6 +467,43 @@ internal static class Program
     // ------------------------------------------------------------------
     //  ⑦ 音频端点侦察：先知道硬件给几声道（8ch 需求的关键前提）
     // ------------------------------------------------------------------
+    /// <summary>⑭ WASAPI 真实格式侦察：GetMixFormat 才是"实际能拿到几声道"的依据</summary>
+    private static int WasapiFormats()
+    {
+        IReadOnlyList<WasapiEndpointFormat> endpoints = WasapiFormatProbe.Enumerate();
+
+        Console.WriteLine($"WASAPI 侦察到 {endpoints.Count} 个采集端点（GetMixFormat = 共享模式实际会给的格式）：");
+        Console.WriteLine();
+        Console.WriteLine("  声道  采样率   位深  状态     设备");
+        Console.WriteLine("  ---- -------- ----  -------- --------------------------------");
+        foreach (WasapiEndpointFormat e in endpoints)
+        {
+            string state = e.IsActive ? "在用" : $"状态{e.DeviceState}";
+            Console.WriteLine($"  {e.Channels,4} {e.SampleRate,8} {e.BitsPerSample,4}  {state,-8} {e.FriendlyName}");
+        }
+        Console.WriteLine();
+
+        int maxChannels = endpoints.Count == 0 ? 0 : endpoints.Max(e => e.Channels);
+        Console.WriteLine($"最多声道数：{maxChannels}ch");
+        foreach (WasapiEndpointFormat e in endpoints.Where(e => e.Channels > 2))
+        {
+            Console.WriteLine($"  · 多声道：{e.FriendlyName}　{e.Channels}ch @ {e.SampleRate} Hz / {e.BitsPerSample} bit"
+                            + $"（{(e.IsActive ? "在用" : "未在用")}）");
+        }
+        Console.WriteLine();
+
+        int parsed = endpoints.Count(e => e.Channels > 0);
+        Check(endpoints.Count > 0, "WASAPI 枚举到了采集端点", $"{endpoints.Count} 个");
+        Check(parsed == endpoints.Count,
+            $"每个端点都问出了真实声道数（{parsed}/{endpoints.Count}）",
+            string.Join(",", endpoints.Select(e => e.Channels)));
+        Check(endpoints.All(e => e.SampleRate == 0 || (e.SampleRate >= 8000 && e.SampleRate <= 384000)),
+            "采样率都在合理范围（8k–384k）",
+            string.Join(",", endpoints.Select(e => e.SampleRate).Distinct().OrderBy(r => r)));
+        Console.WriteLine($"  · 本机{(maxChannels > 2 ? "有" : "**没有**")} >2ch 的端点 —— 这条只作信息、不算失败");
+        Console.WriteLine("     （8ch 能否成立取决于这里：没有 ≥8ch 的端点时，多声道只能走厂商 SDK 或 ASIO）");
+        return Report();
+    }
     private static int AudioDevices()
     {
         IReadOnlyList<AudioDeviceInfo> devices = AudioDeviceEnumerator.Enumerate();
