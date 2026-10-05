@@ -86,6 +86,21 @@
             <ComboBoxItem Content="门槛 3 次"/>
           </ComboBox>
 
+          <Button x:Name="LoadLutButton" Content="载入 LUT" Margin="12,0,0,0" Padding="10,4"
+                  Click="OnLoadLut" Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"/>
+          <CheckBox x:Name="LutBox" Content="LUT 开" Margin="8,0,0,0"
+                    Checked="OnLutChanged" Unchecked="OnLutChanged" Foreground="#E6EAF0"/>
+          <Slider x:Name="LutStrengthSlider" Width="90" Minimum="0" Maximum="1" Value="1"
+                  Margin="6,0,0,0" VerticalAlignment="Center"
+                  ValueChanged="OnLutStrengthChanged" ToolTip="LUT 强度"/>
+          <TextBlock Text="取样" Foreground="#9AA4B2" VerticalAlignment="Center" Margin="8,0,4,0"/>
+          <ComboBox x:Name="ScopeInputBox" Width="96" SelectionChanged="OnScopeInputChanged"
+                    Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440">
+            <ComboBoxItem Content="LUT 前"/>
+            <ComboBoxItem Content="LUT 后"/>
+          </ComboBox>
+          <TextBlock x:Name="LutHint" Foreground="#8AB4F8" VerticalAlignment="Center"
+                     Margin="8,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="300"/>
           <CheckBox x:Name="LayoutDebugBox" Content="布局调试" Margin="12,0,0,0"
                     Checked="OnLayoutDebugChanged" Unchecked="OnLayoutDebugChanged"
                     Foreground="#E6EAF0"/>

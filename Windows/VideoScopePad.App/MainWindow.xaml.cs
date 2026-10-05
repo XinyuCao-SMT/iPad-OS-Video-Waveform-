@@ -389,6 +389,11 @@ public partial class MainWindow : Window
             }
             DeviceStateText.Text = _session.DeviceState;
 
+            // LUT 状态：说明 + 失败原因（载入失败不弹框，直接写在这里）
+            LutHint.Text = _session.LutError.Length > 0
+                ? $"LUT 载入失败：{_session.LutError}"
+                : (_session.LutEnabled && _session.LutSummary.Length > 0 ? _session.LutSummary : "未启用 LUT");
+
             // 顶部信号信息行：把"在看什么信号"这件事集中到一处（设备 / 格式 / 色彩 / 版本）。
             // 与底部 DetailText 的区别：这里只放**稳定不变**的标识信息，帧率单独放右侧并高亮，
             // 这样刷新时不会整行跳动（读数行本来就每秒都在变，再叠一行跳动的更花）。
@@ -716,6 +721,57 @@ public partial class MainWindow : Window
         {
             return (null, null);
         }
+    }
+
+    /// <summary>载入 .cube LUT（解析与纹理上传都在渲染线程做，这里只给路径）</summary>
+    private void OnLoadLut(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择 .cube LUT",
+            Filter = "Cube LUT (*.cube)|*.cube|所有文件 (*.*)|*.*",
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        _session.LoadLut(dialog.FileName);
+        LutBox.IsChecked = true;                 // 载入后默认就启用，少一步
+        _session.LutEnabled = true;
+        LutHint.Text = "正在解析…";
+        Diag.Log($"请求载入 LUT：{dialog.FileName}");
+    }
+
+    private void OnLutChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+        _session.LutEnabled = LutBox.IsChecked == true;
+        Diag.Log($"LUT：{(_session.LutEnabled ? "开" : "关")}，强度 {_session.LutStrength:0.00}，「{_session.LutSummary}」");
+    }
+
+    private void OnLutStrengthChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+        _session.LutStrength = e.NewValue;
+        LutHint.Text = $"{_session.LutSummary}　强度 {e.NewValue:0.00}";
+    }
+
+    /// <summary>示波器与读数的取样位置：LUT 前 / LUT 后（iPad 版"前后对比"就是这个开关）</summary>
+    private void OnScopeInputChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+        _session.ScopeInput = ScopeInputBox.SelectedIndex == 1 ? ScopeSource.PostLut : ScopeSource.PreLut;
+        Diag.Log($"取样位置 → {_session.ScopeInput}");
     }
 
     /// <summary>布局调试叠加层：画出每格的面板/视频区/绘图区矩形 + 尺寸标注（iPad v1.6.1 那项）</summary>
