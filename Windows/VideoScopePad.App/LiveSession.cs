@@ -82,10 +82,30 @@ public sealed class LiveSession : IDisposable
     private int _deviceRevision;
     private volatile bool _deviceRefreshRequested;
     private volatile bool _pendingDeviceResolve;
+    /// <summary>该设备是否已通过试读探测（只有通过的才允许渲染线程去打开）</summary>
+    private volatile bool _deviceApproved;
+    private volatile string? _approvedKey;
     private string? _selectedDeviceKey;
     private string? _selectedDeviceName;
     private string _deviceState = string.Empty;
     private DateTime _nextOpenAttempt = DateTime.MinValue;
+
+    // ---- 设备看门狗（对付"设备把渲染线程钉死"这一类问题）----
+    // 🔴 实测：NDI 虚拟摄像头（NDI Webcam Video N）在源没在推的时候，
+    //    IMFSourceReader.ReadSample 会**永久阻塞**。渲染线程卡在里面，
+    //    于是画面不再更新、换布局/换源全都没人处理 —— 用户看到的就是"卡住"。
+    //    诊断日志里表现为：UI 心跳照常，渲染心跳彻底停止。
+    //    对策：渲染线程每次出帧打一个时间戳；看门狗定时器发现超时就
+    //    从**外部** Dispose 掉那个设备（让阻塞的 ReadSample 立刻返回失败），
+    //    再把这个设备拉黑 60 秒，避免刚放开又重新卡死。
+    private readonly object _deviceGate = new();
+    private CaptureDevice? _activeDevice;
+    private long _lastFrameUtcTicks;
+    private System.Threading.Timer? _deviceWatchdog;
+    private readonly Dictionary<string, DateTime> _stalledDevices = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>看门狗认为"设备无响应"的超时（毫秒）。正常 60 fps 下 1 秒就出几十帧。</summary>
+    public int DeviceStallTimeoutMs { get; set; } = 4000;
     private DateTime _nextDeviceRefresh = DateTime.MinValue;
     private volatile string _deviceFragment = "UT-VID";
     private LiveStats _stats = LiveStats.Empty;
@@ -252,6 +272,59 @@ public sealed class LiveSession : IDisposable
     /// <summary>当前选中的设备标识（符号链接；null = 合成信号）</summary>
     public string? SelectedDeviceKey => _selectedDeviceKey;
 
+    /// <summary>
+    /// 看门狗：发现"设备开着但很久没出帧"就把设备从外部释放掉。
+    /// 这一步能把卡在 ReadSample 里的渲染线程解放出来 —— 实测对 NDI 虚拟摄像头有效。
+    /// </summary>
+    private void CheckDeviceStall()
+    {
+        try
+        {
+            CaptureDevice? active;
+            lock (_deviceGate) { active = _activeDevice; }
+            if (active is null)
+            {
+                return;
+            }
+
+            double idleMs = (DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastFrameUtcTicks))).TotalMilliseconds;
+            if (idleMs < DeviceStallTimeoutMs)
+            {
+                return;
+            }
+
+            Diag.Log($"⚠ 设备无响应：{idleMs:0} ms 没有出帧，从外部释放设备以打断阻塞的读取");
+            lock (_deviceGate)
+            {
+                _activeDevice = null;
+                if (_selectedDeviceKey is not null)
+                {
+                    _stalledDevices[_selectedDeviceKey] = DateTime.UtcNow;
+                }
+            }
+
+            try { active.Dispose(); } catch (Exception) { }
+            Volatile.Write(ref _lastFrameUtcTicks, DateTime.UtcNow.Ticks);
+
+            // 让渲染线程走"重新打开"这条路（它可能刚被解放，也可能还在里面，两条路都安全）
+            _deviceApproved = false;
+            _approvedKey = null;
+            CaptureProbe.Invalidate(_selectedDeviceKey);
+            _nextOpenAttempt = DateTime.UtcNow.AddSeconds(1);
+            _sourceChanged = true;
+        }
+        catch (Exception ex)
+        {
+            Diag.Log($"看门狗自身出错（忽略）：{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>这个设备是不是刚被判定过"无响应"（60 秒内不再硬开，避免反复卡死）</summary>
+    private bool IsRecentlyStalled(string? key)
+        => key is not null
+        && _stalledDevices.TryGetValue(key, out DateTime when)
+        && (DateTime.UtcNow - when).TotalSeconds < 60;
+
     /// <summary>设备在场状态的人话描述（等待接入 / 已被占用 / 正常）</summary>
     public string DeviceState => _deviceState;
 
@@ -268,7 +341,46 @@ public sealed class LiveSession : IDisposable
         _selectedDeviceName = displayName ?? key;
         _kind = key is null ? LiveSourceKind.Synthetic : LiveSourceKind.Device;
         _nextOpenAttempt = DateTime.MinValue;   // 立刻试一次，别等退避
-        _sourceChanged = true;
+
+        if (key is null)
+        {
+            _deviceApproved = false;
+            _approvedKey = null;
+            _sourceChanged = true;
+            return;
+        }
+
+        // 🔴 设备必须先在**可丢弃的后台线程**上试读通过，渲染线程才允许打开它。
+        //    理由见 CaptureProbe 的注释：某些虚拟摄像头会让 ReadSample 永久阻塞，
+        //    而阻塞中的调用连 Dispose 都打不断 —— 只能一开始就不让它进渲染线程。
+        if (_deviceApproved && string.Equals(_approvedKey, key, StringComparison.OrdinalIgnoreCase))
+        {
+            _sourceChanged = true;
+            return;
+        }
+
+        _deviceApproved = false;
+        _approvedKey = null;
+        _deviceState = "正在检测设备…";
+        string probeKey = key;
+        string probeName = displayName ?? key;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            CaptureProbeResult probe = CaptureProbe.Probe(probeKey);
+            Diag.Log($"设备探测：{probeName} → {(probe.Ok ? "可用" : "不可用")}（{probe.Detail}）");
+            if (probe.Ok)
+            {
+                _approvedKey = probeKey;
+                _deviceApproved = true;
+                _nextOpenAttempt = DateTime.MinValue;
+                _sourceChanged = true;
+            }
+            else
+            {
+                _deviceApproved = false;
+                _deviceState = $"设备不可用（{probe.Detail}）";
+            }
+        });
     }
 
     /// <summary>切换信号源（渲染线程下一帧生效）</summary>
@@ -291,6 +403,9 @@ public sealed class LiveSession : IDisposable
 
     public void Start()
     {
+        _lastFrameUtcTicks = DateTime.UtcNow.Ticks;
+        _deviceWatchdog ??= new System.Threading.Timer(_ => CheckDeviceStall(), null, 1500, 1500);
+
         if (_running)
         {
             return;
@@ -471,6 +586,7 @@ public sealed class LiveSession : IDisposable
                         device = null;
                         _deviceState = "已被拔出";
                         Diag.Log("设备从列表里消失（判定为拔出），已释放句柄");
+                        lock (_deviceGate) { _activeDevice = null; }
                         _sourceChanged = true;
                     }
                     else if (device is null && _selectedDeviceKey is not null && DateTime.UtcNow >= _nextOpenAttempt)
@@ -506,6 +622,7 @@ public sealed class LiveSession : IDisposable
                 if (_sourceChanged)
                 {
                     _sourceChanged = false;
+                    lock (_deviceGate) { _activeDevice = null; }
                     device?.Dispose();
                     device = null;
                     currentKind = _kind;
@@ -535,6 +652,34 @@ public sealed class LiveSession : IDisposable
                                     + "插回来会自动恢复，不用重开程序";
                             SetLayout(renderer, _width, _height, _width, _height);
                         }
+                        else if (device is null && !_deviceApproved)
+                        {
+                            // 探测还没通过（正在试读 / 试读失败）：渲染线程绝不碰它
+                            device = null;
+                            sourceName = _selectedDeviceName ?? "采集设备";
+                            formatText = "—";
+                            colorText = "—";
+                            if (string.IsNullOrEmpty(_deviceState) || _deviceState == "正常")
+                            {
+                                _deviceState = "正在检测设备…";
+                            }
+                            message = $"正在后台试读「{_selectedDeviceName}」——某些虚拟摄像头（如 NDI）在读不到帧时"
+                                    + "会把读取永久卡住，所以先探再开；这段时间显示合成信号";
+                            SetLayout(renderer, _width, _height, _width, _height);
+                        }
+                        else if (device is null && DateTime.UtcNow >= _nextOpenAttempt && IsRecentlyStalled(_selectedDeviceKey))
+                        {
+                            // 刚被判定无响应：别硬开（会再卡死一次），说清楚并等黑名单过期
+                            device = null;
+                            sourceName = _selectedDeviceName ?? "采集设备";
+                            formatText = "—";
+                            colorText = "—";
+                            _deviceState = "设备无响应，暂缓重试";
+                            message = $"「{_selectedDeviceName}」上次没有出帧（设备被占用或源没在推），"
+                                    + "已释放并暂缓 60 秒重试 —— 可以换一个信号源，插拔一下设备，或稍后重选";
+                            _nextOpenAttempt = DateTime.UtcNow.AddSeconds(3);
+                            SetLayout(renderer, _width, _height, _width, _height);
+                        }
                         else if (device is null && DateTime.UtcNow >= _nextOpenAttempt)
                         {
                             try
@@ -552,6 +697,11 @@ public sealed class LiveSession : IDisposable
                                           + (ColorMatrixOverride is null ? string.Empty : "（矩阵已手动覆盖）");
                                 _deviceState = "正常";
                                 Diag.Log($"打开设备成功：{device.Info.FriendlyName}　{effective.Describe()}");
+                                lock (_deviceGate) { _activeDevice = device; }
+                                if (_selectedDeviceKey is not null) { _stalledDevices.Remove(_selectedDeviceKey); }
+                                _approvedKey = _selectedDeviceKey;
+                                _deviceApproved = true;
+                                Volatile.Write(ref _lastFrameUtcTicks, DateTime.UtcNow.Ticks);
                                 SetLayout(renderer, _width, _height, (int)effective.Width, (int)effective.Height);
                                 message = string.Empty;
                             }
@@ -565,6 +715,7 @@ public sealed class LiveSession : IDisposable
                                 // 每帧都去开只会在日志里刷屏、还拖慢渲染线程。
                                 _nextOpenAttempt = DateTime.UtcNow.AddSeconds(1);
                                 Diag.Log($"打开设备失败：{ex.GetType().Name}: {ex.Message}");
+                                lock (_deviceGate) { _activeDevice = null; }
                                 _deviceState = "打开失败，1 秒后重试";
                                 message = $"打开「{_selectedDeviceName}」失败：{ex.Message}"
                                         + "　→ 暂时显示合成信号（设备被别的程序占用 / 没插好 / 没接信号都会这样）";
@@ -664,6 +815,7 @@ public sealed class LiveSession : IDisposable
                         Buffer.BlockCopy(pixels, 0, _front, 0, _front.Length);
                         _sequence++;
                     }
+                    Volatile.Write(ref _lastFrameUtcTicks, DateTime.UtcNow.Ticks);
                     long sinceLastFrame = lastDisplayTimestamp == 0 ? 0L : (long)MsSince(lastDisplayTimestamp);
                     if (sinceLastFrame > 2000)
                     {
