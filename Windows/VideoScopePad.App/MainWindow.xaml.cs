@@ -83,7 +83,6 @@ public partial class MainWindow : Window
 
     private ComboBox _layoutBox = null!;
     private ComboBox _matrixBox = null!;
-    private ComboBox _rotationBox = null!;
     private TextBlock _matrixHint = null!;
     private ComboBox _fullscreenContentBox = null!;
     private readonly ComboBox[] _quadBoxes = new ComboBox[4];
@@ -119,16 +118,6 @@ public partial class MainWindow : Window
         _matrixBox.SelectionChanged += OnColorMatrixChanged;
         LayoutRow.Children.Add(_matrixBox);
 
-        LayoutRow.Children.Add(Label("画面方向"));
-        _rotationBox = MakeComboBox(130);
-        _rotationBox.Items.Add("自动");
-        _rotationBox.Items.Add("不旋转");
-        _rotationBox.Items.Add("顺时针 90°");
-        _rotationBox.Items.Add("逆时针 90°");
-        _rotationBox.Items.Add("180°");
-        _rotationBox.SelectedIndex = 0;
-        _rotationBox.SelectionChanged += OnRotationChanged;
-        LayoutRow.Children.Add(_rotationBox);
         _matrixHint = Label(string.Empty);
         _matrixHint.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0xC4, 0x6A));
         LayoutRow.Children.Add(_matrixHint);
@@ -401,6 +390,12 @@ public partial class MainWindow : Window
                           + (string.IsNullOrEmpty(stats.Message) ? string.Empty : "　·　⚠ 见底部提示");
             InfoFpsText.Text = $"采集 {stats.CaptureFps:0.0} fps　显示 {stats.DisplayFps:0.0} fps";
 
+            // 🔴 顶部控件行必须**限宽**才会换行：父链给 WrapPanel 的是无限宽，
+            //    所以它一直横着排，控件被顶到窗口外面（实测 LUT 取样下拉排到 x=2886，窗口才 1700 宽，
+            //    于是"看不到"—— 不是颜色问题，是根本没显示在屏幕上）。
+            //    在每次心跳里把最大宽度钉到窗口宽度即可，不用改动父级布局。
+            LayoutRow.MaxWidth = Math.Max(ActualWidth - 46, 320);
+
             // 超标报警：按版本号刷新（报警文字/红框不该每帧重建）
             if (_session.AlarmRevision != _lastAlarmRevision)
             {
@@ -644,25 +639,6 @@ public partial class MainWindow : Window
             return;
         }
         ApplySourceSelection();
-    }
-
-    /// <summary>画面方向（自动 / 不旋转 / 顺逆 90 / 180）</summary>
-    private void OnRotationChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-    {
-        if (_buildingLayoutRow || !IsLoaded)
-        {
-            return;
-        }
-
-        _session.PictureRotation = _rotationBox.SelectedIndex switch
-        {
-            1 => PictureRotation.None,
-            2 => PictureRotation.Clockwise90,
-            3 => PictureRotation.CounterClockwise90,
-            4 => PictureRotation.Rotate180,
-            _ => PictureRotation.Automatic,
-        };
-        Diag.Log($"画面方向 → {_session.PictureRotation}（下拉索引 {_rotationBox.SelectedIndex}）");
     }
 
     private void OnRefreshDevices(object sender, RoutedEventArgs e)

@@ -42,5 +42,6 @@
 
   <ItemGroup>
     <Resource Include="app.ico" />
+    <Resource Include="Assets\BrandLogo.png" />
   </ItemGroup>
 </Project>

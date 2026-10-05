@@ -94,7 +94,7 @@
                   Margin="6,0,0,0" VerticalAlignment="Center"
                   ValueChanged="OnLutStrengthChanged" ToolTip="LUT 强度"/>
           <TextBlock Text="取样" Foreground="#9AA4B2" VerticalAlignment="Center" Margin="8,0,4,0"/>
-          <ComboBox x:Name="ScopeInputBox" Width="96" SelectionChanged="OnScopeInputChanged"
+          <ComboBox x:Name="ScopeInputBox" Width="96" SelectedIndex="0" SelectionChanged="OnScopeInputChanged"
                     Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440">
             <ComboBoxItem Content="LUT 前"/>
             <ComboBoxItem Content="LUT 后"/>
@@ -143,7 +143,13 @@
         <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"
                    Margin="0,2,0,0"/>
         <!-- 署名（与 iPad 版 v1.10.1 的 logo/署名对应） -->
-        <TextBlock x:Name="CreditsText" Foreground="#5A6472" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+          <!-- 品牌 logo：直接用 iPad 版 Resources/Assets.xcassets/BrandLogo 的原图（@3x） -->
+          <Image x:Name="BrandLogoImage" Source="Assets/BrandLogo.png" Height="16"
+                 VerticalAlignment="Center" Margin="0,0,8,0" RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock x:Name="CreditsText" Foreground="#7C8797" VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis"/>
+        </StackPanel>
       </StackPanel>
     </Border>
 

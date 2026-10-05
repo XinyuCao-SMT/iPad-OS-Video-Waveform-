@@ -1,4 +1,4 @@
-﻿//
+//
 //  LiveSession.cs
 //  VideoScopePad.App
 //
@@ -309,14 +309,6 @@ public sealed class LiveSession : IDisposable
 
     private ScopePanelKind[] _scopePanels = { ScopePanelKind.Waveform, ScopePanelKind.Vectorscope, ScopePanelKind.Parade };
 
-    /// <summary>画面方向（自动 / 不旋转 / 顺逆 90 / 180），与 iPad 版 pictureRotation 对应</summary>
-    public PictureRotation PictureRotation
-    {
-        get => _pictureRotation;
-        set { _pictureRotation = value; _rebuildRequested = true; }
-    }
-
-    private PictureRotation _pictureRotation = PictureRotation.Automatic;
 
     /// <summary>全屏时那一格显示什么</summary>
     public PaneContent FullscreenContent
@@ -1143,8 +1135,7 @@ public sealed class LiveSession : IDisposable
             aspectMode: AspectMode.Fit,
             fullscreenContent: _fullscreenContent,
             quadContents: _quadContents,
-            legacyPanels: _scopePanels,
-            pictureRotation: _pictureRotation);
+            legacyPanels: _scopePanels);
         renderer.Layout = Layout;
         _scopeSettings = ScopeRenderSettings.ForLayout(Layout, ScopeStride);
     }

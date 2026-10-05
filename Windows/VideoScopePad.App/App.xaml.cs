@@ -593,9 +593,9 @@ public partial class App : Application
             report.Add("布局调试叠加层断言（开=画出面板框，关=一个像素都不留）：");
             exitCode |= CheckLayoutDebugOverlay(session, graticuleOptions, report);
 
-            // ---------- 布局预设（底部条 / 右侧栏 / 叠加）+ 画面方向 ----------
+            // ---------- 布局预设（底部条 / 右侧栏 / 叠加） ----------
             report.Add(string.Empty);
-            report.Add("布局预设与画面方向断言（格子数与几何、旋转是否真的换了轴）：");
+            report.Add("布局预设断言（格子数与几何关系）：");
             exitCode |= CheckLayoutPresets(session, report);
 
             // ---------- 读数 CSV 导出 ----------
@@ -895,7 +895,7 @@ public partial class App : Application
         return failed;
     }
     /// <summary>
-    /// 布局预设（底部条 / 右侧栏 / 叠加）与画面方向的断言：
+    /// 布局预设（底部条 / 右侧栏 / 叠加）的断言：
     ///   预设 —— 格子数 = 1 + 示波器清单数，且几何关系符合各预设的定义（条在下、栏在右、叠加重合）；
     ///   旋转 —— pane 的 Rotation 与 SwapsVideoAxes 要跟着变，且适配后的视频矩形宽高比确实换了轴。
     /// 这些都是纯几何，可以直接断言数值，不依赖画面内容。
@@ -946,42 +946,6 @@ public partial class App : Application
                  + "示波器格与画面格**重叠**（都在画面框内）");
         if (!overlayOk) { failed++; }
 
-        // 画面方向：自动 / 90 / 180 / 270
-        session.Preset = MonitorLayoutPreset.Quad;
-        WaitFrames(session, 4, 3000);
-        var rotationResults = new List<string>();
-        bool rotationOk = true;
-        foreach (PictureRotation rotation in new[]
-                 {
-                     PictureRotation.None, PictureRotation.Clockwise90,
-                     PictureRotation.Rotate180, PictureRotation.CounterClockwise90,
-                 })
-        {
-            session.PictureRotation = rotation;
-            WaitFrames(session, 4, 3000);
-            PaneLayout? pane = session.Layout.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
-            if (pane is null) { rotationOk = false; break; }
-
-            bool expectSwap = rotation is PictureRotation.Clockwise90 or PictureRotation.CounterClockwise90;
-            bool swapOk = pane.SwapsVideoAxes == expectSwap;
-            // 适配后的视频矩形：需要换轴时，宽高比应当取倒数（16:9 的源 → 9:16 的框）
-            bool aspectOk = true;
-            if (session.VideoWidth > 0 && session.VideoHeight > 0 && pane.Video is { } video)
-            {
-                double videoAspect = (double)session.VideoWidth / session.VideoHeight;
-                // ⚠️ 布局里的矩形是**单位空间**（x 按容器宽归一、y 按容器高归一），
-                //    直接相除得到的不是像素宽高比 —— 必须乘回容器像素尺寸（实测踩过：
-                //    四个档位都被判成"比例错"，其实旋转本身都是对的）。
-                double boxAspect = video.Width * session.Width / (video.Height * session.Height);
-                double want = expectSwap ? 1.0 / videoAspect : videoAspect;
-                aspectOk = Math.Abs(boxAspect - want) < 0.02;
-            }
-            rotationOk &= swapOk && aspectOk;
-            rotationResults.Add($"{(expectSwap ? "换轴" : "不换轴")}{(swapOk ? "✓" : "✗")}/比例{(aspectOk ? "对" : "错")}");
-        }
-        Check(rotationOk, $"画面方向：{string.Join("、", rotationResults)}（源 {session.VideoWidth}×{session.VideoHeight}）");
-
-        session.PictureRotation = PictureRotation.Automatic;
         session.Preset = MonitorLayoutPreset.Quad;
         WaitFrames(session, 3, 3000);
         return failed;
