@@ -308,6 +308,8 @@ public partial class MainWindow : Window
         CompositionTarget.Rendering += OnRendering;
         SizeChanged += (_, _) => Graticule.InvalidateVisual();
         DetailText.Text = $"链路就绪：{_session.Width}×{_session.Height} 四分割（画面 / 亮度波形 / 矢量图 / RGB Parade）";
+        // 署名（与 iPad 版一致的写法；版本号自动带上，免得改了版本忘了改署名）
+        CreditsText.Text = $"VideoScopePad · Windows 版 v{AppVersion}　·　iPad / Windows 双平台视频示波器　·　by XinyuCao-SMT";
     }
 
     private System.Windows.Threading.DispatcherTimer? _uiHeartbeat;

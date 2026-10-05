@@ -29,7 +29,8 @@
     <NoWarn>$(NoWarn);CA1416</NoWarn>
 
     <!-- 版本号：界面标题栏显示它，发版清单也记它（发版脚本 Windows\release.ps1 会核对） -->
-    <Version>0.3.0</Version>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>0.4.0</Version>
     <Product>VideoScopePad（Windows 版）</Product>
     <Company>smt 曹昕宇</Company>
     <Copyright>© smt 曹昕宇</Copyright>
@@ -39,4 +40,7 @@
     <ProjectReference Include="..\VideoScopePad.Win\VideoScopePad.Win.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Resource Include="app.ico" />
+  </ItemGroup>
 </Project>

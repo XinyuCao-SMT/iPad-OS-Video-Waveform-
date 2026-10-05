@@ -1,4 +1,4 @@
-﻿<Window x:Class="VideoScopePad.App.MainWindow"
+﻿<Window Icon="app.ico" x:Class="VideoScopePad.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:VideoScopePad.App"
@@ -114,6 +114,8 @@
                    TextTrimming="CharacterEllipsis"/>
         <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"
                    Margin="0,2,0,0"/>
+        <!-- 署名（与 iPad 版 v1.10.1 的 logo/署名对应） -->
+        <TextBlock x:Name="CreditsText" Foreground="#5A6472" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
       </StackPanel>
     </Border>
 
