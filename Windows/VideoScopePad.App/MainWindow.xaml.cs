@@ -1,4 +1,4 @@
-//
+﻿//
 //  MainWindow.xaml.cs
 //  VideoScopePad.App
 //
@@ -185,7 +185,16 @@ public partial class MainWindow : Window
         _session.Preset = _layoutBox.SelectedIndex == 1
             ? MonitorLayoutPreset.Fullscreen
             : MonitorLayoutPreset.Quad;
+        Diag.Log($"用户切布局 → {_session.Preset}（下拉索引 {_layoutBox.SelectedIndex}）");
         UpdateLayoutRowVisibility();
+        foreach (ComboBox box in _quadBoxes)
+        {
+            if (box.SelectedIndex < 0 && box.Items.Count > 0)
+            {
+                box.SelectedIndex = 0;
+                Diag.Log("格下拉本来没有选中项，已兜回第 0 项（避免显示成空白）");
+            }
+        }
     }
 
     private void UpdateLayoutRowVisibility()
@@ -204,6 +213,7 @@ public partial class MainWindow : Window
         (string _, PaneContent content, WaveformMode mode) = ContentChoices[_fullscreenContentBox.SelectedIndex];
         _session.FullscreenContent = content;
         _session.WaveformMode = mode;
+        Diag.Log($"用户换全屏内容 → {content} / {mode}");
     }
 
     private void OnQuadContentChanged(int slot, ComboBox box)
@@ -214,6 +224,7 @@ public partial class MainWindow : Window
         }
         (string _, PaneContent content, WaveformMode mode) = ContentChoices[box.SelectedIndex];
         _session.SetQuadContent(slot, content);
+        Diag.Log($"用户换格{slot + 1}内容 → {content}");
         // 波形模式是全局的（与 iPad 版的「波形模式」设置一致）：只要某一格选了叠加，整体就按叠加算
         _session.WaveformMode = mode;
     }
@@ -257,6 +268,8 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
+        Diag.Session($"主窗口启动 v{AppVersion}");
+        StartUiHeartbeat();
         _session.Start();
 
         // 设备列表要等渲染线程第一次枚举完才有；这里先按"没设备"建一版，随后按版本号重建
@@ -270,6 +283,36 @@ public partial class MainWindow : Window
         CompositionTarget.Rendering += OnRendering;
         SizeChanged += (_, _) => Graticule.InvalidateVisual();
         DetailText.Text = $"链路就绪：{_session.Width}×{_session.Height} 四分割（画面 / 亮度波形 / 矢量图 / RGB Parade）";
+    }
+
+    private System.Windows.Threading.DispatcherTimer? _uiHeartbeat;
+    private DateTime _lastUiTick = DateTime.UtcNow;
+
+    /// <summary>
+    /// UI 线程心跳：DispatcherTimer 本身会被"线程被堵"拖后，所以两次 tick 的间隔就能
+    /// 反映 UI 线程有没有停摆 —— 卡住时能分清是"窗口没响应"还是"渲染线程停了但窗口还活"。
+    /// </summary>
+    private void StartUiHeartbeat()
+    {
+        _uiHeartbeat = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1),
+        };
+        _uiHeartbeat.Tick += (_, _) =>
+        {
+            double gap = (DateTime.UtcNow - _lastUiTick).TotalMilliseconds;
+            _lastUiTick = DateTime.UtcNow;
+            if (gap > 1500)
+            {
+                Diag.Log($"⚠ UI 线程停摆：两次 tick 间隔 {gap:0} ms");
+            }
+            else if (Environment.TickCount64 % 5000 < 1000)
+            {
+                Diag.Log("UI 心跳正常");
+            }
+            Diag.Flush();
+        };
+        _uiHeartbeat.Start();
     }
 
     private string? _pendingDeviceKey;
@@ -310,10 +353,10 @@ public partial class MainWindow : Window
             UpdateMatrixHint();
 
             // 设备列表变了（插拔 / 刷新）→ 重建下拉并保住当前选择
-            if (_session.DeviceListRevision != _lastDeviceRevision)
+            if (_session.DeviceListRevision != _lastDeviceRevision
+                && RebuildSourceBox(_pendingDeviceKey ?? _session.SelectedDeviceKey, _pendingDeviceName))
             {
                 _lastDeviceRevision = _session.DeviceListRevision;
-                RebuildSourceBox(_pendingDeviceKey ?? _session.SelectedDeviceKey, _pendingDeviceName);
                 _pendingDeviceKey = null;
                 _pendingDeviceName = null;
             }
@@ -442,13 +485,13 @@ public partial class MainWindow : Window
     /// 用当前设备列表重建下拉。设备用**标识**（符号链接）挂在 Tag 上 ——
     /// 不用序号：插拔一次序号就整体平移，会把"选中的卡"悄悄换成另一台设备。
     /// </summary>
-    private void RebuildSourceBox(string? preferredKey, string? preferredName)
+    private bool RebuildSourceBox(string? preferredKey, string? preferredName)
     {
         // 下拉正开着的时候不要重建：清了又加会让用户的点击落空（菜单会自己收起来/换位置），
         // 表现就是"点不动、选不了"。等它关上再重建（版本号没变，下一帧会再进来）。
         if (SourceBox.IsDropDownOpen)
         {
-            return;
+            return false;   // ⚠️ 没建成就不能更新"已同步到的版本号"，否则这一次重建会被永久丢掉
         }
 
         _buildingSourceBox = true;
@@ -491,6 +534,13 @@ public partial class MainWindow : Window
             }
 
             SourceBox.SelectedItem = selected ?? SourceBox.Items[0];
+
+            // 双重保险：SelectedItem 指向的对象万一不在集合里，WPF 会显示**空白**
+            // （用户看到的就是"选项栏里看不到当前选项"）。用索引再确认一次。
+            if (SourceBox.SelectedIndex < 0 && SourceBox.Items.Count > 0)
+            {
+                SourceBox.SelectedIndex = 0;
+            }
         }
         finally
         {
@@ -502,6 +552,8 @@ public partial class MainWindow : Window
         //    连环触发），所以这里必须手动把选择送到会话 —— 否则会出现
         //    「下拉显示的是采集卡，画面却还是合成信号」这种自相矛盾的状态（实测踩过）。
         ApplySourceSelection();
+        Diag.Log($"重建信号源下拉：{SourceBox.Items.Count} 项，选中索引 {SourceBox.SelectedIndex}");
+        return true;
     }
 
     /// <summary>把当前下拉选择送到会话并记住（用户点的 与 程序设的 都走这里）</summary>
@@ -522,6 +574,7 @@ public partial class MainWindow : Window
             && !string.Equals(_session.SelectedDeviceKey, key, StringComparison.Ordinal))
         {
             _session.SelectDevice(key, displayName);
+            Diag.Log($"用户/程序选设备 → {(key is null ? "合成信号" : displayName)}");
         }
         SaveDeviceSelection(key, displayName);
     }

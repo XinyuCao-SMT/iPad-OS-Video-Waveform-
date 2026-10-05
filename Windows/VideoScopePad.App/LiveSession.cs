@@ -424,6 +424,7 @@ public sealed class LiveSession : IDisposable
             var captureMeter = new CaptureRateMeter();
             double displayFps = 0;
             long lastDisplayTimestamp = 0;
+            long lastHeartbeat = Stopwatch.GetTimestamp();
             double sourceMs = 0, scopeMs = 0, compositeMs = 0, readbackMs = 0;
 
             SetLayout(renderer, _width, _height, _width, _height);
@@ -469,6 +470,7 @@ public sealed class LiveSession : IDisposable
                         device.Dispose();
                         device = null;
                         _deviceState = "已被拔出";
+                        Diag.Log("设备从列表里消失（判定为拔出），已释放句柄");
                         _sourceChanged = true;
                     }
                     else if (device is null && _selectedDeviceKey is not null && DateTime.UtcNow >= _nextOpenAttempt)
@@ -488,6 +490,7 @@ public sealed class LiveSession : IDisposable
                 if (_rebuildRequested)
                 {
                     _rebuildRequested = false;
+                    Diag.Log($"重算布局：{_preset}　全屏内容={_fullscreenContent}　四格={string.Join("/", _quadContents)}　视频={_videoWidth}x{_videoHeight}　设备={(device is null ? "无" : "有")}");
                     if (device is not null && _videoWidth > 0 && _videoHeight > 0)
                     {
                         // 设备的画面尺寸不变 → 按当前视频尺寸重算布局即可
@@ -536,6 +539,7 @@ public sealed class LiveSession : IDisposable
                         {
                             try
                             {
+                                Diag.Log($"打开设备开始：{_selectedDeviceName}（{target.FriendlyName}）");
                                 device = CaptureDevice.Open(target);
                                 IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
                                 CaptureFormat picked = CaptureFormat.PickPreferred(formats)
@@ -547,6 +551,7 @@ public sealed class LiveSession : IDisposable
                                 colorText = EffectiveColor(effective.Color).Summary
                                           + (ColorMatrixOverride is null ? string.Empty : "（矩阵已手动覆盖）");
                                 _deviceState = "正常";
+                                Diag.Log($"打开设备成功：{device.Info.FriendlyName}　{effective.Describe()}");
                                 SetLayout(renderer, _width, _height, (int)effective.Width, (int)effective.Height);
                                 message = string.Empty;
                             }
@@ -559,6 +564,7 @@ public sealed class LiveSession : IDisposable
                                 // 失败要退避重试：被别的程序占着（OBS 之类）时，一秒钟一次就够，
                                 // 每帧都去开只会在日志里刷屏、还拖慢渲染线程。
                                 _nextOpenAttempt = DateTime.UtcNow.AddSeconds(1);
+                                Diag.Log($"打开设备失败：{ex.GetType().Name}: {ex.Message}");
                                 _deviceState = "打开失败，1 秒后重试";
                                 message = $"打开「{_selectedDeviceName}」失败：{ex.Message}"
                                         + "　→ 暂时显示合成信号（设备被别的程序占用 / 没插好 / 没接信号都会这样）";
@@ -658,9 +664,20 @@ public sealed class LiveSession : IDisposable
                         Buffer.BlockCopy(pixels, 0, _front, 0, _front.Length);
                         _sequence++;
                     }
+                    long sinceLastFrame = lastDisplayTimestamp == 0 ? 0L : (long)MsSince(lastDisplayTimestamp);
+                    if (sinceLastFrame > 2000)
+                    {
+                        Diag.Log($"⚠ 渲染停摆：距上一帧 {sinceLastFrame:0} ms（取帧 {sourceMs:0.0} / 示波器 {scopeMs:0.0} / 合成 {compositeMs:0.0} / 回读 {readbackMs:0.0} ms）");
+                    }
+                    if (MsSince(lastHeartbeat) > 5000)
+                    {
+                        lastHeartbeat = Stopwatch.GetTimestamp();
+                        Diag.Log($"心跳：已出 {frames} 帧，显示 {displayFps:0.0} fps，采集 {captureMeter.MeasuredFps:0.0} fps");
+                    }
                 }
                 catch (Exception ex)
                 {
+                    Diag.Log($"渲染出错：{ex.GetType().Name}: {ex.Message}");
                     message = $"渲染出错：{ex.GetType().Name}: {ex.Message}";
                     Thread.Sleep(200);
                     continue;
