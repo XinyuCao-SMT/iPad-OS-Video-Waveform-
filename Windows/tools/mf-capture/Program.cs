@@ -62,6 +62,9 @@ internal static class Program
                 case "audiodsp":
                     return AudioDsp();
 
+                case "audiospec":
+                    return AudioSpectrum();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -93,6 +96,7 @@ internal static class Program
         Console.WriteLine("       --out <目录>         出图目录（默认 &lt;仓库根&gt;\\Windows\\out）");
         Console.WriteLine("       --name <文件名>      出图文件名（默认 capture-frame.png）");
         Console.WriteLine("  audiodsp            ⑧ 音频 DSP 自检（BS.1770 响度 / 每通道电平，不需要硬件）");
+        Console.WriteLine("  audiospec           ⑨ 1/3 倍频程频谱自检（ISO 带中心 + 正弦峰值带 + 静音地板）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -495,6 +499,45 @@ internal static class Program
     // ------------------------------------------------------------------
     //  ⑧ 音频 DSP 地基自检：BS.1770 响度 + 每通道电平（不依赖任何硬件）
     // ------------------------------------------------------------------
+    /// <summary>⑨ 1/3 倍频程频谱自检（纯 DSP，不需要硬件）</summary>
+    private static int AudioSpectrum()
+    {
+        const int rate = 48000;
+
+        // ① 带中心频率就是 ISO 标称值（20…20k，31 条），边界 = 中心 × 2^(±1/6)
+        double[] centers = SpectrumAnalyser.ThirdOctaveCenters;
+        bool centersOk = centers.Length == 31 && Math.Abs(centers[0] - 20) < 1e-9
+                      && Math.Abs(centers[17] - 1000) < 1e-9 && Math.Abs(centers[^1] - 20000) < 1e-9;
+        Check(centersOk, $"ISO 1/3 倍频程中心频率 {centers.Length} 条（20 … 1000 … 20000）",
+            string.Join(",", centers.Take(5)) + "…");
+        double low = SpectrumAnalyser.LowEdge(1000), high = SpectrumAnalyser.HighEdge(1000);
+        Check(Math.Abs(high / low - Math.Pow(2, 1.0 / 3.0)) < 1e-9,
+            $"1 kHz 带边界比 = 2^(1/3)（{low:0.0}–{high:0.0} Hz）", $"{high / low:0.000000}");
+
+        // ② 1 kHz 正弦 → 1 kHz 那条带最高
+        float[][] sine1k = LoudnessMeter.MakeSine(1, rate, 1.0, 1000.0, -20.0);
+        IReadOnlyList<SpectrumBand> s1 = SpectrumAnalyser.Analyse(sine1k, rate);
+        SpectrumBand peak1 = s1.MaxBy(b => b.Dbfs);
+        Check(Math.Abs(peak1.CenterHz - 1000) < 1e-9,
+            $"1 kHz 正弦的峰值带 = 1 kHz（实测 {peak1.CenterHz} Hz，{peak1.Dbfs:0.0} dBFS）", $"{peak1.CenterHz}");
+        SpectrumBand neighbour = s1.First(b => Math.Abs(b.CenterHz - 1250) < 1e-9);
+        Check(peak1.Dbfs - neighbour.Dbfs > 15,
+            $"相邻带（1250 Hz）低至少 15 dB（{peak1.Dbfs:0.0} vs {neighbour.Dbfs:0.0}）",
+            $"{peak1.Dbfs - neighbour.Dbfs:0.0} dB");
+
+        // ③ 100 Hz 正弦 → 100 Hz 那条带最高（低频段也要准）
+        float[][] sine100 = LoudnessMeter.MakeSine(1, rate, 1.0, 100.0, -20.0);
+        SpectrumBand peak100 = SpectrumAnalyser.Analyse(sine100, rate).MaxBy(b => b.Dbfs);
+        Check(Math.Abs(peak100.CenterHz - 100) < 1e-9,
+            $"100 Hz 正弦的峰值带 = 100 Hz（实测 {peak100.CenterHz} Hz）", $"{peak100.CenterHz}");
+
+        // ④ 静音 → 全部落在地板值
+        IReadOnlyList<SpectrumBand> quiet = SpectrumAnalyser.Analyse(new float[rate], rate);
+        Check(quiet.All(b => b.Dbfs <= -200), "静音：所有带都在地板值（≤ −200 dBFS）",
+            $"最高带 {quiet.Max(b => b.Dbfs):0.0} dBFS");
+
+        return Report();
+    }
     private static int AudioDsp()
     {
         const int rate = 48000;
