@@ -8,7 +8,8 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.6.0 音频分析版**<br>（最新，**推荐装**） | `fc7acc4` | tag `win-v0.6.0-audio-dsp` | 在 0.5.0 基础上加入**音频分析层**（尚未接界面）：BS.1770 响度（对 EBU Tech 3341 标准值）、1/3 倍频程频谱（ISO 带中心）、声相（相关性 + 李萨如）、**逐轨声画延时**、8 声道电平表（峰值保持/CLIP 锁存）、一帧音频报告；视频侧功能与 0.5.0 相同 | `dist/win-v0.6.0-audio-dsp/VideoScopePad-win-v0.6.0-audio-dsp-unsigned.exe` |
+| **win-v0.7.0 外观版**<br>（最新，**推荐装**） | `5d4ad47` | tag `win-v0.7.0-skin` | 图标与署名 logo 换成 **iPad 版原文件**（AppIcon.png / BrandLogo@3x.png）；**去掉画面旋转**；修复下拉框看不到当前选项（选中框配色 + 控件被顶出屏幕） | `dist/win-v0.7.0-skin/VideoScopePad-win-v0.7.0-skin-unsigned.exe` |
+| **win-v0.6.0 音频分析版** | `fc7acc4` | tag `win-v0.6.0-audio-dsp` | 在 0.5.0 基础上加入**音频分析层**（尚未接界面）：BS.1770 响度（对 EBU Tech 3341 标准值）、1/3 倍频程频谱（ISO 带中心）、声相（相关性 + 李萨如）、**逐轨声画延时**、8 声道电平表（峰值保持/CLIP 锁存）、一帧音频报告；视频侧功能与 0.5.0 相同 | `dist/win-v0.6.0-audio-dsp/VideoScopePad-win-v0.6.0-audio-dsp-unsigned.exe` |
 | **win-v0.5.0 工具版** | `b632bd4` | tag `win-v0.5.0-tools` | 在 0.4.0 基础上：**LUT（.cube）解析与显示**（恒等/反相/强度逐像素验证）、**读数 CSV 导出**（表头与 iPad 逐字一致 + 界面按钮与记录开关）、**布局预设**（底部条/右侧栏/叠加）与**画面方向**（自动/不转/顺逆90/180）、**应用图标与署名**、**顶部信号信息行**、**布局调试叠加层** | `dist/win-v0.5.0-tools/VideoScopePad-win-v0.5.0-tools-unsigned.exe` |
 | **win-v0.4.0 看守版** | `263759e` | tag `win-v0.4.0-guard` | 在 0.3.1 基础上：**斑马纹**（超白 70–100 IRE 可调 / 黑切割，带偏黄与偏蓝区分）、**超标报警**（超白·超黑·白电平·黑位·色度·整帧全黑，边沿触发锁存 + 红框 + 报警条 + 确认门槛）、**选中坏设备不再卡死**（NDI 虚拟摄像头这类会让读取永久阻塞的设备改为"先探测后打开"）、诊断日志（UI/渲染心跳与停摆检测） | `dist/win-v0.4.0-guard/VideoScopePad-win-v0.4.0-guard-unsigned.exe` |
 | **win-v0.3.1 界面修复版** | `a3b0ad5` | tag `win-v0.3.1-ui` | 修 0.3.0 的两个界面问题：**下拉项白底白字**（弹出列表没跟着深色主题，看着像"全是灰的、点不动"）、**自动选中的设备没送达会话**（下拉显示采集卡但画面还是合成信号）；另外下拉展开时不再重建列表 | `dist/win-v0.3.1-ui/VideoScopePad-win-v0.3.1-ui-unsigned.exe` |
@@ -60,6 +61,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.7.0-skin-unsigned.exe` | 72,568,979 字节（69.2 MB） | `2EDC24D08E8AF61215FADEF7C982E8A14940FD87A5B8769667EF9F59D629F9E8` |
 | `VideoScopePad-win-v0.6.0-audio-dsp-unsigned.exe` | 72,098,546 字节（68.8 MB） | `0C2AD8B792EB129B6D9120313B1F503F063C9D9E6BD4D412B50231B42B278EEB` |
 | `VideoScopePad-win-v0.5.0-tools-unsigned.exe` | 72,086,311 字节（68.7 MB） | `A4197882127B49D116FA5CC3341E1D9FFA3CD2B9ED66C1E8ACED16E5B94F9D65` |
 | `VideoScopePad-win-v0.4.0-guard-unsigned.exe` | 见 MANIFEST.txt | `7FB5E6CC80DDFDBF8D041248A4CD45050B3F1BA6B89D26A33A425BE8528BBE70` |
