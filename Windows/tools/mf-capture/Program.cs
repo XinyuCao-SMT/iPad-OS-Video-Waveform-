@@ -1,4 +1,4 @@
-﻿//
+//
 //  Program.cs
 //  mf-capture
 //
@@ -493,10 +493,14 @@ internal static class Program
         Console.WriteLine();
 
         int parsed = endpoints.Count(e => e.Channels > 0);
+        int activeCount = endpoints.Count(e => e.IsActive);
         Check(endpoints.Count > 0, "WASAPI 枚举到了采集端点", $"{endpoints.Count} 个");
-        Check(parsed == endpoints.Count,
-            $"每个端点都问出了真实声道数（{parsed}/{endpoints.Count}）",
-            string.Join(",", endpoints.Select(e => e.Channels)));
+        // ⚠️ 只要求**在用**（state=1）的端点有格式：未插入/已禁用的设备 Activate 本来就失败，
+        //    问不出格式是正确的（我第一版要求全部 31 个都有 —— 第 7 次栽在期望值上）。
+        Check(parsed == activeCount,
+            $"在用的端点都问出了真实格式（{parsed}/{activeCount}；总端点 {endpoints.Count} 个，"
+            + "未插入/禁用的问不出属正常）",
+            string.Join(",", endpoints.Where(e => e.IsActive).Select(e => $"{e.Channels}ch@{e.SampleRate}")));
         Check(endpoints.All(e => e.SampleRate == 0 || (e.SampleRate >= 8000 && e.SampleRate <= 384000)),
             "采样率都在合理范围（8k–384k）",
             string.Join(",", endpoints.Select(e => e.SampleRate).Distinct().OrderBy(r => r)));
