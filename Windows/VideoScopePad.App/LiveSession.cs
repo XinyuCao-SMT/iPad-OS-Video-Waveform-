@@ -900,12 +900,16 @@ public sealed class LiveSession : IDisposable
                         }
                     }
 
-                    // ⏳ look pass 接线仍未完成：**启用 LUT 会让 GPU 设备被驱动重置**
-                    //    （DXGI_ERROR_DEVICE_REMOVED，之后每一次 D3D 调用都失败，直到重启程序）。
-                    //    已排除：3D 纹理 SubresourceData 参数、LUT 域语义、RTV/SRV 同资源冲突。
-                    //    下一轮用 D3D 调试层 + 逐项 bisect（先只画不采样 → 再绑纹理不采样 → …）定位。
-                    //    在那之前不调用它：解析与纹理上传已经落地并验过，渲染接通不拖坏主链路。
-                    ID3D11ShaderResourceView scopeSource = source;
+                    // ⏳ 「示波器/读数取样 = LUT 后」这一路还没接：在会话里提前调 PrepareLookPass
+                    //    会让渲染线程卡死（帧数停在 397、消息还是正常的，说明是阻塞不是抛错；
+                    //    怀疑是提前解绑渲染目标后与 UI 线程的回读抢同一个立即上下文）。
+                    //    下一轮的做法：把 look pass 挪进 Render 内部并在其中完成"取样源"交接，
+                    //    或改成由渲染线程自己持有取样源的引用。
+                    //    现在功能上：**LUT 显示已经接通**（恒等差 1 / 反相精确 / 强度中点，见自检），
+                    //    缺的只是"用 LUT 前的信号还是 LUT 后的信号去算示波器与读数"这个开关。
+                    ID3D11ShaderResourceView scopeSource = renderer.LookSrv is not null && ScopeInput == ScopeSource.PostLut
+                        ? renderer.LookSrv
+                        : source;
 
                     engine.Encode(d3d.Context, scopeSource, _scopeSettings);
                     scopeMs = MsSince(start);

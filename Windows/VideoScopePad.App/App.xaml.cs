@@ -988,8 +988,7 @@ public partial class App : Application
             maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 1] - withoutLut[i + 1]));
             maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 2] - withoutLut[i + 2]));
         }
-        report.Add($"  · （待完成）恒等 3D LUT 渲染差 {maxDiff}：3D 纹理的 SRV 在这套 Vortice 里建不出来" +
-                    $"（E_INVALIDARG，见 LutResource.UploadError），渲染接通留到下一轮");
+        Check(maxDiff <= 2, $"恒等 3D LUT：与原图逐像素最大差 {maxDiff}（应 ≤ 2 —— 只允许量化级误差）");
         foreach ((int fx, int fy, byte r, byte g, byte b) in samplePoints)
         {
             int index = (fy * fw + fx) * 4;
@@ -1009,7 +1008,8 @@ public partial class App : Application
             worst = Math.Max(worst, Math.Abs(withInvert[index + 1] - (255 - g)));
             worst = Math.Max(worst, Math.Abs(withInvert[index] - (255 - b)));
         }
-        report.Add($"  · （待完成）反相 LUT 取样偏差 {worst}（{samplePoints.Count} 个点）—— 同上");
+        Check(samplePoints.Count >= 2 && worst <= 3,
+              $"反相 LUT：{samplePoints.Count} 个取样点的值 = 255−原值（最大偏差 {worst}）");
 
         // ③ 强度 0.5：应当落在原值与反相值的中点
         session.LutStrength = 0.5;
@@ -1022,7 +1022,7 @@ public partial class App : Application
             worstHalf = Math.Max(worstHalf, Math.Abs(withHalf[index + 2] - (r + (255 - r)) / 2));
             worstHalf = Math.Max(worstHalf, Math.Abs(withHalf[index + 1] - (g + (255 - g)) / 2));
         }
-        report.Add($"  · （待完成）强度 0.5 偏差 {worstHalf} —— 同上");
+        Check(worstHalf <= 4, $"LUT 强度 0.5：取样点落在原值与反相值的中点（最大偏差 {worstHalf}）");
 
         // ④ 示波器取样：LUT 前 vs LUT 后（反相 LUT 下白黑应当互换）
         session.LutStrength = 1.0;
@@ -1040,14 +1040,14 @@ public partial class App : Application
                  + $"LUT 后 稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}");
         Check(preWhite > 95 && preBlack < 5,
               $"取样 = LUT 前（当前唯一生效的路径）：稳白 {preWhite:0.00} IRE、稳黑 {preBlack:0.00} IRE —— 看到的是原信号");
-        report.Add("  · （待完成）取样 = LUT 后：等 look pass 接通后再判");
-        _ = postWhite;
-        _ = postBlack;
+        report.Add($"  · （待完成）取样 = LUT 后：稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}"
+                  + " —— 取样源交接还没接（见 LiveSession 里的说明）；LUT 对**显示**已生效");
 
         session.ScopeInput = ScopeSource.PreLut;
         session.LutEnabled = false;
         WaitFrames(session, 4, 2000);
-        Check(session.LutSummary.Length > 0, $"LUT 说明文字：「{session.LutSummary}」（{session.LutError}）");
+        Check(session.LutSummary.Length > 0 && session.LutError.Length == 0,
+              $"LUT 说明文字：「{session.LutSummary}」，上传错误：{(session.LutError.Length == 0 ? "无" : session.LutError)}");
         return failed;
     }
 

@@ -370,10 +370,25 @@ public sealed class LutResource : IDisposable
                 {
                     uint rowPitch = (uint)(2 * 4 * sizeof(float));
                     var subresource = new SubresourceData((nint)data, rowPitch, rowPitch * 2);
+                    UploadStep = "CreateTexture3D(占位)";
                     Texture3D = _device.CreateTexture3D(desc, new[] { subresource });
                 }
             }
-            Srv3D = _device.CreateShaderResourceView(Texture3D);
+            // 🔴 3D 纹理必须用**带 Texture3D 的便捷构造**建 SRV：
+            //    自动重载 CreateShaderResourceView(Texture) 会按 2D 建视图 → E_INVALIDARG
+            //    （实测：纹理建出来了、SRV 建不出来，look pass 采样全黑，错误只在 UploadError 里露出来）。
+            //    ⚠️ 枚举 ShaderResourceViewDimension 住在 **Vortice.Direct3D** 命名空间，
+            //    不在 Vortice.Direct3D11 里 —— 这就是我上一轮试名字失败的原因。
+            UploadStep = "CreateSRV3D";
+            // 显式写全字段：便捷构造的参数顺序有歧义（我按 mipLevels,mostDetailedMip 传，
+            // 实测 E_INVALIDARG —— 更像是被当成了 mostDetailedMip=1、mipLevels=0）。
+            // ⚠️ 枚举 ShaderResourceViewDimension 住在 **Vortice.Direct3D** 命名空间。
+            Srv3D = _device.CreateShaderResourceView(Texture3D, new ShaderResourceViewDescription
+            {
+                Format = Format.R32G32B32A32_Float,
+                ViewDimension = Vortice.Direct3D.ShaderResourceViewDimension.Texture3D,
+                Texture3D = new Texture3DShaderResourceView { MipLevels = 1, MostDetailedMip = 0 },
+            });
         }
 
         if (Srv1D is null)
@@ -383,6 +398,9 @@ public sealed class LutResource : IDisposable
             {
                 Width = 2, Height = 1, MipLevels = 1, ArraySize = 1,
                 Format = Format.R32G32B32A32_Float,
+                // 🔴 千万别漏 SampleDescription：默认是 (0,0)，对 2D 纹理就是非法描述 →
+                //    E_INVALIDARG（实测：1D 占位纹理就栽在这一行，前面的 3D 都好好的）。
+                SampleDescription = new SampleDescription(1, 0),
                 Usage = ResourceUsage.Immutable,
                 BindFlags = BindFlags.ShaderResource,
                 CPUAccessFlags = CpuAccessFlags.None,
@@ -393,9 +411,12 @@ public sealed class LutResource : IDisposable
                 fixed (float* data = ramp)
                 {
                     var subresource = new SubresourceData((nint)data, (uint)(2 * 4 * sizeof(float)));
+                    UploadStep = "CreateTexture1D(占位)";
                     Texture1D = _device.CreateTexture2D(desc, new[] { subresource });
                 }
             }
+            UploadStep = "CreateSRV1D";
+            UploadStep = "CreateSRV1D(占位)";
             Srv1D = _device.CreateShaderResourceView(Texture1D);
         }
 
@@ -414,18 +435,24 @@ public sealed class LutResource : IDisposable
     /// <summary>上一次纹理上传失败的原因（空 = 正常）。LUT 出问题绝不能把监视拖下水。</summary>
     public string UploadError { get; private set; } = string.Empty;
 
+
     private void Upload()
     {
         try
         {
+            UploadStep = "建 3D/1D 纹理";
             UploadCore();
+            UploadStep = "完成";
         }
         catch (Exception ex)
         {
-            UploadError = $"{ex.GetType().Name}: {ex.Message}";
+            UploadError = $"{UploadStep} 失败：{ex.GetType().Name}: {ex.Message}";
             Release();
         }
     }
+
+    /// <summary>上传进行到哪一步（失败时用来定位是哪一次调用抛的）</summary>
+    public string UploadStep { get; private set; } = "未开始";
 
     private void UploadCore()
     {
@@ -456,10 +483,26 @@ public sealed class LutResource : IDisposable
                     uint rowPitch = (uint)(size * 4 * sizeof(float));
                     uint slicePitch = (uint)(size * size * 4 * sizeof(float));
                     var subresource = new SubresourceData((nint)data, rowPitch, slicePitch);
+                    UploadStep = "CreateTexture3D";
+                    UploadStep = "CreateTexture3D(占位)";
                     Texture3D = _device.CreateTexture3D(desc, new[] { subresource });
                 }
             }
-            Srv3D = _device.CreateShaderResourceView(Texture3D);
+            // 🔴 3D 纹理必须用**带 Texture3D 的便捷构造**建 SRV：
+            //    自动重载 CreateShaderResourceView(Texture) 会按 2D 建视图 → E_INVALIDARG
+            //    （实测：纹理建出来了、SRV 建不出来，look pass 采样全黑，错误只在 UploadError 里露出来）。
+            //    ⚠️ 枚举 ShaderResourceViewDimension 住在 **Vortice.Direct3D** 命名空间，
+            //    不在 Vortice.Direct3D11 里 —— 这就是我上一轮试名字失败的原因。
+            UploadStep = "CreateSRV3D";
+            // 显式写全字段：便捷构造的参数顺序有歧义（我按 mipLevels,mostDetailedMip 传，
+            // 实测 E_INVALIDARG —— 更像是被当成了 mostDetailedMip=1、mipLevels=0）。
+            // ⚠️ 枚举 ShaderResourceViewDimension 住在 **Vortice.Direct3D** 命名空间。
+            Srv3D = _device.CreateShaderResourceView(Texture3D, new ShaderResourceViewDescription
+            {
+                Format = Format.R32G32B32A32_Float,
+                ViewDimension = Vortice.Direct3D.ShaderResourceViewDimension.Texture3D,
+                Texture3D = new Texture3DShaderResourceView { MipLevels = 1, MostDetailedMip = 0 },
+            });
         }
 
         if (Cube.Has1D)
@@ -483,13 +526,16 @@ public sealed class LutResource : IDisposable
                 fixed (float* data = Cube.Data1D)
                 {
                     var subresource = new SubresourceData((nint)data, (uint)(size * 4 * sizeof(float)));
+                    UploadStep = "CreateTexture1D";
+                    UploadStep = "CreateTexture1D(占位)";
                     Texture1D = _device.CreateTexture2D(desc, new[] { subresource });
                 }
             }
+            UploadStep = "CreateSRV1D";
+            UploadStep = "CreateSRV1D(占位)";
             Srv1D = _device.CreateShaderResourceView(Texture1D);
         }
 
-        UploadPlaceholders();
     }
 
     private void Release()
