@@ -1,4 +1,4 @@
-# 回滚指南 · Windows 版
+﻿# 回滚指南 · Windows 版
 
 与 iPad 版那套（`../ROLLBACK.md`）同一个思路：**一个版本一个文件夹 + 独立清单 + 独立 tag**。
 区别只在于产物是 `exe` 而不是 `ipa`，而且 Windows 这边**不需要重签、不需要 CI**——
@@ -8,7 +8,8 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.3.0 多设备版**<br>（最新，**推荐装**） | `d8cd41b` | tag `win-v0.3.0-multidev` | 在 0.2.0 基础上：**多采集卡选择**（信号源下拉来自实时枚举 + 刷新按钮 + 记住上次选择）、**热插拔恢复**（拔掉显示「等待设备接入」，插回自动重开）、**色彩矩阵可覆盖**（跟随驱动 / 强制 601 / 强制 709，驱动谎报时黄字提示）、`mf-capture bars` 彩条校对命令、`--list-devices` | `dist/win-v0.3.0-multidev/VideoScopePad-win-v0.3.0-multidev-unsigned.exe` |
+| **win-v0.3.1 界面修复版**<br>（最新，**推荐装**） | `a3b0ad5` | tag `win-v0.3.1-ui` | 修 0.3.0 的两个界面问题：**下拉项白底白字**（弹出列表没跟着深色主题，看着像"全是灰的、点不动"）、**自动选中的设备没送达会话**（下拉显示采集卡但画面还是合成信号）；另外下拉展开时不再重建列表 | `dist/win-v0.3.1-ui/VideoScopePad-win-v0.3.1-ui-unsigned.exe` |
+| **win-v0.3.0 多设备版** | `d8cd41b` | tag `win-v0.3.0-multidev` | 在 0.2.0 基础上：**多采集卡选择**（信号源下拉来自实时枚举 + 刷新按钮 + 记住上次选择）、**热插拔恢复**（拔掉显示「等待设备接入」，插回自动重开）、**色彩矩阵可覆盖**（跟随驱动 / 强制 601 / 强制 709，驱动谎报时黄字提示）、`mf-capture bars` 彩条校对命令、`--list-devices` | `dist/win-v0.3.0-multidev/VideoScopePad-win-v0.3.0-multidev-unsigned.exe` |
 | **win-v0.2.0 布局版** | `db699a6` | tag `win-v0.2.0-layout` | **格子内容可选**（全屏 / 四分割逐格换：画面 · 波形亮度 · 波形 RGB 叠加 · Parade · 矢量 · 钻石图 · 马蹄图），引擎按可见格子决定要算什么；**钻石图刻度**（上下菱形 100%/75%/等值线 + 灰阶竖线 + W/B/G/R 标注）与**马蹄图刻度**（CIE 1931 光谱轨迹 380–700nm + BT.709/2020 三角 + D65） | `dist/win-v0.2.0-layout/VideoScopePad-win-v0.2.0-layout-unsigned.exe` |
 | **win-v0.1.0 监视器版** | `cb0060d` | tag `win-v0.1.0-monitor` | Media Foundation UVC 采集（枚举 / 原生格式 / 色彩元数据 / 1 秒采集）、D3D11 + HLSL 示波器（波形 / 矢量 / Parade）、刻度层（IRE·mV·% 刻度栏 + 网格 + 75% 目标框 + 肤色线）、幅度读数（峰值 / 稳定 / 黑位 / 平均 / 色度 / R·G·B / 超白超黑）、冻结参考层（琥珀幽灵 + 参考读数与 Δ）、峰值保持游标、单文件 exe | `dist/win-v0.1.0-monitor/VideoScopePad-win-v0.1.0-monitor-unsigned.exe` |
 
@@ -56,6 +57,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.3.1-ui-unsigned.exe` | 72,022,633 字节（68.7 MB） | `D317644DBE32B683465DC0D14CE73AB4F7963C67B65B2E2CBE5F3572E8126E65` |
 | `VideoScopePad-win-v0.3.0-multidev-unsigned.exe` | 72,022,043 字节（68.7 MB） | `3043DF14D980B1D995FA877205641AD0E6AE2183403CB082E9CD9F64A4332A79` |
 | `VideoScopePad-win-v0.2.0-layout-unsigned.exe` | 72,015,252 字节（68.7 MB） | `790CCBF1678D33395FD5F4B2B057FA266697F628F66EDDBD1AFC07D3AE10DF4E` |
 | `VideoScopePad-win-v0.1.0-monitor-unsigned.exe` | 72,007,429 字节（68.7 MB） | `33D08C2A02907A68229CC089D32C888CD572D166ABE830AC15725A6238A3B76B` |
