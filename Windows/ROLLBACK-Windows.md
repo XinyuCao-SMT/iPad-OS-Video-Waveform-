@@ -8,13 +8,14 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.3.1 界面修复版**<br>（最新，**推荐装**） | `a3b0ad5` | tag `win-v0.3.1-ui` | 修 0.3.0 的两个界面问题：**下拉项白底白字**（弹出列表没跟着深色主题，看着像"全是灰的、点不动"）、**自动选中的设备没送达会话**（下拉显示采集卡但画面还是合成信号）；另外下拉展开时不再重建列表 | `dist/win-v0.3.1-ui/VideoScopePad-win-v0.3.1-ui-unsigned.exe` |
+| **win-v0.4.0 看守版**<br>（最新，**推荐装**） | `263759e` | tag `win-v0.4.0-guard` | 在 0.3.1 基础上：**斑马纹**（超白 70–100 IRE 可调 / 黑切割，带偏黄与偏蓝区分）、**超标报警**（超白·超黑·白电平·黑位·色度·整帧全黑，边沿触发锁存 + 红框 + 报警条 + 确认门槛）、**选中坏设备不再卡死**（NDI 虚拟摄像头这类会让读取永久阻塞的设备改为"先探测后打开"）、诊断日志（UI/渲染心跳与停摆检测） | `dist/win-v0.4.0-guard/VideoScopePad-win-v0.4.0-guard-unsigned.exe` |
+| **win-v0.3.1 界面修复版** | `a3b0ad5` | tag `win-v0.3.1-ui` | 修 0.3.0 的两个界面问题：**下拉项白底白字**（弹出列表没跟着深色主题，看着像"全是灰的、点不动"）、**自动选中的设备没送达会话**（下拉显示采集卡但画面还是合成信号）；另外下拉展开时不再重建列表 | `dist/win-v0.3.1-ui/VideoScopePad-win-v0.3.1-ui-unsigned.exe` |
 | **win-v0.3.0 多设备版** | `d8cd41b` | tag `win-v0.3.0-multidev` | 在 0.2.0 基础上：**多采集卡选择**（信号源下拉来自实时枚举 + 刷新按钮 + 记住上次选择）、**热插拔恢复**（拔掉显示「等待设备接入」，插回自动重开）、**色彩矩阵可覆盖**（跟随驱动 / 强制 601 / 强制 709，驱动谎报时黄字提示）、`mf-capture bars` 彩条校对命令、`--list-devices` | `dist/win-v0.3.0-multidev/VideoScopePad-win-v0.3.0-multidev-unsigned.exe` |
 | **win-v0.2.0 布局版** | `db699a6` | tag `win-v0.2.0-layout` | **格子内容可选**（全屏 / 四分割逐格换：画面 · 波形亮度 · 波形 RGB 叠加 · Parade · 矢量 · 钻石图 · 马蹄图），引擎按可见格子决定要算什么；**钻石图刻度**（上下菱形 100%/75%/等值线 + 灰阶竖线 + W/B/G/R 标注）与**马蹄图刻度**（CIE 1931 光谱轨迹 380–700nm + BT.709/2020 三角 + D65） | `dist/win-v0.2.0-layout/VideoScopePad-win-v0.2.0-layout-unsigned.exe` |
 | **win-v0.1.0 监视器版** | `cb0060d` | tag `win-v0.1.0-monitor` | Media Foundation UVC 采集（枚举 / 原生格式 / 色彩元数据 / 1 秒采集）、D3D11 + HLSL 示波器（波形 / 矢量 / Parade）、刻度层（IRE·mV·% 刻度栏 + 网格 + 75% 目标框 + 肤色线）、幅度读数（峰值 / 稳定 / 黑位 / 平均 / 色度 / R·G·B / 超白超黑）、冻结参考层（琥珀幽灵 + 参考读数与 Δ）、峰值保持游标、单文件 exe | `dist/win-v0.1.0-monitor/VideoScopePad-win-v0.1.0-monitor-unsigned.exe` |
 
-> 还没有的：超标报警 / 斑马纹、LUT（.cube）、音频套件（WASAPI，最多 8 声道）、
-> 读数 CSV 导出、布局预设（底部条 / 右侧栏 / 叠加）、画面方向旋转、应用图标与署名。
+> 还没有的：LUT（.cube）、音频套件（WASAPI，最多 8 声道）、读数 CSV 导出、
+> 布局预设（底部条 / 右侧栏 / 叠加）、画面方向旋转、布局调试叠加层、应用图标与署名。
 
 ## 三种回滚方式
 
@@ -57,6 +58,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.4.0-guard-unsigned.exe` | 见 MANIFEST.txt | `7FB5E6CC80DDFDBF8D041248A4CD45050B3F1BA6B89D26A33A425BE8528BBE70` |
 | `VideoScopePad-win-v0.3.1-ui-unsigned.exe` | 72,022,633 字节（68.7 MB） | `D317644DBE32B683465DC0D14CE73AB4F7963C67B65B2E2CBE5F3572E8126E65` |
 | `VideoScopePad-win-v0.3.0-multidev-unsigned.exe` | 72,022,043 字节（68.7 MB） | `3043DF14D980B1D995FA877205641AD0E6AE2183403CB082E9CD9F64A4332A79` |
 | `VideoScopePad-win-v0.2.0-layout-unsigned.exe` | 72,015,252 字节（68.7 MB） | `790CCBF1678D33395FD5F4B2B057FA266697F628F66EDDBD1AFC07D3AE10DF4E` |
