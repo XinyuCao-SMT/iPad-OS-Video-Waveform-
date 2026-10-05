@@ -588,6 +588,11 @@ public partial class App : Application
             exitCode |= CheckWarningRules(report);
             exitCode |= CheckZebraAndAlarm(session, fw, fh, graticuleOptions, report);
 
+            // ---------- 布局调试叠加层 ----------
+            report.Add(string.Empty);
+            report.Add("布局调试叠加层断言（开=画出面板框，关=一个像素都不留）：");
+            exitCode |= CheckLayoutDebugOverlay(session, graticuleOptions, report);
+
             // ---------- 布局预设（底部条 / 右侧栏 / 叠加）+ 画面方向 ----------
             report.Add(string.Empty);
             report.Add("布局预设与画面方向断言（格子数与几何、旋转是否真的换了轴）：");
@@ -820,6 +825,75 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// 布局调试叠加层断言：开启后画面里必须出现**纯洋红**的面板框（全书只有它用洋红），
+    /// 关闭后必须一个洋红像素都没有；并且洋红要落在面板边界上（±3 px），而不是随便画在某处。
+    /// </summary>
+    private static int CheckLayoutDebugOverlay(LiveSession session, GraticuleOptions options, List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        static bool IsMagenta(byte[] frame, int index)
+            => frame[index + 2] >= 200 && frame[index + 1] <= 60 && frame[index] >= 200;   // BGRA：R 高、G 低、B 高
+
+        session.Preset = MonitorLayoutPreset.Quad;
+        WaitFrames(session, 4, 3000);
+
+        GraticuleOptions off = options;
+        byte[] clean = LiveSnapshot.RenderBgra(session, off, includeGraticule: true, out int fw, out int fh);
+        int cleanMagenta = 0;
+        for (int i = 0; i + 3 < clean.Length; i += 4)
+        {
+            if (IsMagenta(clean, i)) { cleanMagenta++; }
+        }
+        Check(cleanMagenta == 0, $"关闭时没有洋红像素（{cleanMagenta} 个）—— 说明洋红是调试层专用的");
+
+        GraticuleOptions on = options with { ShowLayoutDebug = true };
+        byte[] debug = LiveSnapshot.RenderBgra(session, on, includeGraticule: true, out fw, out fh);
+        int debugMagenta = 0;
+        for (int i = 0; i + 3 < debug.Length; i += 4)
+        {
+            if (IsMagenta(debug, i)) { debugMagenta++; }
+        }
+        Check(debugMagenta > 500, $"开启后画出面板框：{debugMagenta} 个洋红像素（4 格 × 面板周长）");
+
+        // 洋红必须落在**面板边界**上：取第一格面板的左边界与上边界，检查附近确有洋红
+        PaneLayout? first = session.Layout.Panes.FirstOrDefault();
+        if (first is { } pane)
+        {
+            int edgeX = (int)(pane.Panel.MinX * fw);
+            int edgeY = (int)(pane.Panel.MinY * fh);
+            int nearLeft = 0, nearTop = 0;
+            for (int y = 0; y < fh; y++)
+            {
+                for (int x = Math.Max(edgeX - 3, 0); x <= Math.Min(edgeX + 3, fw - 1); x++)
+                {
+                    if (IsMagenta(debug, (y * fw + x) * 4)) { nearLeft++; }
+                }
+            }
+            for (int x = 0; x < fw; x++)
+            {
+                for (int y = Math.Max(edgeY - 3, 0); y <= Math.Min(edgeY + 3, fh - 1); y++)
+                {
+                    if (IsMagenta(debug, (y * fw + x) * 4)) { nearTop++; }
+                }
+            }
+            Check(nearLeft > 20 && nearTop > 20,
+                  $"洋红落在面板边界上：左边界 x={edgeX} 附近 {nearLeft} 个、上边界 y={edgeY} 附近 {nearTop} 个");
+        }
+        else
+        {
+            report.Add("  ✗ 布局里没有格子");
+            failed++;
+        }
+
+        return failed;
+    }
     /// <summary>
     /// 布局预设（底部条 / 右侧栏 / 叠加）与画面方向的断言：
     ///   预设 —— 格子数 = 1 + 示波器清单数，且几何关系符合各预设的定义（条在下、栏在右、叠加重合）；

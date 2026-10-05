@@ -36,7 +36,14 @@ public sealed record GraticuleOptions(
     string WaveformLabel = "Y",
     PeakHoldState? PeakHold = null,
     PeakHoldState? ReferencePeakHold = null,
-    bool ShowPeakHold = true);
+    bool ShowPeakHold = true)
+{
+    /// <summary>
+    /// 布局调试叠加层：把每格的 面板 / 视频区 / 绘图区 三个矩形画出来并标上尺寸与旋转
+    /// （对齐 iPad v1.6.1 的布局调试叠加层）。用来核对"刻度/轨迹/画面到底对齐在哪个矩形上"。
+    /// </summary>
+    public bool ShowLayoutDebug { get; init; }
+}
 
 /// <summary>示波器刻度绘制（静态方法，画面与出图共用同一份）。</summary>
 public static class ScopeGraticule
@@ -77,6 +84,11 @@ public static class ScopeGraticule
         if (imageRect.Width < 16 || imageRect.Height < 16)
         {
             return;
+        }
+
+        if (options.ShowLayoutDebug)
+        {
+            DrawLayoutDebug(dc, layout, imageRect);
         }
 
         foreach (PaneLayout pane in layout.Panes)
@@ -155,6 +167,43 @@ public static class ScopeGraticule
     // ------------------------------------------------------------------
     //  侧边刻度栏
     // ------------------------------------------------------------------
+    /// <summary>
+    /// 布局调试叠加层：把每格的三个矩形画出来（面板=洋红、视频区=橙、绘图区=青）并标尺寸与旋转。
+    /// 用来核对「刻度/轨迹/画面到底对齐在哪个矩形上」—— 布局出问题时没有它只能靠猜。
+    /// 洋红是刻意选的：全书没有别的元素用纯洋红，自检里就按它数像素。
+    /// </summary>
+    private static void DrawLayoutDebug(DrawingContext dc, ScopeLayoutResult layout, Rect imageRect)
+    {
+        var panelPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 0, 255)), 2);
+        var videoPen = new Pen(new SolidColorBrush(Color.FromRgb(255, 128, 0)), 1.5);
+        var plotPen = new Pen(new SolidColorBrush(Color.FromRgb(0, 200, 255)), 1.5);
+        panelPen.Freeze();
+        videoPen.Freeze();
+        plotPen.Freeze();
+        double fontSize = Math.Clamp(imageRect.Width / 90.0, 9, 14);
+
+        for (int index = 0; index < layout.Panes.Count; index++)
+        {
+            PaneLayout pane = layout.Panes[index];
+            Rect panel = Map(pane.Panel, imageRect);
+            dc.DrawRectangle(null, panelPen, panel);
+
+            if (pane.Video is { } videoUnit)
+            {
+                dc.DrawRectangle(null, videoPen, Map(videoUnit, imageRect));
+            }
+            if (pane.Plot is { } plotUnit)
+            {
+                dc.DrawRectangle(null, plotPen, Map(plotUnit, imageRect));
+            }
+
+            string text = $"格{index + 1} {pane.Content}"
+                        + (pane.Rotation == 0 ? string.Empty : $" 转{pane.Rotation}°")
+                        + $"　面板 {panel.Width:0}×{panel.Height:0}";
+            DrawText(dc, text, Sans, fontSize, new SolidColorBrush(Color.FromRgb(255, 0, 255)),
+                     new Point(panel.X + 6, panel.Y + fontSize + 4), TextAlign.Left, bold: true);
+        }
+    }
     private static void DrawGutter(DrawingContext dc, Rect gutter, Rect plot, ScopePanelKind kind, GraticuleOptions options)
     {
         if (gutter.Width <= 10 || gutter.Height <= 18)

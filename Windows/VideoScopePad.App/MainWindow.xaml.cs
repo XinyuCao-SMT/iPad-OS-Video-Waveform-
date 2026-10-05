@@ -718,6 +718,20 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>布局调试叠加层：画出每格的面板/视频区/绘图区矩形 + 尺寸标注（iPad v1.6.1 那项）</summary>
+    private void OnLayoutDebugChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        bool on = LayoutDebugBox.IsChecked == true;
+        Graticule.Options = Graticule.Options with { ShowLayoutDebug = on };
+        Graticule.InvalidateVisual();
+        Diag.Log($"布局调试叠加层：{(on ? "开" : "关")}");
+    }
+
     /// <summary>斑马纹设置（超白阈值 / 黑切割）——只影响显示通道，不碰示波器</summary>
     private void OnZebraChanged(object sender, RoutedEventArgs e)
     {
