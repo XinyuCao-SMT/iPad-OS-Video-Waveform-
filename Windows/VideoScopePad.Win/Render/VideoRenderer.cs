@@ -1,4 +1,4 @@
-﻿//
+//
 //  VideoRenderer.cs
 //  VideoScopePad.Win
 //
@@ -15,6 +15,7 @@
 using System.Numerics;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
+using Vortice.DXGI;
 using Vortice.Mathematics;
 using VideoScopePad.Win.Core;
 
@@ -36,6 +37,12 @@ public sealed class RenderOptions
     public bool ShowReference { get; set; }
 
     // ---- 斑马纹（超白 / 黑切割）----
+    // ---- LUT（.cube）----
+    /// <summary>LUT 开关（与 iPad 版 lutEnabled 对应）</summary>
+    public bool LutEnabled { get; set; }
+    /// <summary>LUT 强度（0…1，0 = 原图、1 = 完全套用）</summary>
+    public double LutStrength { get; set; } = 1.0;
+
     /// <summary>超白斑马纹开关</summary>
     public bool ZebraEnabled { get; set; }
     /// <summary>超白斑马纹阈值（IRE）</summary>
@@ -59,6 +66,21 @@ public sealed class VideoRenderer : IDisposable
     private readonly ID3D11Buffer _scopeBuffer;     // b2：64 字节
     private readonly ID3D11Buffer _solidBuffer;     // b1：16 字节（纯色）
 
+    // ---- LUT（.cube）与 look pass ----
+    /// <summary>已载入的 LUT（没载入时是 2³ 恒等，采样结果与原图一致）</summary>
+    public LutResource Lut { get; }
+    private ID3D11Texture2D? _lookTexture;
+    private ID3D11RenderTargetView? _lookRtv;
+    private ID3D11ShaderResourceView? _lookSrv;
+    private int _lookWidth;
+    private int _lookHeight;
+
+    /// <summary>换一份 LUT（必须在渲染线程调用：会创建 D3D 纹理）</summary>
+    public void SetLut(CubeLut cube) => Lut.Update(cube);
+
+    /// <summary>look pass 的结果（LUT 生效时可供示波器/读数在 LUT 后取样）</summary>
+    public ID3D11ShaderResourceView? LookSrv => _lookSrv;
+
     /// <summary>布局（由 ScopeLayout 算好传进来，界面层用的是同一份）</summary>
     public ScopeLayoutResult Layout { get; set; } = new();
 
@@ -69,6 +91,7 @@ public sealed class VideoRenderer : IDisposable
     {
         _device = device;
         _pipelines = pipelines;
+        Lut = new LutResource(device, null);
 
         _quadBuffer = device.CreateBuffer(new BufferDescription((uint)System.Runtime.InteropServices.Marshal.SizeOf<QuadUniforms>(),
                                                                 BindFlags.ConstantBuffer, ResourceUsage.Default, CpuAccessFlags.None, ResourceOptionFlags.None, 0));
@@ -108,6 +131,13 @@ public sealed class VideoRenderer : IDisposable
 
         context.ClearRenderTargetView(target, Background);
 
+        // 0) look pass：LUT 生效时先把画面渲染到中间纹理。若会话已经在本帧提前调过
+        //    PrepareLookPass（为了让"LUT 后取样"拿到的就是本帧），这里直接用结果、不重复跑。
+        ID3D11ShaderResourceView effectiveSource = _lookPrepared && _lookSrv is not null
+            ? _lookSrv
+            : PrepareLookPass(context, pixelWidth, pixelHeight, sourceSrv, options);
+        _lookPrepared = false;
+
         // 1) 画面格
         foreach (var pane in Layout.Panes)
         {
@@ -134,7 +164,7 @@ public sealed class VideoRenderer : IDisposable
 
             context.PSSetShader(_pipelines.Display);
             context.PSSetConstantBuffer(1, _renderBuffer);
-            context.PSSetShaderResource(0, sourceSrv);
+            context.PSSetShaderResource(0, effectiveSource);
             DrawQuad(context, video, pane.VideoUV ?? new RectF(0, 0, 1, 1), pane.Rotation);
         }
 
@@ -262,8 +292,120 @@ public sealed class VideoRenderer : IDisposable
         context.RSSetScissorRect(x, y, w, h);
     }
 
+    private bool _lookPrepared;
+
+    /// <summary>
+    /// 跑一次 look pass（LUT 生效时把画面渲染进中间纹理），返回"后续该用哪张纹理"。
+    /// **必须在示波器 Encode 之前调用**：否则"示波器取样 = LUT 后"拿到的会是上一帧的结果。
+    /// 没开 LUT 时直接返回原纹理，不做任何额外绘制。
+    /// </summary>
+    public ID3D11ShaderResourceView PrepareLookPass(ID3D11DeviceContext context,
+                                                    int videoWidth,
+                                                    int videoHeight,
+                                                    ID3D11ShaderResourceView sourceSrv,
+                                                    RenderOptions options)
+    {
+        // ⚠️ 坐标语义：look 纹理按**视频尺寸**建、整幅 0..1 绘制一次。
+        //    这样它和源纹理同域，画面格沿用原来的 UV 数学即可（第一版按合成尺寸+分格位置画，
+        //    结果被采样时又按源纹理 UV 映射一次 → 双重映射，恒等 LUT 都能差出 241）。
+        int pixelWidth = videoWidth;
+        int pixelHeight = videoHeight;        //    之后画面格与（可选的）示波器取样都读这张纹理 —— 这样"LUT 前 / LUT 后"就能对比着看。
+        bool lutActive = options.LutEnabled && Lut.Cube.HasContent;
+        if (lutActive)
+        {
+            EnsureLookTexture(pixelWidth, pixelHeight);
+            if (_lookRtv is not null && _lookSrv is not null)
+            {
+                context.OMSetRenderTargets(_lookRtv);
+                context.RSSetViewport(0, 0, pixelWidth, pixelHeight);
+                context.RSSetScissorRect(0, 0, pixelWidth, pixelHeight);
+
+                var look = RenderUniforms.Default;
+                // ⚠️ 着色器里的 lutDomain 是**标量** min/max（x=min、y=max，内部算 1/(max-min)），
+                //    不是逐通道的偏移/缩放 —— 第一版按逐通道传，采样坐标就完全错了。
+                //    逐通道域不一致时这里用 R 通道的值（着色器本来也只支持标量域）。
+                (float domainMin, float domainMax) = Lut.ScalarDomain;
+                look.LutParams = new Vector4(
+                    (float)Math.Clamp(options.LutStrength, 0, 1),
+                    Lut.Size3D > 0 ? Lut.Size3D : 1,
+                    Lut.Size1D > 0 ? Lut.Size1D : 1,
+                    1f);
+                look.LutDomain = new Vector4(domainMin, domainMax, 0, 0);
+                look.Flags = new Vector4(options.DisplayMode, 0, 0, 0);
+                context.UpdateSubresource(in look, _renderBuffer);
+
+                context.PSSetShader(_pipelines.ApplyLutAndGrade);
+                context.PSSetConstantBuffer(1, _renderBuffer);
+                context.PSSetShaderResource(0, sourceSrv);
+                if (Lut.Srv3D is not null) { context.PSSetShaderResource(1, Lut.Srv3D); }
+                if (Lut.Srv1D is not null) { context.PSSetShaderResource(2, Lut.Srv1D); }
+                context.OMSetBlendState(_pipelines.Opaque);
+
+                context.RSSetScissorRect(0, 0, pixelWidth, pixelHeight);
+                DrawQuad(context, new RectF(0, 0, 1, 1), new RectF(0, 0, 1, 1), 0);
+
+                context.PSSetShaderResource(0, null);
+                context.PSSetShaderResource(1, null);
+                context.PSSetShaderResource(2, null);
+
+                // 🔴 必须把 look 纹理从输出合并阶段解绑：紧接着示波器会把它当 SRV 采样，
+                //    同一张纹理同时作 RTV 与 SRV 是非法状态，实测直接把 GPU 设备打挂
+                //    （DXGI_ERROR_DEVICE_REMOVED）。
+                //    ⚠️ 这一行必须在 if (lutActive) **里面**：放到外面就变成每帧都解绑，
+                //    紧接着的合成绘制会画到"没有渲染目标"的地方，整屏只剩底色（实测踩过）。
+                context.OMSetRenderTargets(Array.Empty<ID3D11RenderTargetView>());
+            }
+        }
+
+        if (!lutActive)
+        {
+            // LUT 没生效：**绝不能**把上次的 look 纹理当结果返回
+            //（第一版这里漏了判断，未启用 LUT 时画面被换成过期的中间纹理 —— 实测整屏发黑）。
+            _lookPrepared = false;
+            return sourceSrv;
+        }
+
+        _lookPrepared = true;
+        return _lookSrv is not null ? _lookSrv : sourceSrv;
+    }
+    /// <summary>按需创建/重建 look pass 的中间纹理（画面尺寸变化时重建）</summary>
+    private void EnsureLookTexture(int width, int height)
+    {
+        if (_lookTexture is not null && _lookWidth == width && _lookHeight == height)
+        {
+            return;
+        }
+
+        _lookSrv?.Dispose();
+        _lookRtv?.Dispose();
+        _lookTexture?.Dispose();
+
+        var desc = new Texture2DDescription
+        {
+            Width = (uint)width,
+            Height = (uint)height,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Format.R8G8B8A8_UNorm,
+            SampleDescription = new SampleDescription(1, 0),
+            Usage = ResourceUsage.Default,
+            BindFlags = BindFlags.RenderTarget | BindFlags.ShaderResource,
+            CPUAccessFlags = CpuAccessFlags.None,
+            MiscFlags = ResourceOptionFlags.None,
+        };
+        _lookTexture = _device.CreateTexture2D(desc);
+        _lookRtv = _device.CreateRenderTargetView(_lookTexture);
+        _lookSrv = _device.CreateShaderResourceView(_lookTexture);
+        _lookWidth = width;
+        _lookHeight = height;
+    }
+
     public void Dispose()
     {
+        _lookSrv?.Dispose();
+        _lookRtv?.Dispose();
+        _lookTexture?.Dispose();
+        Lut.Dispose();
         _quadBuffer.Dispose();
         _renderBuffer.Dispose();
         _scopeBuffer.Dispose();

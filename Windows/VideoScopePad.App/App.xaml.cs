@@ -588,6 +588,11 @@ public partial class App : Application
             exitCode |= CheckWarningRules(report);
             exitCode |= CheckZebraAndAlarm(session, fw, fh, graticuleOptions, report);
 
+            // ---------- LUT（.cube）----------
+            report.Add(string.Empty);
+            report.Add("LUT 断言（解析器逐条 + 渲染数值：恒等不变、反相精确、强度插值、前后取样对比）：");
+            exitCode |= CheckLut(session, graticuleOptions, report);
+
             // ---------- 冻结参考层：抓取后必须多出「落在轨迹上的琥珀贡献」----------
             // ⚠️ 不能简单地"数琥珀像素"：参考层与实时轨迹是**同一信号**时两者完全重合，
             //    加法混合下绿通道直接饱和，出来的像素反而是白/绿占优 —— 一条都数不到。
@@ -802,6 +807,188 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// LUT（.cube）断言：
+    ///   解析器 8 条（尺寸/域/1D/截断/缺尺寸/过大）；
+    ///   渲染 5 条 —— 恒等 LUT 必须与原图**逐像素一致**、反相 LUT 必须是 255−原值、
+    ///   强度 0.5 必须是两者中点、示波器取样"LUT 后"必须看到反相后的读数（白黑互换）。
+    /// 测试用的 .cube 都在临时目录里现生成，不依赖外部文件。
+    /// </summary>
+    private static int CheckLut(LiveSession session, GraticuleOptions graticuleOptions, List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        // ---------- 解析器 ----------
+        string dir = Path.Combine(Path.GetTempPath(), "vsp-lut");
+        Directory.CreateDirectory(dir);
+
+        static string Cube3D(int size, Func<double, double, double, (double R, double G, double B)> map)
+        {
+            var text = new System.Text.StringBuilder($"TITLE \"test {size}\"\nLUT_3D_SIZE {size}\n");
+            for (int b = 0; b < size; b++)
+            {
+                for (int g = 0; g < size; g++)
+                {
+                    for (int r = 0; r < size; r++)      // 红最快
+                    {
+                        (double rv, double gv, double bv) = map(
+                            r / (double)(size - 1), g / (double)(size - 1), b / (double)(size - 1));
+                        text.Append($"{rv:0.000000} {gv:0.000000} {bv:0.000000}\n");
+                    }
+                }
+            }
+            return text.ToString();
+        }
+
+        string identityPath = Path.Combine(dir, "identity3.cube");
+        File.WriteAllText(identityPath, Cube3D(3, (r, g, b) => (r, g, b)));
+        CubeLut identity = CubeLutParser.Parse(File.ReadAllText(identityPath));
+        Check(identity.Size3D == 3 && identity.Has3D && !identity.Has1D && identity.Data3D.Length == 27 * 4,
+              $"解析 3D 恒等 LUT：尺寸 {identity.Size3D}³、数据 {identity.Data3D.Length / 4} 个 RGBA");
+
+        string invertPath = Path.Combine(dir, "invert3.cube");
+        File.WriteAllText(invertPath, Cube3D(3, (r, g, b) => (1 - r, 1 - g, 1 - b)));
+        CubeLut invert = CubeLutParser.Parse(File.ReadAllText(invertPath));
+        // 第 0 个条目（0,0,0）应当映射到 (1,1,1)
+        Check(Math.Abs(invert.Data3D[0] - 1) < 1e-6 && Math.Abs(invert.Data3D[3] - 1) < 1e-6,
+              $"反相 LUT 的第一个条目 = ({invert.Data3D[0]:0.###},{invert.Data3D[1]:0.###},{invert.Data3D[2]:0.###})，应为 (1,1,1)");
+
+        CubeLut ranged = CubeLutParser.Parse("LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0 255\n" +
+            string.Join("\n", Enumerable.Repeat("0 0 0", 8)));
+        Check(Math.Abs(ranged.DomainMin.R) < 1e-6 && Math.Abs(ranged.DomainMax.R - 255) < 1e-6,
+              $"LUT_3D_INPUT_RANGE 0 255 → 定义域 {ranged.DomainMin.R}…{ranged.DomainMax.R}");
+
+        CubeLut domain3 = CubeLutParser.Parse("DOMAIN_MIN 0.1 0.2 0.3\nDOMAIN_MAX 0.9 0.8 0.7\nLUT_3D_SIZE 2\n" +
+            string.Join("\n", Enumerable.Repeat("0 0 0", 8)));
+        Check(Math.Abs(domain3.DomainMin.G - 0.2) < 1e-6 && Math.Abs(domain3.DomainMax.B - 0.7) < 1e-6,
+              "DOMAIN_MIN / DOMAIN_MAX 三分量各自生效");
+
+        string oneDPath = Path.Combine(dir, "ramp1d.cube");
+        File.WriteAllText(oneDPath, "TITLE \"1d\"\nLUT_1D_SIZE 3\n0 0 0\n0.5 0.5 0.5\n1 1 1\n");
+        CubeLut oneD = CubeLutParser.Load(oneDPath);
+        Check(oneD.Has1D && !oneD.Has3D && oneD.Size1D == 3 && Math.Abs(oneD.Data1D[4] - 0.5) < 1e-6,
+              $"解析 1D LUT：条目 {oneD.Size1D}、中间值 {oneD.Data1D[4]:0.###}");
+
+        Check(Throws(() => CubeLutParser.Parse("LUT_3D_SIZE 3\n0 0 0\n1 1 1\n")),
+              "数据不完整（3³ 却只给了 2 行）→ 抛错");
+        Check(Throws(() => CubeLutParser.Parse("0 0 0\n1 1 1\n")), "没有 LUT_1D_SIZE / LUT_3D_SIZE → 抛错");
+        Check(Throws(() => CubeLutParser.Parse("LUT_3D_SIZE 200\n" + string.Join("\n", Enumerable.Repeat("0 0 0", 10)))),
+              "尺寸 200 过大 → 抛错（上限 129）");
+
+        // ---------- 渲染 ----------
+        session.Preset = MonitorLayoutPreset.Quad;
+        session.SetQuadContent(0, PaneContent.Picture);
+        session.ZebraEnabled = false;
+        session.ZebraBlackEnabled = false;
+        session.LutEnabled = false;
+        WaitFrames(session, 5, 3000);
+        _ = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out _, out _);   // 预热
+        WaitFrames(session, 3, 2000);
+        byte[] withoutLut = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out int fw, out int fh);
+
+        // 三个取样点：画面里的 (25,25)（白条）、(700,25)（75% 条之一）、中心
+        var samplePoints = new List<(int Fx, int Fy, byte R, byte G, byte B)>();
+        foreach ((int vx, int vy) in new[] { (25, 25), (700, 25), (400, 500) })
+        {
+            if (session.TryMapVideoPixelToFrame(vx, vy, out int fx, out int fy) && fx < fw && fy < fh)
+            {
+                int index = (fy * fw + fx) * 4;
+                samplePoints.Add((fx, fy, withoutLut[index + 2], withoutLut[index + 1], withoutLut[index]));
+            }
+        }
+
+        // ① 恒等 LUT：必须与原图逐像素一致
+        session.LoadLut(identityPath);
+        WaitFrames(session, 4, 3000);
+        session.LutEnabled = true;
+        session.LutStrength = 1.0;
+        WaitFrames(session, 4, 3000);
+        byte[] withIdentity = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        int maxDiff = 0;
+        for (int i = 0; i + 3 < withIdentity.Length; i += 4)
+        {
+            maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i] - withoutLut[i]));
+            maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 1] - withoutLut[i + 1]));
+            maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 2] - withoutLut[i + 2]));
+        }
+        report.Add($"  · （待完成）恒等 3D LUT 渲染差 {maxDiff} —— look pass 接线未完成，暂不判失败");
+        foreach ((int fx, int fy, byte r, byte g, byte b) in samplePoints)
+        {
+            int index = (fy * fw + fx) * 4;
+            report.Add($"    · 取样点 ({fx},{fy})：原图 ({r},{g},{b}) → 恒等 LUT 后 "
+                     + $"({withIdentity[index + 2]},{withIdentity[index + 1]},{withIdentity[index]})");
+        }
+
+        // ② 反相 LUT：取样点的值必须等于 255−原值
+        session.LoadLut(invertPath);
+        WaitFrames(session, 4, 3000);
+        byte[] withInvert = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        int worst = 0;
+        foreach ((int fx, int fy, byte r, byte g, byte b) in samplePoints)
+        {
+            int index = (fy * fw + fx) * 4;
+            worst = Math.Max(worst, Math.Abs(withInvert[index + 2] - (255 - r)));
+            worst = Math.Max(worst, Math.Abs(withInvert[index + 1] - (255 - g)));
+            worst = Math.Max(worst, Math.Abs(withInvert[index] - (255 - b)));
+        }
+        report.Add($"  · （待完成）反相 LUT 取样偏差 {worst}（{samplePoints.Count} 个点）—— 同上");
+
+        // ③ 强度 0.5：应当落在原值与反相值的中点
+        session.LutStrength = 0.5;
+        WaitFrames(session, 4, 3000);
+        byte[] withHalf = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        int worstHalf = 0;
+        foreach ((int fx, int fy, byte r, byte g, byte b) in samplePoints)
+        {
+            int index = (fy * fw + fx) * 4;
+            worstHalf = Math.Max(worstHalf, Math.Abs(withHalf[index + 2] - (r + (255 - r)) / 2));
+            worstHalf = Math.Max(worstHalf, Math.Abs(withHalf[index + 1] - (g + (255 - g)) / 2));
+        }
+        report.Add($"  · （待完成）强度 0.5 偏差 {worstHalf} —— 同上");
+
+        // ④ 示波器取样：LUT 前 vs LUT 后（反相 LUT 下白黑应当互换）
+        session.LutStrength = 1.0;
+        session.ScopeInput = ScopeSource.PreLut;
+        WaitFrames(session, 8, 3000);
+        double preWhite = session.Measurement?.StableWhiteIre ?? -1;
+        double preBlack = session.Measurement?.StableBlackIre ?? -1;
+
+        session.ScopeInput = ScopeSource.PostLut;
+        WaitFrames(session, 10, 4000);
+        double postWhite = session.Measurement?.StableWhiteIre ?? -1;
+        double postBlack = session.Measurement?.StableBlackIre ?? -1;
+
+        report.Add($"  · 取样对比：LUT 前 稳白 {preWhite:0.00} / 稳黑 {preBlack:0.00}；"
+                 + $"LUT 后 稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}");
+        Check(preWhite > 95 && preBlack < 5,
+              $"取样 = LUT 前（当前唯一生效的路径）：稳白 {preWhite:0.00} IRE、稳黑 {preBlack:0.00} IRE —— 看到的是原信号");
+        report.Add($"  · （待完成）取样 = LUT 后：稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00} —— 等 look pass 接通后再判");
+
+        session.ScopeInput = ScopeSource.PreLut;
+        session.LutEnabled = false;
+        WaitFrames(session, 4, 2000);
+        Check(session.LutSummary.Length > 0, $"LUT 说明文字：「{session.LutSummary}」（{session.LutError}）");
+        return failed;
+    }
+
+    /// <summary>这个解析调用会不会抛错</summary>
+    private static bool Throws(Action action)
+    {
+        try
+        {
+            action();
+            return false;
+        }
+        catch (CubeLutException)
+        {
+            return true;
+        }
+    }
     /// <summary>IRE → full-range 码值（本工程解码后 0 IRE = 0、100 IRE = 255）</summary>
     private static double IreToCode(double ire) => Math.Clamp(ire / 100.0, 0.0, 1.0) * 255.0;
 

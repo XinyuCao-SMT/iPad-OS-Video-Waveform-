@@ -133,6 +133,27 @@ public sealed class LiveSession : IDisposable
         PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
     };
 
+    // ---- LUT（.cube）：与 iPad 版 lutEnabled / scopeSource 对应 ----
+    /// <summary>LUT 开关</summary>
+    public bool LutEnabled { get; set; }
+
+    /// <summary>LUT 强度（0…1）</summary>
+    public double LutStrength { get; set; } = 1.0;
+
+    /// <summary>示波器与读数的取样位置：LUT 前 / LUT 后（iPad 版的"前后对比"就是这个）</summary>
+    public ScopeSource ScopeInput { get; set; } = ScopeSource.PreLut;
+
+    /// <summary>当前 LUT 的说明（界面显示用）</summary>
+    public string LutSummary { get; private set; } = "（未载入）";
+
+    /// <summary>载入 LUT 失败的原因（界面显示用；成功时为空）</summary>
+    public string LutError { get; private set; } = string.Empty;
+
+    /// <summary>请求载入一个 .cube（解析与纹理上传都在渲染线程做，避免跨线程碰 D3D）</summary>
+    public void LoadLut(string path) => _pendingLutPath = path;
+
+    private volatile string? _pendingLutPath;
+
     // ---- 斑马纹（超白 / 黑切割）：与 iPad 版同一组设置 ----
     /// <summary>超白斑马纹开关</summary>
     public bool ZebraEnabled { get; set; }
@@ -838,11 +859,36 @@ public sealed class LiveSession : IDisposable
                 try
                 {
                     long start = Stopwatch.GetTimestamp();
-                    engine.Encode(d3d.Context, source, _scopeSettings);
+                    // LUT：会话请求了就先在渲染线程解析 + 上传（跨线程碰 D3D 是禁忌）
+                    if (_pendingLutPath is { } lutPath)
+                    {
+                        _pendingLutPath = null;
+                        try
+                        {
+                            CubeLut cube = CubeLutParser.Load(lutPath);
+                            renderer.SetLut(cube);
+                            LutSummary = cube.Summary;
+                            LutError = renderer.Lut.UploadError;
+                            Diag.Log($"载入 LUT：{lutPath} → {cube.Summary}（域 {cube.DomainMin}…{cube.DomainMax}）");
+                        }
+                        catch (Exception ex)
+                        {
+                            LutError = ex.Message;
+                            Diag.Log($"载入 LUT 失败：{lutPath} → {ex.Message}");
+                        }
+                    }
+
+                    // ⏳ LUT 的 look pass 接线还没完成（启用 LUT 时画面格会画不出来，正在查）。
+                    //    在那之前先不调用它：LUT 的**解析与纹理上传**已经落地并验过（见自检里的
+                    //    "解析 3D 恒等 LUT / 反相 LUT / 1D / 域 / 各类报错"那几条），
+                    //    渲染侧的接通留到下一轮；这样 LUT 相关的未完成不会拖坏主链路。
+                    ID3D11ShaderResourceView scopeSource = source;
+
+                    engine.Encode(d3d.Context, scopeSource, _scopeSettings);
                     scopeMs = MsSince(start);
 
                     // 测量（数值读数）：GPU 累加 + 非阻塞回读，回调里更新读数与峰值保持
-                    engine.EncodeMeasurement(d3d.Context, source, ScopeStride, counts =>
+                    engine.EncodeMeasurement(d3d.Context, scopeSource, ScopeStride, counts =>
                     {
                         if (SignalMeasurementBuilder.FromMeasureBuffer(counts) is { } measured)
                         {
@@ -895,6 +941,8 @@ public sealed class LiveSession : IDisposable
 
                     options.ShowReference = ShowReference && engine.HasReference;
                     options.ReferenceOpacity = ReferenceOpacity;
+                    options.LutEnabled = LutEnabled;
+                    options.LutStrength = LutStrength;
                     options.ZebraEnabled = ZebraEnabled;
                     options.ZebraThresholdIre = ZebraThresholdIre;
                     options.ZebraBlackEnabled = ZebraBlackEnabled;
