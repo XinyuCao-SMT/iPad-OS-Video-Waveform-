@@ -79,6 +79,8 @@ public partial class MainWindow : Window
     };
 
     private ComboBox _layoutBox = null!;
+    private ComboBox _matrixBox = null!;
+    private TextBlock _matrixHint = null!;
     private ComboBox _fullscreenContentBox = null!;
     private readonly ComboBox[] _quadBoxes = new ComboBox[4];
     private StackPanel _fullscreenPanel = null!;
@@ -97,6 +99,21 @@ public partial class MainWindow : Window
         _layoutBox.SelectedIndex = 0;
         _layoutBox.SelectionChanged += OnLayoutChanged;
         LayoutRow.Children.Add(_layoutBox);
+
+        // 色彩矩阵：驱动声明的会错，必须能覆盖。
+        // 本机那张 UT-VID 声明 BT.601，而用它的 709 彩条实测：709 解码平均误差 11.0、
+        // 601 是 16.0 且把饱和色主通道压到 232/233（该 255）—— 按声明解矢量点会整体偏。
+        LayoutRow.Children.Add(Label("色彩矩阵"));
+        _matrixBox = MakeComboBox(150);
+        _matrixBox.Items.Add("跟随驱动");
+        _matrixBox.Items.Add("强制 BT.601");
+        _matrixBox.Items.Add("强制 BT.709");
+        _matrixBox.SelectedIndex = 0;
+        _matrixBox.SelectionChanged += OnColorMatrixChanged;
+        LayoutRow.Children.Add(_matrixBox);
+        _matrixHint = Label(string.Empty);
+        _matrixHint.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0xC4, 0x6A));
+        LayoutRow.Children.Add(_matrixHint);
 
         // 全屏：一个内容下拉
         _fullscreenPanel = new StackPanel { Orientation = Orientation.Horizontal };
@@ -200,6 +217,43 @@ public partial class MainWindow : Window
         _session.WaveformMode = mode;
     }
 
+    private void OnColorMatrixChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+        _session.ColorMatrixOverride = _matrixBox.SelectedIndex switch
+        {
+            1 => Vortice.MediaFoundation.VideoTransferMatrix.Bt601,
+            2 => Vortice.MediaFoundation.VideoTransferMatrix.Bt709,
+            _ => null,
+        };
+        UpdateMatrixHint();
+    }
+
+    /// <summary>
+    /// 驱动声明与分辨率不符时给个提示：HD（≥720 行）却声明 BT.601 是最常见的谎报，
+    /// 而 SD（≤576 行）声明 601 才是正常的。
+    /// </summary>
+    private void UpdateMatrixHint()
+    {
+        LiveStats stats = _session.Stats;
+        _matrixHint.Text = string.Empty;
+        if (!IsLoaded || stats.Format.Length == 0)
+        {
+            return;
+        }
+
+        bool declares601 = stats.Color.Contains("BT.601");
+        int height = _session.VideoHeight;
+        if (_matrixBox.SelectedIndex == 0 && declares601 && height >= 720)
+        {
+            _matrixHint.Text = $"⚠ 驱动声明 BT.601，但分辨率是 {height}p —— 建议用 709 彩条实测一下"
+                             + "（dotnet run --project Windows\\tools\\mf-capture -- bars）";
+        }
+    }
+
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _session.Start();
@@ -242,6 +296,7 @@ public partial class MainWindow : Window
                            + $"一帧 {stats.TotalMs:0.0} ms（示波器 {stats.ScopeMs:0.0} / 合成 {stats.CompositeMs:0.0} / 回读 {stats.ReadbackMs:0.0}）";
             DetailText.Text = $"{stats.Source}　·　{stats.Format}　·　{stats.Color}";
             MessageText.Text = stats.Message;
+            UpdateMatrixHint();
 
             // 布局是渲染线程算出来的：按引用变化同步给刻度层（换分辨率/换源时会重建）
             Graticule.Layout = _session.Layout;

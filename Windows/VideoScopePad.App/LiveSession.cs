@@ -23,6 +23,7 @@ using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
+using Vortice.MediaFoundation;
 
 namespace VideoScopePad.App;
 
@@ -100,6 +101,23 @@ public sealed class LiveSession : IDisposable
 
     /// <summary>参考层不透明度（0.05…1.0，默认 0.55 —— 与 iPad 版 referenceOpacity 默认值一致）</summary>
     public double ReferenceOpacity { get; set; } = 0.55;
+
+    /// <summary>
+    /// 色彩矩阵覆盖：null = 跟随驱动声明，否则强制按这一套解码。
+    ///
+    /// 为什么必须有这个开关：**采集卡声明的矩阵会错**。本机那张 UT-VID 声明 BT.601，
+    /// 但用它自己的 709 彩条实测（`mf-capture bars`）：
+    ///   BT.709 解码平均误差 11.0（每条彩条只差 0–3 个码值），
+    ///   BT.601 解码平均误差 16.0，而且把饱和色主通道压到 232/233（该 255，差约 9%）。
+    /// 照声明解会让矢量点整体偏移、读数也偏 —— 所以给一个覆盖开关，用彩条一测就知道该用哪个。
+    /// </summary>
+    public VideoTransferMatrix? ColorMatrixOverride { get; set; }
+
+    /// <summary>把驱动的声明与覆盖开关合起来，得到真正要用的解码参数</summary>
+    private VideoColorInfo EffectiveColor(VideoColorInfo declared)
+        => ColorMatrixOverride is { } matrix && matrix != declared.Matrix
+            ? declared with { Matrix = matrix, MatrixFromDriver = false }
+            : declared;
 
     /// <summary>是否把参考层叠在实时轨迹上（= iPad 版的 freezeReference）</summary>
     public bool ShowReference { get; set; } = true;
@@ -394,7 +412,8 @@ public sealed class LiveSession : IDisposable
                             CaptureFormat effective = device.SetNativeFormat(picked.NativeIndex);
                             sourceName = device.Info.FriendlyName;
                             formatText = effective.Describe();
-                            colorText = effective.Color.Summary;
+                            colorText = EffectiveColor(effective.Color).Summary
+                                      + (ColorMatrixOverride is null ? string.Empty : "（矩阵已手动覆盖）");
                             SetLayout(renderer, _width, _height, (int)effective.Width, (int)effective.Height);
                             message = string.Empty;
                         }
@@ -424,7 +443,7 @@ public sealed class LiveSession : IDisposable
                     }
 
                     CaptureFormat current = device.CurrentFormat;
-                    source = uploader.Convert(d3d.Context, frame, current.SubtypeName, current.Color);
+                    source = uploader.Convert(d3d.Context, frame, current.SubtypeName, EffectiveColor(current.Color));
                     sourceTexture = uploader.RgbTexture;
                     captureMeter.Add(frame.TimestampHns);
                     sourceMs = MsSince(start);

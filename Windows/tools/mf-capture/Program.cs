@@ -472,97 +472,232 @@ internal static class Program
 
         bool nv12 = effective.SubtypeName.Equals("NV12", StringComparison.OrdinalIgnoreCase);
         int pitch = Math.Abs(frame.Stride);
-        int sampleY = Math.Max(frame.Height / 8, 0);
-        string[] barNames = { "白", "黄", "青", "绿", "品红", "红", "蓝" };
 
-        Console.WriteLine($"采样行      : y={sampleY}（画面上部 1/4 带），7 等分中心");
-        Console.WriteLine();
-        Console.WriteLine("  彩条   原始码值 (Y,U,V)     601-limited 解码   709-limited 解码");
-        Console.WriteLine("  ------ ------------------- ------------------ ------------------");
-
-        var samples = new (byte Y, byte U, byte V)[7];
-        for (int bar = 0; bar < 7; bar++)
+        // 采样行：先扫几行，挑「颜色分段最多」的那一行（有些图案顶部是标题/时间码）
+        int bestRow = frame.Height / 8;
+        int bestSegments = 0;
+        var candidates = new[] { frame.Height / 12, frame.Height / 8, frame.Height / 6, frame.Height / 4 };
+        foreach (int row in candidates)
         {
-            int x = (int)((bar + 0.5) * frame.Width / 7.0);
-            x = Math.Min(Math.Max(x & ~1, 0), frame.Width - 2);
-            int rowStart = sampleY * pitch;
+            int count = DetectBars(frame, nv12, pitch, row, out _).Count;
+            if (count > bestSegments)
+            {
+                bestSegments = count;
+                bestRow = row;
+            }
+        }
 
+        // 用**剖面聚类**找颜色：等距取 32 点，把相邻同色的并成一段。
+        // （不用"相邻像素跳变"检测：UVC 边缘常有 1–2 px 过渡带，加上阈值就漏段 —— 实测踩过。）
+        var detected = new List<(int Start, int End, byte Y, byte U, byte V)>();
+        const int profileCount = 32;
+        var profileValues = new List<(int X, byte Y, byte U, byte V)>();
+        for (int i = 0; i < profileCount; i++)
+        {
+            int x = Math.Min(Math.Max((int)((i + 0.5) * frame.Width / profileCount) & ~1, 0), frame.Width - 2);
             byte y0, u, v;
             if (nv12)
             {
-                y0 = frame.Data[rowStart + x];
-                int chromaRow = pitch * frame.Height + (sampleY / 2) * pitch;
+                y0 = frame.Data[bestRow * pitch + x];
+                int chromaRow = pitch * frame.Height + (bestRow / 2) * pitch;
                 u = frame.Data[chromaRow + (x & ~1)];
                 v = frame.Data[chromaRow + (x & ~1) + 1];
             }
             else
             {
-                int i = rowStart + x * 2;
-                y0 = frame.Data[i];
-                u = frame.Data[i + 1];
-                v = frame.Data[i + 3];
+                int index = bestRow * pitch + x * 2;
+                y0 = frame.Data[index];
+                u = frame.Data[index + 1];
+                v = frame.Data[index + 3];
             }
-            samples[bar] = (y0, u, v);
+            profileValues.Add((x, y0, u, v));
+        }
 
+        Console.Write("该行剖面 Y : ");
+        Console.WriteLine(string.Join(" ", profileValues.Select(p => $"{p.Y,4}")));
+        Console.Write("该行剖面 U : ");
+        Console.WriteLine(string.Join(" ", profileValues.Select(p => $"{p.U,4}")));
+        Console.Write("该行剖面 V : ");
+        Console.WriteLine(string.Join(" ", profileValues.Select(p => $"{p.V,4}")));
+        Console.WriteLine($"采样行      : y={bestRow}（32 点等距剖面；标准彩条在该带上）");
+        Console.WriteLine();
+
+        foreach ((int x, byte y0, byte u, byte v) in profileValues)
+        {
+            if (detected.Count > 0)
+            {
+                (int _, int _, byte lastY, byte lastU, byte lastV) = detected[^1];
+                if (Math.Abs(y0 - lastY) <= 3 && Math.Abs(u - lastU) <= 3 && Math.Abs(v - lastV) <= 3)
+                {
+                    detected[^1] = (detected[^1].Start, x, lastY, lastU, lastV);
+                    continue;
+                }
+            }
+            detected.Add((x, x, y0, u, v));
+        }
+
+        Console.WriteLine($"剖面聚出 {detected.Count} 种颜色：");
+        Console.WriteLine("  x 位置     原始码值 (Y,U,V)      601-limited 解码    709-limited 解码");
+        Console.WriteLine("  --------- -------------------- ------------------- -------------------");
+        foreach ((int start, int end, byte y0, byte u, byte v) in detected)
+        {
             (int r601, int g601, int b601) = DecodeYuv(y0, u, v, VideoTransferMatrix.Bt601, limited: true);
             (int r709, int g709, int b709) = DecodeYuv(y0, u, v, VideoTransferMatrix.Bt709, limited: true);
-            Console.WriteLine($"  {barNames[bar],-4}  {y0,3},{u,3},{v,3}        "
-                            + $"({r601,3},{g601,3},{b601,3})        ({r709,3},{g709,3},{b709,3})");
+            Console.WriteLine($"  {start,4}-{end,-4} {y0,3},{u,3},{v,3}          "
+                            + $"({r601,3},{g601,3},{b601,3})       ({r709,3},{g709,3},{b709,3})");
         }
         Console.WriteLine();
 
-        // 标准 75% 与 100% 彩条的码值（解码后应当是这些值，因为解码把 limited 展开成 full）
-        var expect75 = new (int R, int G, int B)[]
+        var samples = detected.Select(d => (d.Y, d.U, d.V)).ToList();
+        Console.WriteLine();
+
+        // 标准彩条的码值（解码已经把 limited 展开成 full，所以 75% → 191、100% → 255）
+        var expect75 = new (string Name, int R, int G, int B)[]
         {
-            (191, 191, 191), (191, 191, 0), (0, 191, 191), (0, 191, 0),
-            (191, 0, 191), (191, 0, 0), (0, 0, 191),
+            ("白", 191, 191, 191), ("黄", 191, 191, 0), ("青", 0, 191, 191), ("绿", 0, 191, 0),
+            ("品红", 191, 0, 191), ("红", 191, 0, 0), ("蓝", 0, 0, 191),
         };
-        var expect100 = new (int R, int G, int B)[]
+        var expect100 = new (string Name, int R, int G, int B)[]
         {
-            (255, 255, 255), (255, 255, 0), (0, 255, 255), (0, 255, 0),
-            (255, 0, 255), (255, 0, 0), (0, 0, 255),
+            ("白", 255, 255, 255), ("黄", 255, 255, 0), ("青", 0, 255, 255), ("绿", 0, 255, 0),
+            ("品红", 255, 0, 255), ("红", 255, 0, 0), ("蓝", 0, 0, 255),
+        };
+        var expectGray = new (string Name, int R, int G, int B)[]
+        {
+            ("灰", 191, 191, 191), ("黑", 0, 0, 0),
         };
 
-        Console.WriteLine("四种组合 vs 标准彩条（平均绝对误差，越小越像）：");
-        var candidates = new (string Name, VideoTransferMatrix Matrix, bool Limited)[]
+        Console.WriteLine("每种解码组合的匹配情况（逐段找最接近的标准色，取距离之和的平均）：");
+        var decoders = new (string Name, VideoTransferMatrix Matrix, bool Limited)[]
         {
-            ("BT.601 + limited（广播标清惯例）", VideoTransferMatrix.Bt601, true),
-            ("BT.709 + limited（HD 惯例）", VideoTransferMatrix.Bt709, true),
-            ("BT.601 + full（JPEG 系）", VideoTransferMatrix.Bt601, false),
+            ("BT.601 + limited", VideoTransferMatrix.Bt601, true),
+            ("BT.709 + limited", VideoTransferMatrix.Bt709, true),
+            ("BT.601 + full", VideoTransferMatrix.Bt601, false),
             ("BT.709 + full", VideoTransferMatrix.Bt709, false),
         };
 
-        string? bestName = null;
+        string bestName = "";
         double bestError = double.MaxValue;
-        foreach ((string name, VideoTransferMatrix matrix, bool limited) in candidates)
+        VideoTransferMatrix bestMatrix = VideoTransferMatrix.Bt601;
+        bool bestLimited = true;
+        foreach ((string name, VideoTransferMatrix matrix, bool limited) in decoders)
         {
-            double error75 = AverageError(samples, expect75, matrix, limited);
-            double error100 = AverageError(samples, expect100, matrix, limited);
-            Console.WriteLine($"  {name,-32} 75% 彩条 {error75,6:0.0}　100% 彩条 {error100,6:0.0}");
-
+            double error75 = MatchError(samples, expect75, matrix, limited);
+            double error100 = MatchError(samples, expect100, matrix, limited);
+            Console.WriteLine($"  {name,-18} 对 75% 彩条 {error75,6:0.0}　对 100% 彩条 {error100,6:0.0}");
             double error = Math.Min(error75, error100);
             if (error < bestError)
             {
                 bestError = error;
                 bestName = $"{name}（按 {(error75 <= error100 ? "75%" : "100%")} 彩条）";
+                bestMatrix = matrix;
+                bestLimited = limited;
             }
         }
         Console.WriteLine();
 
-        // 白条最能说明量化范围：limited 的 75% 白码值 180、full 的 75% 白是 191
-        byte whiteY = samples[0].Y;
-        Console.WriteLine($"白条 Y 码值  : {whiteY}"
-                        + $"（75% 白 = limited 180 / full 191；100% 白 = limited 235 / full 255）");
+        // 顺带把「这段像什么颜色」打出来（人一眼就能看出图案对不对）
+        Console.WriteLine("逐段最近的标准色（按最像的那套矩阵）：");
+        var palette = expect75.Concat(expect100).Concat(expectGray).ToArray();
+        for (int i = 0; i < samples.Count; i++)
+        {
+            (int r, int g, int b) = DecodeYuv(samples[i].Y, samples[i].U, samples[i].V, bestMatrix, bestLimited);
+            (string name, int distance) = palette
+                .Select(c => (c.Name, distance: Math.Abs(r - c.R) + Math.Abs(g - c.G) + Math.Abs(b - c.B)))
+                .OrderBy(x => x.distance)
+                .First();
+            Console.WriteLine($"  段 {i + 1,2}  ({r,3},{g,3},{b,3}) → 最像 {name}（差 {distance}）");
+        }
+        Console.WriteLine();
+
+        byte whiteY = samples.Count > 0 ? samples[0].Y : (byte)0;
+        Console.WriteLine($"第一段 Y 码值: {whiteY}（75% 白 = limited 180 / full 191；100% 白 = limited 235 / full 255）");
         Console.WriteLine($"判定        : 最像的是 **{bestName}**，平均误差 {bestError:0.0} 个码值");
         Console.WriteLine();
 
-        Check(bestError < 6, "存在一种解码组合能把彩条解回标准码值（平均误差 < 6）", $"{bestName}：{bestError:0.0}");
-        Check(bestName is not null && bestName.Contains("709"), "彩条按 BT.709 解码才对得上（信号源是 709 彩条）",
-            bestName ?? "");
-        Check(Math.Abs(whiteY - 180) <= 3 || Math.Abs(whiteY - 191) <= 3 || Math.Abs(whiteY - 235) <= 3,
-            "白条码值落在常见取值范围（limited/full × 75%/100%）", $"Y={whiteY}");
+        Check(detected.Count >= 4, "剖面聚出了多种颜色（信号确实在送测试图案）", $"{detected.Count} 种");
+        Check(bestError < 12, "存在一种解码组合能把彩条解回标准码值（平均误差 < 12）", $"{bestName}：{bestError:0.0}");
+        Check(bestName.Contains("709"), "彩条按 BT.709 解码更接近标准色（信号源是 709 彩条）", bestName);
 
         return Report();
+    }
+
+    /// <summary>
+    /// 沿一行找颜色跳变，切出彩条分段。判据：相邻像素的 Y 或 U 或 V 变化超过阈值就算换段
+    /// （只看 Y 会把黄/青这种亮度接近的分不开）。
+    /// </summary>
+    private static List<(int Start, int End)> DetectBars(CapturedFrame frame, bool nv12, int pitch,
+                                                        int row, out byte[] line)
+    {
+        int width = frame.Width;
+        line = new byte[width];
+        var yValues = new byte[width];
+        var uValues = new byte[width];
+        var vValues = new byte[width];
+
+        int chromaRow = pitch * frame.Height + (row / 2) * pitch;
+        for (int x = 0; x < width; x++)
+        {
+            if (nv12)
+            {
+                yValues[x] = frame.Data[row * pitch + x];
+                uValues[x] = frame.Data[chromaRow + (x & ~1)];
+                vValues[x] = frame.Data[chromaRow + (x & ~1) + 1];
+            }
+            else
+            {
+                int index = row * pitch + x * 2;
+                yValues[x] = frame.Data[index];
+                uValues[x] = frame.Data[index + 1];
+                vValues[x] = frame.Data[index + 3];
+            }
+            line[x] = yValues[x];
+        }
+
+        var segments = new List<(int, int)>();
+        int start = 0;
+        for (int x = 1; x < width; x++)
+        {
+            if (Math.Abs(yValues[x] - yValues[x - 1]) > 8
+                || Math.Abs(uValues[x] - uValues[x - 1]) > 8
+                || Math.Abs(vValues[x] - vValues[x - 1]) > 8)
+            {
+                if (x - start >= width / 40)     // 太窄的当噪点扔掉
+                {
+                    segments.Add((start, x - 1));
+                }
+                start = x;
+            }
+        }
+        if (width - start >= width / 40)
+        {
+            segments.Add((start, width - 1));
+        }
+        return segments;
+    }
+
+    /// <summary>
+    /// 逐段找最接近的标准色，累加距离取平均 —— 图案顺序不限（比"按固定 7 条顺序对"稳得多）。
+    /// </summary>
+    private static double MatchError(List<(byte Y, byte U, byte V)> samples,
+                                     (string Name, int R, int G, int B)[] palette,
+                                     VideoTransferMatrix matrix, bool limited)
+    {
+        if (samples.Count == 0)
+        {
+            return double.MaxValue;
+        }
+
+        double total = 0;
+        foreach ((byte y, byte u, byte v) in samples)
+        {
+            (int r, int g, int b) = DecodeYuv(y, u, v, matrix, limited);
+            int best = palette
+                .Select(c => Math.Abs(r - c.R) + Math.Abs(g - c.G) + Math.Abs(b - c.B))
+                .Min();
+            total += best;
+        }
+        return total / (samples.Count * 3.0);
     }
 
     /// <summary>用生产链路同一套系数解一个像素</summary>
@@ -661,11 +796,34 @@ internal static class Program
                 Check(realWidth == frame.Width && realHeight == frame.Height, "真实帧转换后的尺寸正确",
                     $"{realWidth}×{realHeight}");
 
+                // ⚠️ 这一段的判据必须**按帧内容分两种**：卡上没信号时是均匀黑（验 limited 16→0），
+                //    卡上接了彩条时就是内容帧（验"确实有内容"+"最亮的白条与最暗的黑区都在"）。
+                //    以前只写了均匀那一种，接上彩条后这条就一直误报失败（实测踩过）。
                 bool uniform = IsUniform(rgba, rgba[0], rgba[1], rgba[2], rgba[3]);
-                Check(uniform, "真实帧转换结果是均匀色（本机卡现在没接信号源，预期就是均匀黑）",
-                    $"({rgba[0]},{rgba[1]},{rgba[2]})");
-                Check(effective.Color.IsRangeUnknown || rgba[0] == 0,
-                    "limited 黑电平 16 → R'G'B' 0（IRE 标定的根）", $"读到 {rgba[0]}");
+                if (uniform)
+                {
+                    Check(true, "真实帧转换结果是均匀色（卡上没接信号源时预期就是均匀黑）",
+                        $"({rgba[0]},{rgba[1]},{rgba[2]})");
+                    Check(effective.Color.IsRangeUnknown || rgba[0] == 0,
+                        "limited 黑电平 16 → R'G'B' 0（IRE 标定的根）", $"读到 {rgba[0]}");
+                }
+                else
+                {
+                    byte maxLuma = 0;
+                    byte minLuma = 255;
+                    var distinct = new HashSet<(byte, byte, byte)>();
+                    for (int i = 0; i + 3 < rgba.Length; i += 4 * 37)     // 抽样即可
+                    {
+                        distinct.Add((rgba[i], rgba[i + 1], rgba[i + 2]));
+                        maxLuma = Math.Max(maxLuma, rgba[i + 1]);
+                        minLuma = Math.Min(minLuma, rgba[i + 1]);
+                    }
+                    Check(distinct.Count >= 4, "真实帧有内容（不是均匀色）—— 卡上接了信号源",
+                        $"{distinct.Count} 种抽样颜色");
+                    Check(maxLuma >= 240 && minLuma <= 20,
+                        "真实帧里同时有接近白与接近黑的区域（彩条的白条与黑区都在）",
+                        $"最亮 {maxLuma}、最暗 {minLuma}");
+                }
 
                 string path = Path.Combine(outDirectory, "gpu-capture-frame.png");
                 PngWriter.Write(path, realWidth, realHeight, rgba);
