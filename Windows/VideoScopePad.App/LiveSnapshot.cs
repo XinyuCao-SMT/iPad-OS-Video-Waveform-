@@ -37,9 +37,23 @@ public static class LiveSnapshot
         width = session.Width;
         height = session.Height;
         var frame = new byte[width * height * 4];
-        if (!session.TryCopyLatestFrame(frame))
+
+        // ⚠️ 取帧要**等一下新帧**，不能"拿不到就抛"：TryCopyLatestFrame 只在
+        //    "上一帧已经被取走过"时才返回 false —— 断言之间连着取两次、或者真实设备
+        //    正好卡在两次交换之间，都会命中（实测：真实采集卡 60 fps 下冻结参考那一段
+        //    偶发抛"还没有可保存的帧"，合成源 400 fps 时不出现）。
+        //    这里退避重试，链路真的停了才抛。
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (!session.TryCopyLatestFrame(frame))
         {
-            throw new InvalidOperationException("还没有可保存的帧（链路可能还没跑起来）");
+            if (DateTime.UtcNow >= deadline)
+            {
+                throw new InvalidOperationException(
+                    "还没有可保存的帧（链路停了？3 秒内没等到新帧）"
+                    + $"　链路最后状态：帧数 {session.Stats.Frames}、"
+                    + $"消息：{(string.IsNullOrEmpty(session.Stats.Message) ? "（空）" : session.Stats.Message)}");
+            }
+            Thread.Sleep(4);
         }
 
         var bitmap = BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, frame, width * 4);

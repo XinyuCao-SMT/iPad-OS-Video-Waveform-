@@ -23,13 +23,15 @@
       <DockPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
           <TextBlock Text="信号源" Foreground="#9AA4B2" VerticalAlignment="Center" Margin="0,0,8,0"/>
-          <ComboBox x:Name="SourceBox" Width="190" SelectedIndex="0"
+          <!-- 选项在代码里按**实时设备列表**建（不再写死三档）：多张卡/多台摄像头都列出来 -->
+          <ComboBox x:Name="SourceBox" Width="230"
                     SelectionChanged="OnSourceChanged"
-                    Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440">
-            <ComboBoxItem Content="合成测试信号（无需硬件）"/>
-            <ComboBoxItem Content="HDMI 采集卡（UT-VID）"/>
-            <ComboBoxItem Content="摄像头"/>
-          </ComboBox>
+                    Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"/>
+
+          <Button x:Name="RefreshDevicesButton" Content="刷新设备" Margin="6,0,0,0" Padding="10,4"
+                  Click="OnRefreshDevices" Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"/>
+          <TextBlock x:Name="DeviceStateText" Foreground="#E8C46A" VerticalAlignment="Center"
+                     Margin="10,0,0,0" TextTrimming="CharacterEllipsis" MaxWidth="320"/>
 
           <Button x:Name="SaveButton" Content="存一帧 PNG" Margin="12,0,0,0" Padding="12,4"
                   Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440"

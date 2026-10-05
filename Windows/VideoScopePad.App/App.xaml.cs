@@ -13,6 +13,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 
@@ -25,6 +26,15 @@ public partial class App : Application
         base.OnStartup(e);
 
         string? snapshot = ArgumentValue(e.Args, "--snapshot");
+
+        // --list-devices 也要走无窗口分支：它只想打印设备列表就走。
+        // ⚠️ 漏了这一步的话程序会去开窗口，命令行就永远不返回 —— 实测踩过。
+        if (e.Args.Any(a => string.Equals(a, "--list-devices", StringComparison.OrdinalIgnoreCase)))
+        {
+            Shutdown(ListDevices());
+            return;
+        }
+
         if (snapshot is not null)
         {
             int exitCode = RunHeadless(e.Args, snapshot);
@@ -34,6 +44,21 @@ public partial class App : Application
 
         var window = new MainWindow(e.Args);
         window.Show();
+    }
+
+    /// <summary>列出本机所有视频采集设备（带插拔稳定的标识），打印完即退出。</summary>
+    private static int ListDevices()
+    {
+        using var mediaFoundation = MediaFoundationRuntime.Start();
+        var watcher = new DeviceWatcher();
+        watcher.Refresh();
+        Console.WriteLine($"枚举到 {watcher.Devices.Count} 个视频采集设备（标识 = 符号链接，插拔稳定）：");
+        foreach (CaptureDeviceInfo info in watcher.Devices)
+        {
+            Console.WriteLine($"  [{info.Index}] {info.FriendlyName}");
+            Console.WriteLine($"       key = {DeviceWatcher.KeyOf(info)}");
+        }
+        return 0;
     }
 
     /// <summary>
@@ -120,6 +145,10 @@ public partial class App : Application
             report.Add(string.Empty);
             report.Add("断言：");
 
+            // ---------- 设备列表与热插拔的纯逻辑（不需要硬件在场，随发布自检一起跑）----------
+            report.Add("设备列表逻辑（Diff 是纯函数，插拔不可自动化所以直接测算法）：");
+            exitCode |= CheckDeviceWatcherLogic(report);
+
             if (!session.TryMapVideoPixelToFrame(25, 25, out int whiteX, out int whiteY))
             {
                 report.Add("  ✗ 布局里没有画面格，无法取样");
@@ -157,6 +186,34 @@ public partial class App : Application
                 report.Add($"  · 画面格取样（视频 (25,25) → 帧缓冲 {whiteX},{whiteY}）："
                          + $"BGRA=({frame[index]},{frame[index + 1]},{frame[index + 2]})"
                          + "　真实设备的画面内容取决于信源，不做码值断言");
+
+                // 真设备这一路要断言的是「链路真的在出帧」而不是画面内容：
+                // 设备没打开时程序会显示合成信号兜底（界面不至于全黑），
+                // 所以**不能拿总帧数当证据** —— 那会把"设备其实没出帧"判成通过（实测踩过）。
+                // 判据用采集帧率（>0 才说明真的从设备读到帧）与设备状态。
+                bool deviceProducing = stats.CaptureFps > 0.5;
+                report.Add($"  {(deviceProducing ? "✓" : "✗")} 设备真的在出帧：采集 {stats.CaptureFps:0.###} fps"
+                         + $"（渲染总计 {stats.Frames} 帧 —— 设备没打开时会拿合成信号兜底，所以总帧数不算证据）");
+                if (!deviceProducing)
+                {
+                    exitCode = 1;
+                }
+
+                bool hasFormat = stats.Format.Length > 1 && stats.Format != "—";
+                report.Add($"  {(hasFormat ? "✓" : "✗")} 真实设备报出了生效格式（{stats.Format}）");
+                if (!hasFormat)
+                {
+                    exitCode = 1;
+                }
+
+                string state = session.DeviceState;
+                bool deviceOpen = state == "正常";
+                report.Add($"  {(deviceOpen ? "✓" : "✗")} 选中的设备确实被打开（信号源名：{stats.Source}、"
+                         + $"设备状态：{(string.IsNullOrEmpty(state) ? "—" : state)}）");
+                if (!deviceOpen)
+                {
+                    exitCode = 1;
+                }
             }
 
             int distinct = CountDistinctColors(frame, 4096);
@@ -168,7 +225,19 @@ public partial class App : Application
             }
 
             // ---------- 刻度层：纵轴映射 + 目标框与轨迹是否真的对齐 ----------
+            // ⚠️ 这一块与下面「幅度读数」「钻石图/马蹄图落点」都建立在**合成图案**上
+            //    （彩条位置、灰阶斜坡、75% 码值都是已知的）。换成真实信号源（`--source device`）
+            //    时信源内容未知，这些断言不能跑、更不能判失败 —— 真实源要验的是
+            //    「取到帧 / 报出格式 / 设备真的被打开 / 参考层与读数链路可用」。
+            bool syntheticSource = ParseSource(source) == LiveSourceKind.Synthetic;
             report.Add(string.Empty);
+            if (!syntheticSource)
+            {
+                report.Add("真实信号源：跳过基于合成图案的码值/落点断言（信源内容未知），"
+                         + "只保留与内容无关的部分（设备是否出帧、布局与引擎取数、参考层）：");
+            }
+            else
+            {
             report.Add("刻度层断言（刻度必须与轨迹对齐，否则等于没有刻度）：");
 
             // ① 纵轴映射：本工程在采集入口就把 limited 展开成 full，
@@ -337,6 +406,7 @@ public partial class App : Application
                 report.Add($"  {(saturationOk ? "✓" : "✗")} 色度峰 ≈ 89%（75% 目标框最远的那两个：G / Mg；B / Yl 只有 75.3%）");
                 exitCode |= saturationOk ? 0 : 1;
             }
+            }   // ← 合成图案相关的断言到此为止（真实信号源跳过）
 
             // ---------- 格子内容可选：布局 / 引擎设置 / 钻石图与马蹄图的刻度 ----------
             report.Add(string.Empty);
@@ -382,6 +452,13 @@ public partial class App : Application
                                                 out fw, out fh);
 
             // ④ 钻石图：灰阶斜坡在钻石图里是一条**正中竖线**（x = 绘图区中线）
+            //    （同样是"已知合成图案"才成立 —— 真实信号源跳过，见上面的 syntheticSource）
+            if (!syntheticSource)
+            {
+                report.Add("  · 钻石图/马蹄图的落点断言按合成图案的已知彩条位置算，真实信号源下不适用（跳过）");
+            }
+            else
+            {
             PaneLayout? diamondPane = quadLayout.Panes.FirstOrDefault(p => p.Content == PaneContent.Diamond);
             if (diamondPane?.Plot is { } diamondPlotUnit)
             {
@@ -489,6 +566,7 @@ public partial class App : Application
                 report.Add("  ✗ 布局里没有马蹄图格");
                 exitCode = 1;
             }
+            }   // ← 钻石图/马蹄图落点断言结束
 
             // ⑥ CIE 映射常量与着色器手抄一致（两处都改了才不会错位）
             exitCode |= CheckCieConstantsMatchShader(report);
@@ -705,6 +783,64 @@ public partial class App : Application
             return new CpuReference(Ire(peak), Ire(stable), Ire(black), Ire(stableBlack),
                                     Ire(mean), peak, stable, black, stableBlack, mean);
         }
+    }
+
+    /// <summary>
+    /// 设备列表差异逻辑的断言。热插拔本身没法自动测（要真拔线），
+    /// 但「谁进来了、谁走了、标识稳不稳」是纯函数 —— 这里把它钉死，
+    /// 这样以后改设备相关代码时，逻辑回归会被抓到。
+    /// </summary>
+    private static int CheckDeviceWatcherLogic(List<string> report)
+    {
+        int failed = 0;
+
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok)
+            {
+                failed++;
+            }
+        }
+
+        (IReadOnlyList<string> added, IReadOnlyList<string> removed) = DeviceWatcher.Diff(
+            Array.Empty<string>(), new[] { "A", "B" });
+        Check(added.Count == 2 && removed.Count == 0, "空列表 →[A,B]：认出 2 个新设备、0 个离开");
+
+        (added, removed) = DeviceWatcher.Diff(new[] { "A", "B" }, new[] { "B", "C" });
+        Check(added.Count == 1 && added[0] == "C" && removed.Count == 1 && removed[0] == "A",
+              "列表 [A,B]→[B,C]：只报进 C / 出 A（没把 B 当成「走了又来」）");
+
+        (added, removed) = DeviceWatcher.Diff(new[] { "A", "B" }, new[] { "A", "B" });
+        Check(added.Count == 0 && removed.Count == 0, "列表不变：无增删（不会无谓地重建下拉）");
+
+        (added, removed) = DeviceWatcher.Diff(new[] { "A", "A", "B" }, new[] { "A", "B" });
+        Check(added.Count == 0 && removed.Count == 0,
+              "同名设备重复出现（NDI 那类虚拟摄像头）→ 按集合比较，不算插拔");
+
+        var withLink = new CaptureDeviceInfo(0, "UT-VID 00K0601910", @"\\?\usb#vid_1f6a", Guid.Empty, Guid.Empty, true);
+        var withoutLink = new CaptureDeviceInfo(1, "Integrated Camera", string.Empty, Guid.Empty, Guid.Empty, true);
+        Check(DeviceWatcher.KeyOf(withLink) == @"\\?\usb#vid_1f6a",
+              "标识优先用符号链接（同一张卡换个 USB 口仍是「同一台」）");
+        Check(DeviceWatcher.KeyOf(withoutLink) == "Integrated Camera",
+              "没有符号链接才退回设备名（不能用序号：插拔一次序号就整体平移）");
+
+        // 顺带把本机实际枚举到的东西记一行（信息性，不参与判定 —— 卡没插时自检也不该红）
+        try
+        {
+            var watcher = new DeviceWatcher();
+            watcher.Refresh();
+            bool hasCard = watcher.Devices.Any(d => d.FriendlyName.Contains("UT-VID", StringComparison.OrdinalIgnoreCase));
+            report.Add($"  · 本机当前枚举到 {watcher.Devices.Count} 个视频采集设备，"
+                     + $"其中 UT-VID 采集卡：{(hasCard ? "在场" : "不在场")}"
+                     + $"（{string.Join(" / ", watcher.Devices.Select(d => d.FriendlyName).Take(6))}…）");
+        }
+        catch (Exception ex)
+        {
+            report.Add($"  · 本机设备枚举失败（不影响判定）：{ex.GetType().Name}: {ex.Message}");
+        }
+
+        return failed;
     }
 
     /// <summary>
@@ -1059,6 +1195,7 @@ public partial class App : Application
     {
         "card" or "capture" or "capturecard" or "采集卡" => LiveSourceKind.CaptureCard,
         "camera" or "webcam" or "摄像头" => LiveSourceKind.Camera,
+        "device" or "dev" or "设备" => LiveSourceKind.Device,
         _ => LiveSourceKind.Synthetic,
     };
 

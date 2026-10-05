@@ -52,6 +52,9 @@ internal static class Program
                 case "bars":
                     return Bars(args);
 
+                case "devices":
+                    return Devices();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -426,8 +429,47 @@ internal static class Program
     }
 
     // ------------------------------------------------------------------
-    //  ⑤ 彩条校对：用真实信号定案「BT.601 还是 BT.709」+ 量化范围
+    //  ⑥ 设备清单：多张卡/摄像头都在这里，标识用符号链接（插拔稳定）
     // ------------------------------------------------------------------
+    private static int Devices()
+    {
+        using var mf = MediaFoundationRuntime.Start();
+        var watcher = new DeviceWatcher();
+        DeviceListChange change = watcher.Refresh();
+
+        Console.WriteLine($"枚举到 {watcher.Devices.Count} 个视频采集设备"
+                        + $"（列表版本 {watcher.Revision}，增删 {change.Added.Count}/{change.Removed.Count}）：");
+        Console.WriteLine();
+        foreach (CaptureDeviceInfo info in watcher.Devices)
+        {
+            Console.WriteLine($"  [{info.Index}] {info.FriendlyName}"
+                            + (info.IsHardwareSource ? "（硬件源）" : "（软件源，如虚拟摄像头）"));
+            Console.WriteLine($"       key = {DeviceWatcher.KeyOf(info)}");
+        }
+        Console.WriteLine();
+
+        // 再刷一次：两次枚举的集合必须一致（不一致说明枚举本身不稳定，那样的"热插拔"会乱报）
+        var second = new DeviceWatcher();
+        second.Refresh();
+        var firstKeys = watcher.Devices.Select(DeviceWatcher.KeyOf).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        var secondKeys = second.Devices.Select(DeviceWatcher.KeyOf).OrderBy(k => k, StringComparer.Ordinal).ToList();
+        bool stable = firstKeys.SequenceEqual(secondKeys, StringComparer.Ordinal);
+
+        Check(stable, "连续两次枚举结果一致（枚举稳定，Differ 才不会乱报插拔）",
+            $"{firstKeys.Count} vs {secondKeys.Count}");
+        Check(watcher.Devices.All(d => DeviceWatcher.KeyOf(d).Length > 0), "每个设备都有非空标识",
+            string.Join(",", watcher.Devices.Select(d => DeviceWatcher.KeyOf(d).Length)));
+
+        // 同名设备（NDI 那类）也不能有重复标识 —— 有重复的话"选中的是哪一台"就不确定了
+        bool uniqueKeys = firstKeys.Distinct(StringComparer.Ordinal).Count() == firstKeys.Count;
+        Check(uniqueKeys, "标识互不重复（同名设备也能分辨）",
+            uniqueKeys ? string.Empty : string.Join(" | ", firstKeys.GroupBy(k => k).Where(g => g.Count() > 1).Select(g => g.Key)));
+
+        bool hasCard = watcher.Devices.Any(d => d.FriendlyName.Contains("UT-VID", StringComparison.OrdinalIgnoreCase));
+        Console.WriteLine($"  · UT-VID 采集卡：{(hasCard ? "在场" : "不在场（这项只是信息，不算失败）")}");
+        return Report();
+    }
+
     /// <summary>
     /// 抓一帧真实彩条，打印 7 条彩条的**原始码值**，再用
     /// 「601/709 × limited/full」四种组合分别解码，看哪种解得回标准彩条码值。

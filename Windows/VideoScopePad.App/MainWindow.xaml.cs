@@ -17,6 +17,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 
@@ -257,12 +258,22 @@ public partial class MainWindow : Window
     private void OnLoaded(object? sender, RoutedEventArgs e)
     {
         _session.Start();
+
+        // 设备列表要等渲染线程第一次枚举完才有；这里先按"没设备"建一版，随后按版本号重建
+        (string? savedKey, string? savedName) = LoadDeviceSelection();
+        _pendingDeviceKey = savedKey;
+        _pendingDeviceName = savedName;
+        RebuildSourceBox(savedKey, savedName);
+
         Graticule.SetFrameSize(_session.Width, _session.Height);
         Graticule.Options = new GraticuleOptions();
         CompositionTarget.Rendering += OnRendering;
         SizeChanged += (_, _) => Graticule.InvalidateVisual();
         DetailText.Text = $"链路就绪：{_session.Width}×{_session.Height} 四分割（画面 / 亮度波形 / 矢量图 / RGB Parade）";
     }
+
+    private string? _pendingDeviceKey;
+    private string? _pendingDeviceName;
 
     private void OnClosed(object? sender, EventArgs e)
     {
@@ -297,6 +308,16 @@ public partial class MainWindow : Window
             DetailText.Text = $"{stats.Source}　·　{stats.Format}　·　{stats.Color}";
             MessageText.Text = stats.Message;
             UpdateMatrixHint();
+
+            // 设备列表变了（插拔 / 刷新）→ 重建下拉并保住当前选择
+            if (_session.DeviceListRevision != _lastDeviceRevision)
+            {
+                _lastDeviceRevision = _session.DeviceListRevision;
+                RebuildSourceBox(_pendingDeviceKey ?? _session.SelectedDeviceKey, _pendingDeviceName);
+                _pendingDeviceKey = null;
+                _pendingDeviceName = null;
+            }
+            DeviceStateText.Text = _session.DeviceState;
 
             // 布局是渲染线程算出来的：按引用变化同步给刻度层（换分辨率/换源时会重建）
             Graticule.Layout = _session.Layout;
@@ -409,19 +430,141 @@ public partial class MainWindow : Window
         _session.ReferenceOpacity = e.NewValue;
     }
 
+    // ------------------------------------------------------------------
+    //  信号源下拉：按**实时设备列表**建，记住上次选的设备
+    // ------------------------------------------------------------------
+
+    private const string SyntheticItem = "合成测试信号（无需硬件）";
+    private int _lastDeviceRevision = -1;
+    private bool _buildingSourceBox;
+
+    /// <summary>
+    /// 用当前设备列表重建下拉。设备用**标识**（符号链接）挂在 Tag 上 ——
+    /// 不用序号：插拔一次序号就整体平移，会把"选中的卡"悄悄换成另一台设备。
+    /// </summary>
+    private void RebuildSourceBox(string? preferredKey, string? preferredName)
+    {
+        _buildingSourceBox = true;
+        try
+        {
+            object? selected = null;
+            SourceBox.Items.Clear();
+            SourceBox.Items.Add(new ComboBoxItem { Content = SyntheticItem, Tag = null });
+
+            foreach (CaptureDeviceInfo info in _session.AvailableDevices)
+            {
+                string key = DeviceWatcher.KeyOf(info);
+                var item = new ComboBoxItem
+                {
+                    Content = $"[{info.Index}] {info.FriendlyName}",
+                    Tag = key,
+                };
+                SourceBox.Items.Add(item);
+                if (preferredKey is not null && string.Equals(key, preferredKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = item;
+                }
+                else if (selected is null && preferredKey is null && preferredName is not null
+                         && info.FriendlyName.Contains(preferredName, StringComparison.OrdinalIgnoreCase))
+                {
+                    selected = item;    // 标识变了（换了 USB 口）但名字还在：按名字兜一下
+                }
+            }
+
+            // 选中的设备当前不在场：把它作为"等待接入"的条目留在列表里，别让用户的选择丢掉
+            if (preferredKey is not null && selected is null)
+            {
+                var missing = new ComboBoxItem
+                {
+                    Content = $"（等待接入）{preferredName ?? preferredKey}",
+                    Tag = preferredKey,
+                };
+                SourceBox.Items.Add(missing);
+                selected = missing;
+            }
+
+            SourceBox.SelectedItem = selected ?? SourceBox.Items[0];
+        }
+        finally
+        {
+            _buildingSourceBox = false;
+        }
+    }
+
     private void OnSourceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
-        if (!IsLoaded)
+        if (!IsLoaded || _buildingSourceBox)
         {
             return;
         }
-        var kind = SourceBox.SelectedIndex switch
+
+        if (SourceBox.SelectedItem is not ComboBoxItem item)
         {
-            1 => LiveSourceKind.CaptureCard,
-            2 => LiveSourceKind.Camera,
-            _ => LiveSourceKind.Synthetic,
-        };
-        _session.SwitchSource(kind);
+            return;
+        }
+
+        string? key = item.Tag as string;
+        string name = item.Content?.ToString() ?? string.Empty;
+        _session.SelectDevice(key, name);
+        SaveDeviceSelection(key, name);
+    }
+
+    private void OnRefreshDevices(object sender, RoutedEventArgs e)
+    {
+        _session.RequestDeviceRefresh();
+        DeviceStateText.Text = "正在刷新设备列表…";
+    }
+
+    /// <summary>把上次选的设备记在 %LOCALAPPDATA%\VideoScopePad\settings.txt（一行 key=value）</summary>
+    private static string SettingsPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "VideoScopePad", "settings.txt");
+
+    private static void SaveDeviceSelection(string? key, string? name)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+            File.WriteAllLines(SettingsPath, new[]
+            {
+                "device=" + (key ?? string.Empty),
+                "deviceName=" + (name ?? string.Empty),
+            });
+        }
+        catch (Exception)
+        {
+            // 记不住就算了：设置文件写不了不该影响监视
+        }
+    }
+
+    private static (string? Key, string? Name) LoadDeviceSelection()
+    {
+        try
+        {
+            if (!File.Exists(SettingsPath))
+            {
+                return (null, null);
+            }
+
+            string? key = null;
+            string? name = null;
+            foreach (string line in File.ReadAllLines(SettingsPath))
+            {
+                if (line.StartsWith("device=", StringComparison.Ordinal))
+                {
+                    key = line["device=".Length..].Trim();
+                }
+                else if (line.StartsWith("deviceName=", StringComparison.Ordinal))
+                {
+                    name = line["deviceName=".Length..].Trim();
+                }
+            }
+            return (string.IsNullOrEmpty(key) ? null : key, string.IsNullOrEmpty(name) ? null : name);
+        }
+        catch (Exception)
+        {
+            return (null, null);
+        }
     }
 
     private void OnSaveClicked(object sender, RoutedEventArgs e)

@@ -1,4 +1,4 @@
-//
+﻿//
 //  LiveSession.cs
 //  VideoScopePad.App
 //
@@ -30,14 +30,12 @@ namespace VideoScopePad.App;
 /// <summary>信号源</summary>
 public enum LiveSourceKind
 {
-    /// <summary>合成测试信号（彩条 + PLUGE + 灰阶；不需要任何硬件，界面自检用）</summary>
     Synthetic,
-
-    /// <summary>HDMI 采集卡（UVC）</summary>
+    /// <summary>HDMI/UVC 采集卡（旧的固定写法，实际用哪个设备看 SelectedDeviceKey）</summary>
     CaptureCard,
-
-    /// <summary>摄像头（内建 / 外接 USB）</summary>
     Camera,
+    /// <summary>按设备标识选的任意一路采集设备（多张卡时用这个）</summary>
+    Device,
 }
 
 /// <summary>一帧的统计信息（界面顶部那一行就显示它）</summary>
@@ -75,7 +73,20 @@ public sealed class LiveSession : IDisposable
     private Thread? _thread;
     private volatile bool _running;
     private volatile bool _rebuildRequested = true;
+    /// <summary>换源/换设备才置位（会拆掉采集设备重开）；布局变化不要置这个，见渲染循环里的说明</summary>
+    private volatile bool _sourceChanged = true;
     private volatile LiveSourceKind _kind = LiveSourceKind.Synthetic;
+
+    // 设备列表 / 热插拔状态
+    private readonly DeviceWatcher _watcher = new();
+    private int _deviceRevision;
+    private volatile bool _deviceRefreshRequested;
+    private volatile bool _pendingDeviceResolve;
+    private string? _selectedDeviceKey;
+    private string? _selectedDeviceName;
+    private string _deviceState = string.Empty;
+    private DateTime _nextOpenAttempt = DateTime.MinValue;
+    private DateTime _nextDeviceRefresh = DateTime.MinValue;
     private volatile string _deviceFragment = "UT-VID";
     private LiveStats _stats = LiveStats.Empty;
     private int _videoWidth;
@@ -182,7 +193,7 @@ public sealed class LiveSession : IDisposable
             return;
         }
         _quadContents[slot] = content;
-        _rebuildRequested = true;
+        _sourceChanged = true;
     }
 
     /// <summary>无窗口自检用：跑够这么多帧就自己退出（0 = 一直跑）</summary>
@@ -228,15 +239,54 @@ public sealed class LiveSession : IDisposable
 
     public LiveSourceKind Source => _kind;
 
+    // ------------------------------------------------------------------
+    //  设备列表与热插拔（不再假设只有一张卡）
+    // ------------------------------------------------------------------
+
+    /// <summary>最近一次枚举到的设备列表（渲染线程刷新，界面只读快照）</summary>
+    public IReadOnlyList<CaptureDeviceInfo> AvailableDevices => _watcher.Devices;
+
+    /// <summary>设备列表版本号：界面靠它判断要不要重建下拉</summary>
+    public int DeviceListRevision => Volatile.Read(ref _deviceRevision);
+
+    /// <summary>当前选中的设备标识（符号链接；null = 合成信号）</summary>
+    public string? SelectedDeviceKey => _selectedDeviceKey;
+
+    /// <summary>设备在场状态的人话描述（等待接入 / 已被占用 / 正常）</summary>
+    public string DeviceState => _deviceState;
+
+    /// <summary>立刻重新枚举设备（界面上的「刷新设备」按钮）</summary>
+    public void RequestDeviceRefresh() => _deviceRefreshRequested = true;
+
+    /// <summary>
+    /// 选设备：key 是 <see cref="DeviceWatcher.KeyOf"/> 出来的标识；传 null = 回到合成信号。
+    /// 切源与"设备回来了自动重开"走的是同一条路（下一帧重建）。
+    /// </summary>
+    public void SelectDevice(string? key, string? displayName = null)
+    {
+        _selectedDeviceKey = key;
+        _selectedDeviceName = displayName ?? key;
+        _kind = key is null ? LiveSourceKind.Synthetic : LiveSourceKind.Device;
+        _nextOpenAttempt = DateTime.MinValue;   // 立刻试一次，别等退避
+        _sourceChanged = true;
+    }
+
     /// <summary>切换信号源（渲染线程下一帧生效）</summary>
     public void SwitchSource(LiveSourceKind kind, string? deviceFragment = null)
     {
         _kind = kind;
-        if (!string.IsNullOrWhiteSpace(deviceFragment))
+        if (kind == LiveSourceKind.Synthetic)
+        {
+            _selectedDeviceKey = null;
+            _selectedDeviceName = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(deviceFragment))
         {
             _deviceFragment = deviceFragment!;
+            _pendingDeviceResolve = true;   // 片段 → 标识的解析放在渲染线程（枚举要在那边做）
         }
-        _rebuildRequested = true;
+        _nextOpenAttempt = DateTime.MinValue;
+        _sourceChanged = true;
     }
 
     public void Start()
@@ -380,10 +430,79 @@ public sealed class LiveSession : IDisposable
 
             while (_running)
             {
-                // ---------- 换源 ----------
+                // ---------- 设备在场服务（每帧，内部节流）----------
+                // 为什么放在这儿而不是放在重建分支里：重建分支只在"换源"时跑一次，
+                // 而热插拔要**持续**看着设备列表 —— 每帧检查、每秒真枚举。
+                if (_deviceRefreshRequested || DateTime.UtcNow >= _nextDeviceRefresh)
+                {
+                    _deviceRefreshRequested = false;
+                    _nextDeviceRefresh = DateTime.UtcNow.AddSeconds(1);
+                    _watcher.Refresh();
+                    Volatile.Write(ref _deviceRevision, _watcher.Revision);
+                }
+
+                if (_kind != LiveSourceKind.Synthetic)
+                {
+                    // 名字片段 → 设备标识（片段是命令行/旧界面给的，标识才是稳定选择）
+                    if (_pendingDeviceResolve && DateTime.UtcNow >= _nextOpenAttempt)
+                    {
+                        CaptureDeviceInfo? resolved = _watcher.FindByKeyOrName(_deviceFragment ?? string.Empty)
+                            ?? (int.TryParse(_deviceFragment, out int index) ? _watcher.FindByIndex(index) : null);
+                        if (resolved is not null)
+                        {
+                            _pendingDeviceResolve = false;
+                            _selectedDeviceKey = DeviceWatcher.KeyOf(resolved);
+                            _selectedDeviceName = resolved.FriendlyName;
+                            _sourceChanged = true;
+                        }
+                        else
+                        {
+                            // 还没插上：保持"待解析"，1 秒后再试（不会每帧刷）
+                            _nextOpenAttempt = DateTime.UtcNow.AddSeconds(1);
+                            _deviceState = $"等待设备接入（按名字找：{_deviceFragment}）";
+                        }
+                    }
+
+                    if (device is not null && _watcher.Find(_selectedDeviceKey) is null)
+                    {
+                        // 用着的设备被拔了：立刻释放句柄并回到"等待接入"（继续用会一直读失败）
+                        device.Dispose();
+                        device = null;
+                        _deviceState = "已被拔出";
+                        _sourceChanged = true;
+                    }
+                    else if (device is null && _selectedDeviceKey is not null && DateTime.UtcNow >= _nextOpenAttempt)
+                    {
+                        // 该开却还没开（首次 / 插回来了 / 上次被占用）：让重建分支去开，
+                        // 失败时那边会把 _nextOpenAttempt 往后推 1 秒，避免每帧都去抢设备
+                        _sourceChanged = true;
+                    }
+                }
+
+                // ---------- 布局变化：只重算布局，**绝不碰采集设备** ----------
+                // 🔴 血泪坑：以前把"重算布局"和"重开设备"合在一个 _rebuildRequested 分支里，
+                //    结果换一下格内容就把 UVC 设备拆掉重开 —— 重开要做格式协商 + 等首帧，
+                //    偶尔还会卡住（实测：真实卡跑 60 fps 时，切布局后帧数停在 77、
+                //    消息还是空的，因为渲染线程正卡在重开设备里）。
+                //    自检里那条"3 秒内没等到新帧"就是这么暴露出来的。
                 if (_rebuildRequested)
                 {
                     _rebuildRequested = false;
+                    if (device is not null && _videoWidth > 0 && _videoHeight > 0)
+                    {
+                        // 设备的画面尺寸不变 → 按当前视频尺寸重算布局即可
+                        SetLayout(renderer, _width, _height, _videoWidth, _videoHeight);
+                    }
+                    else
+                    {
+                        SetLayout(renderer, _width, _height, _width, _height);
+                    }
+                }
+
+                // ---------- 换源 / 设备重开：才需要拆掉设备 ----------
+                if (_sourceChanged)
+                {
+                    _sourceChanged = false;
                     device?.Dispose();
                     device = null;
                     currentKind = _kind;
@@ -395,37 +514,56 @@ public sealed class LiveSession : IDisposable
                         formatText = $"{_width}×{_height} 合成";
                         colorText = "全范围 0–255（合成信号本身就是 R'G'B'）";
                         message = "彩条 + PLUGE + 灰阶，另有一根扫过全场的竖线用来证明「画面是活的」";
+                        _deviceState = string.Empty;
                         SetLayout(renderer, _width, _height, _width, _height);
                     }
                     else
                     {
-                        // 采集卡按名字片段找；摄像头取内建那台
-                        string fragment = currentKind == LiveSourceKind.CaptureCard
-                            ? _deviceFragment
-                            : "Integrated Camera";
-                        try
+                        CaptureDeviceInfo? target = _watcher.Find(_selectedDeviceKey);
+                        if (target is null)
                         {
-                            device = CaptureDevice.OpenByName(fragment);
-                            IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
-                            CaptureFormat picked = CaptureFormat.PickPreferred(formats)
-                                ?? throw new InvalidOperationException("设备没有可用格式");
-                            CaptureFormat effective = device.SetNativeFormat(picked.NativeIndex);
-                            sourceName = device.Info.FriendlyName;
-                            formatText = effective.Describe();
-                            colorText = EffectiveColor(effective.Color).Summary
-                                      + (ColorMatrixOverride is null ? string.Empty : "（矩阵已手动覆盖）");
-                            SetLayout(renderer, _width, _height, (int)effective.Width, (int)effective.Height);
-                            message = string.Empty;
-                        }
-                        catch (Exception ex)
-                        {
-                            device = null;
-                            sourceName = currentKind == LiveSourceKind.CaptureCard ? "采集卡（未找到）" : "摄像头（未找到）";
+                            // 设备不在场：不报错、不清空选择，等它回来（这就是热插拔恢复）
+                            string wanted = _selectedDeviceName ?? _deviceFragment ?? "所选设备";
+                            sourceName = wanted;
                             formatText = "—";
                             colorText = "—";
-                            message = $"打开失败：{ex.Message}　→ 暂时显示合成信号"
-                                    + "（采集卡没插好 / HDMI 没接 / 被别的程序占用都会这样）";
+                            _deviceState = "等待设备接入";
+                            message = $"「{wanted}」现在不在设备列表里（拔掉了 / 还没插上）；"
+                                    + "插回来会自动恢复，不用重开程序";
                             SetLayout(renderer, _width, _height, _width, _height);
+                        }
+                        else if (device is null && DateTime.UtcNow >= _nextOpenAttempt)
+                        {
+                            try
+                            {
+                                device = CaptureDevice.Open(target);
+                                IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
+                                CaptureFormat picked = CaptureFormat.PickPreferred(formats)
+                                    ?? throw new InvalidOperationException("设备没有可用格式");
+                                CaptureFormat effective = device.SetNativeFormat(picked.NativeIndex);
+                                sourceName = device.Info.FriendlyName;
+                                _selectedDeviceName = sourceName;
+                                formatText = effective.Describe();
+                                colorText = EffectiveColor(effective.Color).Summary
+                                          + (ColorMatrixOverride is null ? string.Empty : "（矩阵已手动覆盖）");
+                                _deviceState = "正常";
+                                SetLayout(renderer, _width, _height, (int)effective.Width, (int)effective.Height);
+                                message = string.Empty;
+                            }
+                            catch (Exception ex)
+                            {
+                                device = null;
+                                sourceName = _selectedDeviceName ?? "采集设备";
+                                formatText = "—";
+                                colorText = "—";
+                                // 失败要退避重试：被别的程序占着（OBS 之类）时，一秒钟一次就够，
+                                // 每帧都去开只会在日志里刷屏、还拖慢渲染线程。
+                                _nextOpenAttempt = DateTime.UtcNow.AddSeconds(1);
+                                _deviceState = "打开失败，1 秒后重试";
+                                message = $"打开「{_selectedDeviceName}」失败：{ex.Message}"
+                                        + "　→ 暂时显示合成信号（设备被别的程序占用 / 没插好 / 没接信号都会这样）";
+                                SetLayout(renderer, _width, _height, _width, _height);
+                            }
                         }
                     }
                 }
