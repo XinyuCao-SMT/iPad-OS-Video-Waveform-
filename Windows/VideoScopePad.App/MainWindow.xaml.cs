@@ -394,7 +394,26 @@ public partial class MainWindow : Window
             //    所以它一直横着排，控件被顶到窗口外面（实测 LUT 取样下拉排到 x=2886，窗口才 1700 宽，
             //    于是"看不到"—— 不是颜色问题，是根本没显示在屏幕上）。
             //    在每次心跳里把最大宽度钉到窗口宽度即可，不用改动父级布局。
-            LayoutRow.MaxWidth = Math.Max(ActualWidth - 46, 320);
+            double rowWidth = Math.Max(ActualWidth - 46, 320);
+            // ⚠️ Width 默认是 NaN，而 Math.Abs(NaN - w) > 1 恒为 **false** ——
+            //    第一版就栽在这：整个块被跳过、宽度从没设上（诊断日志一条都没有，正是线索）。
+            if (double.IsNaN(LayoutRow.Width) || Math.Abs(LayoutRow.Width - rowWidth) > 1)
+            {
+                LayoutRow.Width = rowWidth;          // 显式宽度（MaxWidth 在某些父级下不触发换行）
+                LayoutRow.MaxWidth = rowWidth;
+
+            // 其余 WrapPanel 也要限宽：LUT 那几个控件当初加在了**另一行**，只限 LayoutRow 不管用。
+            // 父链给 WrapPanel 的可用宽是无限的，所以它一直横着排、控件被顶到窗口外面
+            // （实测「取样」下拉排到 x=2886、屏幕才 2560 宽 —— 用户说的"看不到当前选项"有一半是这个原因）。
+            foreach (WrapPanel other in FindWrapPanels(this))
+            {
+                if (!ReferenceEquals(other, LayoutRow) && (double.IsNaN(other.Width) || Math.Abs(other.Width - rowWidth) > 1))
+                {
+                    other.Width = rowWidth;
+                }
+            }
+                Diag.Log($"顶部控件行限宽 → {rowWidth:0}（窗口 {ActualWidth:0}）");
+            }
 
             // 超标报警：按版本号刷新（报警文字/红框不该每帧重建）
             if (_session.AlarmRevision != _lastAlarmRevision)
@@ -639,6 +658,24 @@ public partial class MainWindow : Window
             return;
         }
         ApplySourceSelection();
+    }
+
+    /// <summary>找出窗口里所有的 WrapPanel（用来统一限宽，逼它们换行）</summary>
+    private static IEnumerable<WrapPanel> FindWrapPanels(DependencyObject root)
+    {
+        int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; i++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+            if (child is WrapPanel panel)
+            {
+                yield return panel;
+            }
+            foreach (WrapPanel nested in FindWrapPanels(child))
+            {
+                yield return nested;
+            }
+        }
     }
 
     private void OnRefreshDevices(object sender, RoutedEventArgs e)
