@@ -1,4 +1,4 @@
-//
+﻿//
 //  Program.cs
 //  mf-capture
 //
@@ -62,6 +62,9 @@ internal static class Program
                 case "wasapi":
                     return WasapiFormats();
 
+                case "audiocapture":
+                    return AudioCapture();
+
                 case "audiodsp":
                     return AudioDsp();
 
@@ -118,6 +121,7 @@ internal static class Program
         Console.WriteLine("  audioreport         ⑬ 一帧音频报告自检（2ch / 8ch 组装，界面只需读它）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（注册表：名字/状态）");
         Console.WriteLine("  wasapi              ⑭ **真实格式**侦察（IAudioClient::GetMixFormat —— 几声道看它）");
+        Console.WriteLine("  audiocapture [秒数] ⑮ **实时抓音频** + 打印电平条 + 独占模式 8ch 探测");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
         Console.WriteLine("       --dump               额外打印原生媒体类型的属性集（默认就是打印当前生效的那条）");
@@ -468,6 +472,103 @@ internal static class Program
     //  ⑦ 音频端点侦察：先知道硬件给几声道（8ch 需求的关键前提）
     // ------------------------------------------------------------------
     /// <summary>⑭ WASAPI 真实格式侦察：GetMixFormat 才是"实际能拿到几声道"的依据</summary>
+    /// <summary>⑮ 实时抓音频：打印电平条 + 独占模式 8 声道探测（回答"能不能出 8ch"）</summary>
+    private static int AudioCapture(double seconds = 3.0)
+    {
+        IReadOnlyList<WasapiEndpointFormat> endpoints = WasapiFormatProbe.Enumerate();
+        WasapiEndpointFormat? active = endpoints.FirstOrDefault(e => e.IsActive && e.Channels > 0);
+        if (active is null)
+        {
+            Check(false, "找到一个在用的采集端点", "没有");
+            return Report();
+        }
+
+        Console.WriteLine($"抓取端点：{active.FriendlyName}（{active.Channels}ch @ {active.SampleRate} Hz）");
+        Console.WriteLine();
+
+        using var capture = new WasapiCapture();
+        if (!capture.Open(active.EndpointId))
+        {
+            Check(false, "打开音频端点（共享模式）", capture.LastError);
+            return Report();
+        }
+        Check(capture.Channels == active.Channels && capture.SampleRate == active.SampleRate,
+            $"抓取格式与 WASAPI 侦察一致（{capture.Channels}ch @ {capture.SampleRate} Hz）",
+            $"{capture.Channels}ch@{capture.SampleRate}");
+
+        if (!capture.Start())
+        {
+            Check(false, "启动抓取", capture.LastError);
+            return Report();
+        }
+
+        // 抓 seconds 秒，边抓边画电平条（每 0.25 s 重画一行，终端里能直接看到音频在动）
+        var meter = new ChannelLevelMeter(Math.Min(capture.Channels, 8));
+        DateTime deadline = DateTime.UtcNow.AddSeconds(seconds);
+        int redraws = 0;
+        double peakSeen = -240;
+        while (DateTime.UtcNow < deadline)
+        {
+            AudioCaptureFrame frame = capture.Latest;
+            if (frame.Channels.Length > 0)
+            {
+                IReadOnlyList<ChannelMeterState> states = meter.Update(frame.Channels, 0.05);
+                peakSeen = Math.Max(peakSeen, states.Max(s => s.LevelDbfs));
+                if (redraws++ % 5 == 0)
+                {
+                    Console.Write("\r" + RenderMeters(states.Select(s => (s.LevelDbfs, s.Clipped)).ToList()));
+                }
+            }
+            Thread.Sleep(50);
+        }
+        Console.WriteLine();
+        Console.WriteLine();
+
+        Check(capture.FramesCaptured > 0,
+            $"真的抓到了样本：{capture.FramesCaptured} 帧（{capture.FramesCaptured / (double)capture.SampleRate:0.00} 秒音频）"
+            + (capture.LastError.Length > 0 ? $"　错误：{capture.LastError}" : string.Empty),
+            $"{capture.FramesCaptured} 帧");
+        Check(!double.IsNegativeInfinity(peakSeen),
+            $"抓到期间最大电平 {peakSeen:0.0} dBFS（很有可能是静音，那是信号源的事，不是抓取的问题）",
+            $"{peakSeen:0.0}");
+
+        // 独占模式探测：能不能出 8 声道（这是用户最关心的那个问题）
+        Console.WriteLine("独占模式能力探测（IsFormatSupported，不会独占设备）：");
+        int supported8 = 0;
+        foreach (WasapiEndpointFormat endpoint in endpoints.Where(e => e.IsActive && e.Channels > 0))
+        {
+            ExclusiveFormatProbe probe = WasapiCapture.ProbeExclusive(endpoint.EndpointId, 8, 48000);
+            string verdict = probe.Supported
+                ? "支持 8ch@48k ✓"
+                : $"不支持（HRESULT 0x{probe.HResult:X8}"
+                  + (probe.ClosestChannels > 0 ? $"，最近可用 {probe.ClosestChannels}ch@{probe.ClosestSampleRate}" : string.Empty)
+                  + "）";
+            Console.WriteLine($"  {endpoint.FriendlyName,-28} {verdict}");
+            if (probe.Supported) { supported8++; }
+        }
+        Console.WriteLine();
+        Console.WriteLine($"  结论：{(supported8 > 0 ? $"有 {supported8} 个端点支持独占模式 8 声道 → 8ch 可行" : "没有任何端点支持独占模式 8 声道 → 8ch 需走厂商 SDK 或 ASIO")}");
+        Console.WriteLine();
+
+        return Report();
+    }
+
+    /// <summary>把电平画成一行文字条（终端里直接能看）</summary>
+    private static string RenderMeters(IReadOnlyList<(double Dbfs, bool Clipped)> levels)
+    {
+        var text = new System.Text.StringBuilder("  ");
+        for (int ch = 0; ch < levels.Count; ch++)
+        {
+            double dbfs = Math.Max(levels[ch].Dbfs, -60);
+            int filled = (int)Math.Round((dbfs + 60) / 60 * 12);
+            text.Append($"{(ch + 1),2}|");
+            text.Append(new string('#', Math.Clamp(filled, 0, 12)).PadRight(12));
+            text.Append('|');
+            text.Append(levels[ch].Clipped ? "CLIP" : $"{levels[ch].Dbfs,6:0.0}");
+            text.Append("  ");
+        }
+        return text.ToString();
+    }
     private static int WasapiFormats()
     {
         IReadOnlyList<WasapiEndpointFormat> endpoints = WasapiFormatProbe.Enumerate();

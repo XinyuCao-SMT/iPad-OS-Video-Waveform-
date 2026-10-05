@@ -117,8 +117,12 @@ public static class WasapiFormatProbe
     /// <summary>取端点 ID 末尾的 {guid} 部分（用于与注册表子键名对应）</summary>
     private static string GuidPart(string endpointId)
     {
+        // 🔴 根因：注册表子键名是**裸 GUID**（没有点），老写法在"没有点"的分支里没去大括号，
+        //    于是 key 是 "{guid}" 而 WASAPI 侧是 "guid" → 永远对不上（表现为 31 个端点全叫"注册表里没有的端点"）。
+        //    修法：两条分支都去大括号。
         int index = endpointId.LastIndexOf('.');
-        return index >= 0 ? endpointId[(index + 1)..].Trim('{', '}') : endpointId;
+        string part = index >= 0 ? endpointId[(index + 1)..] : endpointId;
+        return part.Trim('{', '}');
     }
 
     /// <summary>问这台设备的共享模式混音格式（拿不到就给 0，由调用方显示"未知"）</summary>
