@@ -5,5 +5,46 @@
     启动项在代码里（App.xaml.cs）：带 snapshot 参数时走无窗口自检，
     否则开主窗口。所以这里不设 StartupUri。
   -->
-  <Application.Resources />
+  <Application.Resources>
+    <!--
+      深色主题：下拉框的**弹出列表**必须单独设样式。
+      🔴 踩过的坑：只给 ComboBox 设 Background/Foreground 时，弹出列表里的
+      ComboBoxItem 仍是系统默认（浅色底），而前景色继承了我们设的浅色 ——
+      结果白底白字，用户看到的是"一列灰蒙蒙的、像是禁用、点了没反应"。
+      这里用不带 key 的隐式样式，一次覆盖全书所有下拉项。
+    -->
+    <SolidColorBrush x:Key="VspPanelBrush" Color="#22262E"/>
+    <SolidColorBrush x:Key="VspPanelHoverBrush" Color="#2E3644"/>
+    <SolidColorBrush x:Key="VspPanelSelectedBrush" Color="#3A4A5A"/>
+    <SolidColorBrush x:Key="VspTextBrush" Color="#E6EAF0"/>
+
+    <Style TargetType="{x:Type ComboBoxItem}">
+      <Setter Property="Background" Value="{StaticResource VspPanelBrush}"/>
+      <Setter Property="Foreground" Value="{StaticResource VspTextBrush}"/>
+      <Setter Property="Padding" Value="8,5"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="{x:Type ComboBoxItem}">
+            <Border x:Name="Bd"
+                    Background="{TemplateBinding Background}"
+                    Padding="{TemplateBinding Padding}"
+                    SnapsToDevicePixels="True">
+              <ContentPresenter />
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource VspPanelHoverBrush}"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="{StaticResource VspPanelSelectedBrush}"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#6C7686"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+  </Application.Resources>
 </Application>

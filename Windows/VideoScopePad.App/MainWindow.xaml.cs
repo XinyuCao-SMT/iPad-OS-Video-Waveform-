@@ -444,6 +444,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void RebuildSourceBox(string? preferredKey, string? preferredName)
     {
+        // 下拉正开着的时候不要重建：清了又加会让用户的点击落空（菜单会自己收起来/换位置），
+        // 表现就是"点不动、选不了"。等它关上再重建（版本号没变，下一帧会再进来）。
+        if (SourceBox.IsDropDownOpen)
+        {
+            return;
+        }
+
         _buildingSourceBox = true;
         try
         {
@@ -489,6 +496,34 @@ public partial class MainWindow : Window
         {
             _buildingSourceBox = false;
         }
+
+        // 🔴 关键一步：**程序里设的选中也要真的生效**。
+        //    SelectionChanged 在 _buildingSourceBox 期间是被屏蔽的（否则重建一次就会
+        //    连环触发），所以这里必须手动把选择送到会话 —— 否则会出现
+        //    「下拉显示的是采集卡，画面却还是合成信号」这种自相矛盾的状态（实测踩过）。
+        ApplySourceSelection();
+    }
+
+    /// <summary>把当前下拉选择送到会话并记住（用户点的 与 程序设的 都走这里）</summary>
+    private void ApplySourceSelection()
+    {
+        if (SourceBox.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        string? key = item.Tag as string;
+        string label = item.Content?.ToString() ?? string.Empty;
+        string displayName = label.StartsWith("（等待接入）", StringComparison.Ordinal)
+            ? label["（等待接入）".Length..]
+            : label;
+
+        if (!ReferenceEquals(_session.SelectedDeviceKey, key)
+            && !string.Equals(_session.SelectedDeviceKey, key, StringComparison.Ordinal))
+        {
+            _session.SelectDevice(key, displayName);
+        }
+        SaveDeviceSelection(key, displayName);
     }
 
     private void OnSourceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -497,16 +532,7 @@ public partial class MainWindow : Window
         {
             return;
         }
-
-        if (SourceBox.SelectedItem is not ComboBoxItem item)
-        {
-            return;
-        }
-
-        string? key = item.Tag as string;
-        string name = item.Content?.ToString() ?? string.Empty;
-        _session.SelectDevice(key, name);
-        SaveDeviceSelection(key, name);
+        ApplySourceSelection();
     }
 
     private void OnRefreshDevices(object sender, RoutedEventArgs e)
