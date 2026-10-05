@@ -65,6 +65,9 @@ internal static class Program
                 case "audiospec":
                     return AudioSpectrum();
 
+                case "avsync":
+                    return AvSync();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -97,6 +100,7 @@ internal static class Program
         Console.WriteLine("       --name <文件名>      出图文件名（默认 capture-frame.png）");
         Console.WriteLine("  audiodsp            ⑧ 音频 DSP 自检（BS.1770 响度 / 每通道电平，不需要硬件）");
         Console.WriteLine("  audiospec           ⑨ 1/3 倍频程频谱自检（ISO 带中心 + 正弦峰值带 + 静音地板）");
+        Console.WriteLine("  avsync              ⑩ 声画延时自检（逐轨分别测算，构造脉冲对齐）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -500,6 +504,47 @@ internal static class Program
     //  ⑧ 音频 DSP 地基自检：BS.1770 响度 + 每通道电平（不依赖任何硬件）
     // ------------------------------------------------------------------
     /// <summary>⑨ 1/3 倍频程频谱自检（纯 DSP，不需要硬件）</summary>
+    /// <summary>⑩ 声画延时自检：逐轨分别测算（用户明确要"每一轨单独的延时量"）</summary>
+    private static int AvSync()
+    {
+        const int rate = 48000;
+        const double videoChange = 0.200;      // 画面在 200 ms 处变化
+        var tracks = new float[8][];
+        double[] expectedMs = { 0, 25, 50, 75, 100, -25, -50, 12 };
+        for (int ch = 0; ch < tracks.Length; ch++)
+        {
+            tracks[ch] = AvSyncAnalyser.MakeClickTrack(rate, 0.6, videoChange + expectedMs[ch] / 1000.0);
+        }
+
+        IReadOnlyList<TrackDelay> delays = AvSyncAnalyser.Analyse(tracks, rate, videoChange);
+        Console.WriteLine("  逐轨延时（期望 → 实测）：");
+        double worst = 0;
+        for (int ch = 0; ch < delays.Count; ch++)
+        {
+            Console.WriteLine($"    轨{ch + 1}：{expectedMs[ch],+6:0} ms → {delays[ch].DelayMs,+6:0.0} ms"
+                            + $"（起音 {delays[ch].OnsetLevelDbfs:0.0} dBFS）");
+            worst = Math.Max(worst, Math.Abs(delays[ch].DelayMs - expectedMs[ch]));
+        }
+
+        Check(delays.Count == 8 && worst <= 2.0,
+            $"8 轨各自算出自己的延时（最大偏差 {worst:0.0} ms ≤ 2 ms —— 包络窗 1 ms）",
+            string.Join(",", delays.Select(d => d.DelayMs.ToString("0.0"))));
+        Check(delays[0].DelayMs is > -2 and < 2, "轨1 延时 0 ms（声音与画面同步）", $"{delays[0].DelayMs:0.0}");
+        Check(delays[4].DelayMs is > 98 and < 102, "轨5 延时 +100 ms（声音比画面慢）", $"{delays[4].DelayMs:0.0}");
+        Check(delays[6].DelayMs is > -52 and < -48, "轨7 延时 −50 ms（声音比画面快）", $"{delays[6].DelayMs:0.0}");
+
+        // 静音轨：必须报"无起音"，而不是给一个 0 ms 混过去
+        var mixed = new float[3][];
+        mixed[0] = tracks[0];
+        mixed[1] = tracks[1];
+        mixed[2] = new float[tracks[0].Length];
+        IReadOnlyList<TrackDelay> withSilent = AvSyncAnalyser.Analyse(mixed, rate, videoChange);
+        Check(withSilent[2].IsMissing && withSilent[0].HasOnset && withSilent[1].HasOnset,
+            "静音轨报「无信号」而不是 0 ms（避免把没声音当成同步）",
+            $"轨3 IsMissing={withSilent[2].IsMissing}");
+
+        return Report();
+    }
     private static int AudioSpectrum()
     {
         const int rate = 48000;
