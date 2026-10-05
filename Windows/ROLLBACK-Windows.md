@@ -8,10 +8,12 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.2.0 布局版**<br>（最新，**推荐装**） | `db699a6` | tag `win-v0.2.0-layout` | 在 0.1.0 基础上：**格子内容可选**（全屏 / 四分割逐格换：画面 · 波形亮度 · 波形 RGB 叠加 · Parade · 矢量 · 钻石图 · 马蹄图），引擎按可见格子决定要算什么；**钻石图刻度**（上下菱形 100%/75%/等值线 + 灰阶竖线 + W/B/G/R 标注）与**马蹄图刻度**（CIE 1931 光谱轨迹 380–700nm + BT.709/2020 三角 + D65） | `dist/win-v0.2.0-layout/VideoScopePad-win-v0.2.0-layout-unsigned.exe` |
+| **win-v0.3.0 多设备版**<br>（最新，**推荐装**） | `d8cd41b` | tag `win-v0.3.0-multidev` | 在 0.2.0 基础上：**多采集卡选择**（信号源下拉来自实时枚举 + 刷新按钮 + 记住上次选择）、**热插拔恢复**（拔掉显示「等待设备接入」，插回自动重开）、**色彩矩阵可覆盖**（跟随驱动 / 强制 601 / 强制 709，驱动谎报时黄字提示）、`mf-capture bars` 彩条校对命令、`--list-devices` | `dist/win-v0.3.0-multidev/VideoScopePad-win-v0.3.0-multidev-unsigned.exe` |
+| **win-v0.2.0 布局版** | `db699a6` | tag `win-v0.2.0-layout` | **格子内容可选**（全屏 / 四分割逐格换：画面 · 波形亮度 · 波形 RGB 叠加 · Parade · 矢量 · 钻石图 · 马蹄图），引擎按可见格子决定要算什么；**钻石图刻度**（上下菱形 100%/75%/等值线 + 灰阶竖线 + W/B/G/R 标注）与**马蹄图刻度**（CIE 1931 光谱轨迹 380–700nm + BT.709/2020 三角 + D65） | `dist/win-v0.2.0-layout/VideoScopePad-win-v0.2.0-layout-unsigned.exe` |
 | **win-v0.1.0 监视器版** | `cb0060d` | tag `win-v0.1.0-monitor` | Media Foundation UVC 采集（枚举 / 原生格式 / 色彩元数据 / 1 秒采集）、D3D11 + HLSL 示波器（波形 / 矢量 / Parade）、刻度层（IRE·mV·% 刻度栏 + 网格 + 75% 目标框 + 肤色线）、幅度读数（峰值 / 稳定 / 黑位 / 平均 / 色度 / R·G·B / 超白超黑）、冻结参考层（琥珀幽灵 + 参考读数与 Δ）、峰值保持游标、单文件 exe | `dist/win-v0.1.0-monitor/VideoScopePad-win-v0.1.0-monitor-unsigned.exe` |
 
-> 还没有的：超标报警 / 斑马纹、LUT（.cube）、音频套件（WASAPI）。
+> 还没有的：超标报警 / 斑马纹、LUT（.cube）、音频套件（WASAPI，最多 8 声道）、
+> 读数 CSV 导出、布局预设（底部条 / 右侧栏 / 叠加）、画面方向旋转、应用图标与署名。
 
 ## 三种回滚方式
 
@@ -54,6 +56,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.3.0-multidev-unsigned.exe` | 72,022,043 字节（68.7 MB） | `3043DF14D980B1D995FA877205641AD0E6AE2183403CB082E9CD9F64A4332A79` |
 | `VideoScopePad-win-v0.2.0-layout-unsigned.exe` | 72,015,252 字节（68.7 MB） | `790CCBF1678D33395FD5F4B2B057FA266697F628F66EDDBD1AFC07D3AE10DF4E` |
 | `VideoScopePad-win-v0.1.0-monitor-unsigned.exe` | 72,007,429 字节（68.7 MB） | `33D08C2A02907A68229CC089D32C888CD572D166ABE830AC15725A6238A3B76B` |
 
