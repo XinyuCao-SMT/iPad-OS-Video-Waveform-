@@ -1201,18 +1201,26 @@ public partial class App : Application
         WaitFrames(session, 8, 3000);
         double preWhite = session.Measurement?.StableWhiteIre ?? -1;
         double preBlack = session.Measurement?.StableBlackIre ?? -1;
+        double preAverage = session.Measurement?.AverageIre ?? -1;
 
         session.ScopeInput = ScopeSource.PostLut;
         WaitFrames(session, 10, 4000);
         double postWhite = session.Measurement?.StableWhiteIre ?? -1;
         double postBlack = session.Measurement?.StableBlackIre ?? -1;
+        double postAverage = session.Measurement?.AverageIre ?? -1;
 
         report.Add($"  · 取样对比：LUT 前 稳白 {preWhite:0.00} / 稳黑 {preBlack:0.00}；"
                  + $"LUT 后 稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}");
         Check(preWhite > 95 && preBlack < 5,
-              $"取样 = LUT 前（当前唯一生效的路径）：稳白 {preWhite:0.00} IRE、稳黑 {preBlack:0.00} IRE —— 看到的是原信号");
-        report.Add($"  · （待完成）取样 = LUT 后：稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}"
-                  + " —— 取样源交接还没接（见 LiveSession 里的说明）；LUT 对**显示**已生效");
+              $"取样 = LUT 前：稳白 {preWhite:0.00} IRE、稳黑 {preBlack:0.00} IRE、平均 {preAverage:0.00} IRE —— 看到的是原信号");
+        // ⚠️ 判据用**平均值**而不是白/黑位：原图两端本来都有内容（白条 + 大片黑区），
+        //    反相之后两端依旧都有（100 与 0 互换），所以"稳白≈0"这种期望是错的 ——
+        //    实测稳白 100.00/稳黑 0.78 正是反相后的正确结果（我第一版判据写错，白折腾一轮）。
+        //    反相 LUT 的干净特征：IRE 线性映射下 av 与 (100 − av) 互换。
+        bool averageFlipped = Math.Abs(postAverage - (100.0 - preAverage)) < 3.0;
+        Check(averageFlipped,
+              $"取样 = LUT 后：平均 {postAverage:0.00} IRE ≈ 100 − 原 {preAverage:0.00} IRE = {(100.0 - preAverage):0.00}"
+              + $"（反相 LUT 对读数生效；稳白/稳黑 {postWhite:0.00}/{postBlack:0.00} 两端互换属正常）");
 
         session.ScopeInput = ScopeSource.PreLut;
         session.LutEnabled = false;
