@@ -68,6 +68,9 @@ internal static class Program
                 case "avsync":
                     return AvSync();
 
+                case "phase":
+                    return AudioPhase();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -101,6 +104,7 @@ internal static class Program
         Console.WriteLine("  audiodsp            ⑧ 音频 DSP 自检（BS.1770 响度 / 每通道电平，不需要硬件）");
         Console.WriteLine("  audiospec           ⑨ 1/3 倍频程频谱自检（ISO 带中心 + 正弦峰值带 + 静音地板）");
         Console.WriteLine("  avsync              ⑩ 声画延时自检（逐轨分别测算，构造脉冲对齐）");
+        Console.WriteLine("  phase               ⑪ 声相自检（相关性：同相 / 反相 / 90° / 单声道）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -542,6 +546,50 @@ internal static class Program
         Check(withSilent[2].IsMissing && withSilent[0].HasOnset && withSilent[1].HasOnset,
             "静音轨报「无信号」而不是 0 ms（避免把没声音当成同步）",
             $"轨3 IsMissing={withSilent[2].IsMissing}");
+
+        return Report();
+    }
+    /// <summary>⑪ 声相（李萨如）自检：相关性是现场最常看的那个数，必须准</summary>
+    private static int AudioPhase()
+    {
+        const int rate = 48000;
+
+        // ① 完全同相（单声道）：相关性 +1，图是一根竖线
+        (float[] l1, float[] r1) = GoniometerAnalyser.MakePair(rate, 0.2, 1000.0, -12.0, 0);
+        GoniometerResult mono = GoniometerAnalyser.Analyse(l1, r1);
+        Check(Math.Abs(mono.Correlation - 1.0) < 0.01,
+            $"同相（单声道）相关性 = +1（实测 {mono.Correlation:0.000}）", $"{mono.Correlation:0.000}");
+        double maxX = mono.Points.Max(p => Math.Abs(p.X));
+        Check(maxX < 0.02, $"同相时所有点贴着竖轴（最大 |x| = {maxX:0.000}）", $"{maxX:0.000}");
+
+        // ② 完全反相：相关性 −1，图是一根横线
+        (float[] l2, float[] r2) = GoniometerAnalyser.MakePair(rate, 0.2, 1000.0, -12.0, 180);
+        GoniometerResult anti = GoniometerAnalyser.Analyse(l2, r2);
+        Check(Math.Abs(anti.Correlation + 1.0) < 0.01,
+            $"反相相关性 = −1（实测 {anti.Correlation:0.000}）", $"{anti.Correlation:0.000}");
+        double maxY = anti.Points.Max(p => Math.Abs(p.Y));
+        Check(maxY < 0.02, $"反相时所有点贴着横轴（最大 |y| = {maxY:0.000}）", $"{maxY:0.000}");
+
+        // ③ 90° 相位差：相关性 ≈ 0，图是个圆（最大半径稳定）
+        (float[] l3, float[] r3) = GoniometerAnalyser.MakePair(rate, 0.2, 1000.0, -12.0, 90);
+        GoniometerResult quad = GoniometerAnalyser.Analyse(l3, r3);
+        Check(Math.Abs(quad.Correlation) < 0.02,
+            $"90° 相位差相关性 ≈ 0（实测 {quad.Correlation:0.000}）", $"{quad.Correlation:0.000}");
+        double minRadius = quad.Points.Min(p => Math.Sqrt(p.X * p.X + p.Y * p.Y));
+        Check(minRadius > 0.8, $"90° 时点集接近圆周（最小半径 {minRadius:0.000}，归一化后应 ≈0.9）",
+            $"{minRadius:0.000}");
+
+        // ④ 只有左声道：相关性为 0（右声道无能量，不该硬算成 1）、电平正常
+        var onlyLeft = new float[l3.Length];
+        GoniometerResult leftOnly = GoniometerAnalyser.Analyse(l1, onlyLeft);
+        Check(Math.Abs(leftOnly.Correlation) < 0.01 && leftOnly.HasSignal,
+            $"只有左声道：相关性 0（不是 1）、仍有信号（{leftOnly.RmsLevelDbfs:0.0} dBFS）",
+            $"{leftOnly.Correlation:0.000}");
+
+        // ⑤ 静音：不给信号标记（界面显示"无信号"）
+        GoniometerResult quiet = GoniometerAnalyser.Analyse(new float[rate], new float[rate]);
+        Check(!quiet.HasSignal && quiet.Points.Count > 0,
+            "静音：HasSignal=false（点集仍返回，界面据此显示无信号）", $"{quiet.RmsLevelDbfs:0.0} dBFS");
 
         return Report();
     }
