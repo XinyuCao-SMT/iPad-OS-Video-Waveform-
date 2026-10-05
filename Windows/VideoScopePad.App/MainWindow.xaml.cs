@@ -740,6 +740,37 @@ public partial class MainWindow : Window
         Diag.Log($"超标报警：{(_session.AlarmEnabled ? "开" : "关")}，确认门槛 {_session.AlarmRaiseThreshold} 次");
     }
 
+    /// <summary>「记录读数」开关：打开后每秒记一行（与 iPad 版 MeasurementLog 的 interval 一致）</summary>
+    private void OnCsvLogChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        _session.CsvLoggingEnabled = CsvLogBox.IsChecked == true;
+        Diag.Log($"读数记录：{(_session.CsvLoggingEnabled ? "开" : "关")}（已有 {_session.CsvRowCount} 行）");
+        CsvLogBox.Content = _session.CsvLoggingEnabled ? "记录读数（进行中）" : "记录读数";
+    }
+
+    /// <summary>导出读数 CSV：写到 exe 旁边的 logs\ 下，文件名含时间戳，路径直接在界面上显示出来</summary>
+    private void OnExportCsv(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            string directory = Path.Combine(AppContext.BaseDirectory, "logs");
+            string path = Path.Combine(directory, MeasurementLog.DefaultFileName(DateTime.Now));
+            _session.SaveCsv(path);
+            SaveHint.Text = $"已导出 {_session.CsvRowCount} 行 → {path}";
+            Diag.Log($"导出读数 CSV：{path}（{_session.CsvRowCount} 行）");
+        }
+        catch (Exception ex)
+        {
+            SaveHint.Text = $"导出失败：{ex.Message}";
+            Diag.Log($"导出读数 CSV 失败：{ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     private void OnSaveClicked(object sender, RoutedEventArgs e)
     {
         try
