@@ -1,4 +1,4 @@
-//
+﻿//
 //  Program.cs
 //  mf-capture
 //
@@ -13,6 +13,7 @@
 //
 
 using System.Globalization;
+using VideoScopePad.Win.Audio;
 using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
@@ -55,6 +56,9 @@ internal static class Program
                 case "devices":
                     return Devices();
 
+                case "audio":
+                    return AudioDevices();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -85,6 +89,7 @@ internal static class Program
         Console.WriteLine("       --set <WxH@fps:FourCC>  指定采集格式");
         Console.WriteLine("       --out <目录>         出图目录（默认 &lt;仓库根&gt;\\Windows\\out）");
         Console.WriteLine("       --name <文件名>      出图文件名（默认 capture-frame.png）");
+        Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
         Console.WriteLine("       --dump               额外打印原生媒体类型的属性集（默认就是打印当前生效的那条）");
@@ -431,6 +436,44 @@ internal static class Program
     // ------------------------------------------------------------------
     //  ⑥ 设备清单：多张卡/摄像头都在这里，标识用符号链接（插拔稳定）
     // ------------------------------------------------------------------
+    // ------------------------------------------------------------------
+    //  ⑦ 音频端点侦察：先知道硬件给几声道（8ch 需求的关键前提）
+    // ------------------------------------------------------------------
+    private static int AudioDevices()
+    {
+        IReadOnlyList<AudioDeviceInfo> devices = AudioDeviceEnumerator.Enumerate();
+
+        Console.WriteLine($"枚举到 {devices.Count} 个音频**采集**端点：");
+        Console.WriteLine();
+        Console.WriteLine("  声道  采样率   状态     设备");
+        Console.WriteLine("  ---- -------- -------- --------------------------------");
+        foreach (AudioDeviceInfo device in devices)
+        {
+            Console.WriteLine($"  {device.Channels,4} {device.SampleRate,8} {device.StateText,-8} {device.FriendlyName}");
+        }
+        Console.WriteLine();
+
+        int maxChannels = devices.Count == 0 ? 0 : devices.Max(d => d.Channels);
+        int multichannel = devices.Count(d => d.IsMultichannel);
+        Console.WriteLine($"最多声道数：{maxChannels}ch（>2ch 的端点 {multichannel} 个；8ch 需要至少一个 ≥8 的端点）");
+        foreach (AudioDeviceInfo device in devices.Where(d => d.IsMultichannel))
+        {
+            Console.WriteLine($"  · 多声道候选：{device.Summary}");
+        }
+        Console.WriteLine();
+        Console.WriteLine("说明：这里读的是**系统为该端点保存的格式**（注册表 PKEY_AudioEngine_DeviceFormat/OEMFormat）；");
+        Console.WriteLine("      真正接线时以 WASAPI 的 GetMixFormat 为准 —— 有些 SDI 卡的多声道只走厂商 SDK。");
+        Console.WriteLine();
+
+        Check(devices.Count > 0, "本机至少有一个音频采集端点", $"{devices.Count} 个");
+        Check(devices.All(d => d.Channels >= 1), "每个端点都解析出了声道数（≥1）",
+            string.Join(",", devices.Select(d => d.Channels)));
+        Check(devices.All(d => d.SampleRate == 0 || (d.SampleRate >= 8000 && d.SampleRate <= 384000)),
+            "采样率都在合理范围（8k–384k）",
+            string.Join(",", devices.Select(d => d.SampleRate).Distinct()));
+        Console.WriteLine($"  · 本机{(multichannel > 0 ? "有" : "没有")}多声道（>2ch）端点 —— 这项只作信息、不算失败");
+        return Report();
+    }
     private static int Devices()
     {
         using var mf = MediaFoundationRuntime.Start();
