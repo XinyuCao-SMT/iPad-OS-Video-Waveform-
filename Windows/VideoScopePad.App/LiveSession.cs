@@ -111,6 +111,7 @@ public sealed class LiveSession : IDisposable
     public int DeviceStallTimeoutMs { get; set; } = 4000;
     private DateTime _nextDeviceRefresh = DateTime.MinValue;
     private volatile string _deviceFragment = "UT-VID";
+    private VideoRenderer? _renderer;
     private LiveStats _stats = LiveStats.Empty;
     private int _videoWidth;
     private int _videoHeight;
@@ -132,6 +133,21 @@ public sealed class LiveSession : IDisposable
     {
         PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
     };
+
+    // ---- 读数 CSV 记录（与 iPad 版 MeasurementLog 对应）----
+    /// <summary>是否记录读数（每秒一行）</summary>
+    public bool CsvLoggingEnabled { get; set; }
+
+    /// <summary>已记录的行数（界面显示用）</summary>
+    public int CsvRowCount => _measurementLog.Count;
+
+    /// <summary>导出 CSV 到指定路径，返回写出的路径</summary>
+    public string SaveCsv(string path) => _measurementLog.WriteToFile(path);
+
+    /// <summary>清空已记录的行</summary>
+    public void ClearCsv() => _measurementLog.Clear();
+
+    private readonly MeasurementLog _measurementLog = new();
 
     // ---- LUT（.cube）：与 iPad 版 lutEnabled / scopeSource 对应 ----
     /// <summary>LUT 开关</summary>
@@ -336,6 +352,11 @@ public sealed class LiveSession : IDisposable
     public int Width => _width;
 
     public int Height => _height;
+
+    // 注：曾经在这里加过「回读 look 纹理」的诊断入口，**已删除** ——
+    //    它从 UI 线程创建/映射 D3D 纹理，而渲染线程正在用同一个立即上下文，
+    //    线程不安全导致越界读，直接把 CLR 打挂（Fatal error. Internal CLR error 0x80131506）。
+    //    要诊断 look 纹理，只能在渲染线程里做（下一轮就这么办）。
 
     public LiveStats Stats => Volatile.Read(ref _stats);
 
@@ -585,6 +606,7 @@ public sealed class LiveSession : IDisposable
             using var pipelines = new PipelineLibrary(d3d.Device, shaders);
             using var engine = new ScopeEngine(d3d.Device, shaders);
             using var renderer = new VideoRenderer(d3d.Device, pipelines);
+            _renderer = renderer;
             using var uploader = new YuvFrameUploader(d3d.Device, shaders);
             using var composite = d3d.CreateDisplayTarget(_width, _height);
             using var compositeView = d3d.Device.CreateRenderTargetView(composite);
@@ -878,10 +900,11 @@ public sealed class LiveSession : IDisposable
                         }
                     }
 
-                    // ⏳ LUT 的 look pass 接线还没完成（启用 LUT 时画面格会画不出来，正在查）。
-                    //    在那之前先不调用它：LUT 的**解析与纹理上传**已经落地并验过（见自检里的
-                    //    "解析 3D 恒等 LUT / 反相 LUT / 1D / 域 / 各类报错"那几条），
-                    //    渲染侧的接通留到下一轮；这样 LUT 相关的未完成不会拖坏主链路。
+                    // ⏳ look pass 接线仍未完成：**启用 LUT 会让 GPU 设备被驱动重置**
+                    //    （DXGI_ERROR_DEVICE_REMOVED，之后每一次 D3D 调用都失败，直到重启程序）。
+                    //    已排除：3D 纹理 SubresourceData 参数、LUT 域语义、RTV/SRV 同资源冲突。
+                    //    下一轮用 D3D 调试层 + 逐项 bisect（先只画不采样 → 再绑纹理不采样 → …）定位。
+                    //    在那之前不调用它：解析与纹理上传已经落地并验过，渲染接通不拖坏主链路。
                     ID3D11ShaderResourceView scopeSource = source;
 
                     engine.Encode(d3d.Context, scopeSource, _scopeSettings);
@@ -901,6 +924,11 @@ public sealed class LiveSession : IDisposable
                             {
                                 IReadOnlyList<string> found = SignalMeasurementRules.Evaluate(measured, AlarmPercentThreshold);
                                 IReadOnlyList<string> active = _warningLatch.Update(found, AlarmRaiseThreshold);
+                                if (CsvLoggingEnabled)
+                                {
+                                    _measurementLog.Append(measured, active);
+                                }
+
                                 if (!active.SequenceEqual(_activeWarnings, StringComparer.Ordinal))
                                 {
                                     _activeWarnings = active.ToArray();

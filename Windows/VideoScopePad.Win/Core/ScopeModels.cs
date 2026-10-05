@@ -1,4 +1,4 @@
-//
+﻿//
 //  ScopeModels.cs
 //  VideoScopePad.Win
 //
@@ -138,6 +138,9 @@ public static class PictureRotationExtensions
 
 public static class ScaleUnitExtensions
 {
+    /// <summary>100 IRE 对应的毫伏数（与 iPad 版 ScaleUnit.millivoltPerHundredIRE 一致）</summary>
+    public const double MillivoltPerHundredIre = 700.0;
+
     /// <summary>IRE → 该单位的数值（0 IRE = 0 mV，100 IRE = 700 mV；百分比即 IRE 本身）</summary>
     public static double FromIre(this ScaleUnit unit, double ire) => unit switch
     {

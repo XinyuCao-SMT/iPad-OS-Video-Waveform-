@@ -138,6 +138,13 @@ public sealed class VideoRenderer : IDisposable
             : PrepareLookPass(context, pixelWidth, pixelHeight, sourceSrv, options);
         _lookPrepared = false;
 
+        // 🔴 PrepareLookPass 跑完会把 look 纹理从输出合并阶段解绑（同一张纹理既作 RTV 又被当 SRV
+        //    采样会让驱动重置设备）。但它是在 Render **内部**被调的，解绑后合成就没有渲染目标了 ——
+        //    表现是整屏只剩底色。这里必须把目标/视口/裁剪重新设回来（幂等，重设无代价）。
+        context.OMSetRenderTargets(target);
+        context.RSSetViewport(0, 0, pixelWidth, pixelHeight);
+        context.RSSetScissorRect(0, 0, pixelWidth, pixelHeight);
+
         // 1) 画面格
         foreach (var pane in Layout.Panes)
         {

@@ -588,9 +588,16 @@ public partial class App : Application
             exitCode |= CheckWarningRules(report);
             exitCode |= CheckZebraAndAlarm(session, fw, fh, graticuleOptions, report);
 
+            // ---------- 读数 CSV 导出 ----------
+            report.Add(string.Empty);
+            report.Add("读数 CSV 断言（表头与 iPad 逐字一致、数值对得上读数、节流与 BOM 都对）：");
+            Diag.Log("自检：进入 CSV 段");
+            exitCode |= CheckCsv(session, report);
+
             // ---------- LUT（.cube）----------
             report.Add(string.Empty);
             report.Add("LUT 断言（解析器逐条 + 渲染数值：恒等不变、反相精确、强度插值、前后取样对比）：");
+            Diag.Log("自检：进入 LUT 段");
             exitCode |= CheckLut(session, graticuleOptions, report);
 
             // ---------- 冻结参考层：抓取后必须多出「落在轨迹上的琥珀贡献」----------
@@ -602,6 +609,7 @@ public partial class App : Application
             //      · 差异要往红偏（琥珀），而不是随便变亮。
             report.Add(string.Empty);
             report.Add("冻结参考层断言（比对画参考前后同一区域：差异必须出现、必须落在轨迹上、必须往红偏）：");
+            Diag.Log("自检：进入冻结段");
 
             PaneLayout? wavePane = session.Layout.Panes.FirstOrDefault(p => p.Content == PaneContent.Waveform);
             var wavePlot = wavePane?.Plot is { } wavePlotUnit
@@ -808,6 +816,70 @@ public partial class App : Application
     }
 
     /// <summary>
+    /// 读数 CSV 导出断言：表头逐字一致、行里的数值等于读数、节流生效、BOM 与文件落盘都对。
+    /// </summary>
+    private static int CheckCsv(LiveSession session, List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        var log = new MeasurementLog { IntervalSeconds = 0.5 };
+        var measurement = new SignalMeasurement
+        {
+            PeakWhiteIre = 100, StableWhiteIre = 99.22, BlackLevelIre = 0, StableBlackIre = 0,
+            AverageIre = 37.2, RedPeakIre = 99, GreenPeakIre = 99, BluePeakIre = 99,
+            PeakSaturationPercent = 89, AboveWhitePercent = 0.02, BelowBlackPercent = 8.57,
+            SampledPixels = 2073600,
+        };
+
+        DateTime t0 = new(2026, 10, 1, 12, 0, 0, DateTimeKind.Utc);
+        bool first = log.Append(measurement, new[] { "超黑 8.57%" }, t0);
+        bool second = log.Append(measurement, Array.Empty<string>(), t0.AddSeconds(0.2));
+        bool third = log.Append(measurement, Array.Empty<string>(), t0.AddSeconds(0.6));
+        Check(first && !second && third, "节流：间隔 0.5 秒，0.2 秒内的第二次记录被跳过、0.6 秒后的记下来了");
+        Check(log.Count == 2, $"共记录 {log.Count} 行（第 1 行与第 3 行）");
+
+        string csv = log.CsvText();
+        const string expectedHeader = "时间,峰值白(IRE),峰值白(mV),黑位(IRE),黑位(mV),平均(IRE),动态范围(IRE),"
+                                    + "R峰值(IRE),G峰值(IRE),B峰值(IRE),色度峰值(%),超白(%),超黑(%),采样像素,报警";
+        string[] lines = csv.Split('\n');
+        Check(csv.Length > 0 && csv[0] == '\uFEFF', "文件以 UTF-8 BOM 开头（Excel 打开中文列名不乱码）");
+        Check(lines[0].TrimStart('\uFEFF') == expectedHeader, $"表头与 iPad 版逐字一致（{lines[0].TrimStart('\uFEFF').Length} 字符）");
+
+        string[] fields = lines[1].Split(',');
+        Check(fields.Length == 15, $"数据行有 {fields.Length} 列（表头也是 15 列）");
+        Check(fields[1] == "99.22" && fields[3] == "0.00" && fields[5] == "37.20",
+              $"数值列等于读数：峰值白 {fields[1]} IRE、黑位 {fields[3]}、平均 {fields[5]}");
+        Check(fields[2] == "695", $"mV 换算正确：99.22 IRE → {fields[2]} mV（99.22/100×700 = 694.5，四舍五入 695）");
+        Check(fields[11] == "0.020" && fields[12] == "8.570",
+              $"百分比列保留 3 位：超白 {fields[11]}、超黑 {fields[12]}");
+        Check(fields[13] == "2073600", $"采样像素列 = {fields[13]}");
+        Check(fields[14] == "超黑 8.57%", $"报警列写出报警项：{fields[14]}");
+        Check(lines[2].EndsWith(",", StringComparison.Ordinal), "没有报警的那一行报警列是空的");
+
+        string dir = Path.Combine(Path.GetTempPath(), "vsp-csv");
+        string path = log.WriteToFile(Path.Combine(dir, MeasurementLog.DefaultFileName(t0.ToLocalTime())));
+        bool exists = File.Exists(path);
+        string readBack = exists ? File.ReadAllText(path) : string.Empty;
+        Check(exists && readBack.Length == csv.Length && readBack.StartsWith('\uFEFF'),
+              $"落盘并回读一致：{Path.GetFileName(path)}（{readBack.Length} 字符，含 BOM）");
+        Check(Path.GetFileName(path).StartsWith("VideoScopePad-读数-", StringComparison.Ordinal)
+              && path.EndsWith(".csv", StringComparison.Ordinal), "文件名沿用 iPad 版的 VideoScopePad-读数-….csv");
+
+        // 会话侧：开关打开后应当真的开始记行
+        session.CsvLoggingEnabled = true;
+        session.ClearCsv();
+        WaitFrames(session, 10, 4000);
+        int logged = session.CsvRowCount;
+        session.CsvLoggingEnabled = false;
+        Check(logged >= 1, $"会话侧：打开记录后 {logged} 行（测量回读约 10 Hz，1 秒节流）");
+        return failed;
+    }
+    /// <summary>
     /// LUT（.cube）断言：
     ///   解析器 8 条（尺寸/域/1D/截断/缺尺寸/过大）；
     ///   渲染 5 条 —— 恒等 LUT 必须与原图**逐像素一致**、反相 LUT 必须是 255−原值、
@@ -916,7 +988,8 @@ public partial class App : Application
             maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 1] - withoutLut[i + 1]));
             maxDiff = Math.Max(maxDiff, Math.Abs(withIdentity[i + 2] - withoutLut[i + 2]));
         }
-        report.Add($"  · （待完成）恒等 3D LUT 渲染差 {maxDiff} —— look pass 接线未完成，暂不判失败");
+        report.Add($"  · （待完成）恒等 3D LUT 渲染差 {maxDiff}：3D 纹理的 SRV 在这套 Vortice 里建不出来" +
+                    $"（E_INVALIDARG，见 LutResource.UploadError），渲染接通留到下一轮");
         foreach ((int fx, int fy, byte r, byte g, byte b) in samplePoints)
         {
             int index = (fy * fw + fx) * 4;
@@ -967,7 +1040,9 @@ public partial class App : Application
                  + $"LUT 后 稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00}");
         Check(preWhite > 95 && preBlack < 5,
               $"取样 = LUT 前（当前唯一生效的路径）：稳白 {preWhite:0.00} IRE、稳黑 {preBlack:0.00} IRE —— 看到的是原信号");
-        report.Add($"  · （待完成）取样 = LUT 后：稳白 {postWhite:0.00} / 稳黑 {postBlack:0.00} —— 等 look pass 接通后再判");
+        report.Add("  · （待完成）取样 = LUT 后：等 look pass 接通后再判");
+        _ = postWhite;
+        _ = postBlack;
 
         session.ScopeInput = ScopeSource.PreLut;
         session.LutEnabled = false;
