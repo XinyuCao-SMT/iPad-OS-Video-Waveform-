@@ -71,6 +71,9 @@ internal static class Program
                 case "phase":
                     return AudioPhase();
 
+                case "meters":
+                    return AudioMeters();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -105,6 +108,7 @@ internal static class Program
         Console.WriteLine("  audiospec           ⑨ 1/3 倍频程频谱自检（ISO 带中心 + 正弦峰值带 + 静音地板）");
         Console.WriteLine("  avsync              ⑩ 声画延时自检（逐轨分别测算，构造脉冲对齐）");
         Console.WriteLine("  phase               ⑪ 声相自检（相关性：同相 / 反相 / 90° / 单声道）");
+        Console.WriteLine("  meters              ⑫ 8 声道电平表自检（峰值保持 / 衰减 / CLIP 锁存）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -550,6 +554,68 @@ internal static class Program
         return Report();
     }
     /// <summary>⑪ 声相（李萨如）自检：相关性是现场最常看的那个数，必须准</summary>
+    /// <summary>⑫ 8 声道电平表：峰值保持、按速率衰减、CLIP 锁存且只能显式清除</summary>
+    private static int AudioMeters()
+    {
+        const int rate = 48000;
+        var meter = new ChannelLevelMeter(8) { HoldSeconds = 1.2, DecayDbPerSecond = 12.0 };
+
+        // ① −20 dBFS 正弦喂 8 通道：8 条都读到 −20，且没有 CLIP
+        float[][] sine = LoudnessMeter.MakeSine(8, rate, 0.2, 1000.0, -20.0);
+        IReadOnlyList<ChannelMeterState> states = meter.Update(sine, 0.2);
+        bool allTwenty = states.All(s => Math.Abs(s.LevelDbfs - (-20.0)) < 0.5);
+        Check(states.Count == 8 && allTwenty && states.All(s => !s.Clipped),
+            $"8 条通道都读到 −20.0 dBFS、无 CLIP（{string.Join(",", states.Select(s => s.LevelDbfs.ToString("0.0")))}）",
+            $"{states.Count} 条");
+
+        // ② 满刻度脉冲 → 只有第 3 条 CLIP 锁存
+        var burst = new float[8][];
+        for (int ch = 0; ch < 8; ch++)
+        {
+            burst[ch] = ch == 2 ? new[] { 1.0f, -1.0f, 1.0f } : new float[3];
+        }
+        IReadOnlyList<ChannelMeterState> afterBurst = meter.Update(burst, 0.01);
+        Check(afterBurst[2].Clipped && afterBurst.Count(s => s.Clipped) == 1,
+            "满刻度脉冲：只有第 3 条 CLIP 锁存（其余不受影响）",
+            $"{afterBurst.Count(s => s.Clipped)} 条 CLIP");
+
+        // ③ 静音 1 秒：CLIP 仍在（锁存），峰值保持开始按 12 dB/s 衰减
+        double holdAfterBurst = afterBurst[2].PeakHoldDbfs;
+        var silence = new float[8][];
+        for (int ch = 0; ch < 8; ch++) { silence[ch] = new float[rate]; }
+        IReadOnlyList<ChannelMeterState> afterSilence = meter.Update(silence, 1.0);
+        Check(afterSilence[2].Clipped, "CLIP 不会自己消失（锁存）", $"{afterSilence[2].Clipped}");
+        Check(afterSilence[2].PeakHoldDbfs > -120,
+            $"静音 1 秒后峰值仍在保持/衰减（{holdAfterBurst:0.0} → {afterSilence[2].PeakHoldDbfs:0.0} dBFS）",
+            $"{afterSilence[2].PeakHoldDbfs:0.0}");
+
+        // ④ 再静音 1 秒：衰减速度对得上（约 12 dB，容差 3 dB）
+        double before = afterSilence[2].PeakHoldDbfs;
+        IReadOnlyList<ChannelMeterState> decayed = meter.Update(silence, 1.0);
+        double drop = before - decayed[2].PeakHoldDbfs;
+        Check(Math.Abs(drop - 12.0) < 3.0,
+            $"保持期过后按 12 dB/s 衰减：1 秒掉 {drop:0.0} dB（±3）", $"{drop:0.0} dB");
+
+        // ⑤ ClearClip 只清锁存，不动峰值
+        meter.ClearClip();
+        IReadOnlyList<ChannelMeterState> cleared = meter.Update(silence, 0.1);
+        Check(!cleared[2].Clipped && cleared[2].PeakHoldDbfs <= decayed[2].PeakHoldDbfs + 0.01,
+            "ClearClip 只清 CLIP 锁存，峰值保持继续按自己的节奏衰减",
+            $"CLIP={cleared[2].Clipped}，峰值 {cleared[2].PeakHoldDbfs:0.0}");
+
+        // ⑥ Reset：CLIP 与峰值全清
+        meter.Reset();
+        // ⚠️ 判据不能写"Reset 后仍是 −∞"：Reset 之后的第一次 Update 会把峰值钉到**当前电平**
+        //    （静音就是 −240），所以 −∞ 只在"Reset 与 Update 之间"成立。
+        //    真正有意义的是"没有残留的高峰值" —— 之前那条 CLIP 过的通道不该还挂着 0 dBFS。
+        IReadOnlyList<ChannelMeterState> afterReset = meter.Update(silence, 0.1);
+        double residual = afterReset.Max(s => s.PeakHoldDbfs);
+        Check(afterReset.All(s => !s.Clipped) && residual < -100,
+            $"Reset 之后没有残留的高峰值（最高 {residual:0.0} dBFS，应接近静音地板）、CLIP 全清",
+            $"{residual:0.0} dBFS");
+
+        return Report();
+    }
     private static int AudioPhase()
     {
         const int rate = 48000;
