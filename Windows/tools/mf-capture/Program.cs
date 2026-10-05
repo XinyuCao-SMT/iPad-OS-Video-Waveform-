@@ -74,6 +74,9 @@ internal static class Program
                 case "meters":
                     return AudioMeters();
 
+                case "audioreport":
+                    return AudioReport();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -109,6 +112,7 @@ internal static class Program
         Console.WriteLine("  avsync              ⑩ 声画延时自检（逐轨分别测算，构造脉冲对齐）");
         Console.WriteLine("  phase               ⑪ 声相自检（相关性：同相 / 反相 / 90° / 单声道）");
         Console.WriteLine("  meters              ⑫ 8 声道电平表自检（峰值保持 / 衰减 / CLIP 锁存）");
+        Console.WriteLine("  audioreport         ⑬ 一帧音频报告自检（2ch / 8ch 组装，界面只需读它）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -555,6 +559,83 @@ internal static class Program
     }
     /// <summary>⑪ 声相（李萨如）自检：相关性是现场最常看的那个数，必须准</summary>
     /// <summary>⑫ 8 声道电平表：峰值保持、按速率衰减、CLIP 锁存且只能显式清除</summary>
+    /// <summary>⑬ 一帧音频报告：把六个模块组装起来，2ch 与 8ch 都要成立</summary>
+    private static int AudioReport()
+    {
+        const int rate = 48000;
+        const double frameSeconds = 0.1;
+        const double videoChange = 0.05;
+
+        // 8 声道：0/1 号声道同相 1 kHz，2 号是 90° 相位差，3–7 静音；构造一个"起音"便于算延时
+        var tracks = new float[8][];
+        (float[] l, float[] r) = GoniometerAnalyser.MakePair(rate, frameSeconds, 1000.0, -12.0, 0);
+        for (int ch = 0; ch < 8; ch++)
+        {
+            tracks[ch] = new float[l.Length];
+        }
+        tracks[0] = l;
+        tracks[1] = r;
+        tracks[2] = AvSyncAnalyser.MakeClickTrack(rate, frameSeconds, videoChange, -6.0);
+
+        var analyser = new AudioFrameAnalyser(8) { VideoChangeSeconds = videoChange };
+        AudioFrameReport report = analyser.Analyse(tracks, rate, frameSeconds);
+
+        Check(report.ChannelCount == 8 && report.Meters.Count == 8,
+            $"8 声道报告：通道数 {report.ChannelCount}、电平表 {report.Meters.Count} 条",
+            $"{report.ChannelCount}/{report.Meters.Count}");
+        Check(report.Meters[2].LevelDbfs > report.Meters[3].LevelDbfs + 20,
+            $"有信号的通道（第 3 条 {report.Meters[2].LevelDbfs:0.0} dBFS）明显高于静音通道"
+            + $"（第 4 条 {report.Meters[3].LevelDbfs:0.0}）", "电平排序正确");
+        Check(report.Phase is { HasSignal: true } && Math.Abs(report.Phase.Correlation - 1.0) < 0.05,
+            $"声相：0/1 声道同相（相关性 {report.Phase.Correlation:0.000}）", $"{report.Phase.Correlation:0.000}");
+        Check(report.Spectrum.Count == 31
+              && Math.Abs(report.Spectrum.MaxBy(b => b.Dbfs).CenterHz - 1000) < 1e-9,
+            "频谱：31 条带、峰值带 = 1 kHz", $"{report.Spectrum.MaxBy(b => b.Dbfs).CenterHz} Hz");
+        Check(report.Delays.Count == 8 && report.Delays[2].HasOnset
+              && Math.Abs(report.Delays[2].DelayMs) <= 2.0,
+            $"逐轨延时：第 3 轨起音对齐画面（{report.Delays[2].DelayMs:0.0} ms）、静音轨报无起音",
+            string.Join(",", report.Delays.Select(d => d.IsMissing ? "无" : d.DelayMs.ToString("0.0"))));
+        // ⚠️ 两条都要写清：这一帧只有 0.1 s，而 BS.1770 需要 **400 ms** 的块 —— 所以"算不出积分响度"
+        //    是**正确行为**，不是缺陷（我第一版拿它当失败，第 5 次栽在期望值上）。
+        Check(report.Loudness.SampleRate == rate && !report.Loudness.HasLoudness,
+            $"0.1 s 的帧：块不足 400 ms → 不给积分响度（采样率 {report.Loudness.SampleRate} 仍对）",
+            $"{report.Loudness.IntegratedLufs}");
+
+        // 0.6 s 的帧（≥ 400 ms 块）就应当算得出来
+        var longer = new float[8][];
+        for (int ch = 0; ch < 8; ch++)
+        {
+            longer[ch] = LoudnessMeter.MakeSine(1, rate, 0.6, 1000.0, -12.0)[0];
+        }
+        AudioFrameReport longReport = new AudioFrameAnalyser(8).Analyse(longer, rate, 0.6);
+        // 期望值**从权重算出来**，不手写数字（我前几轮的错都出在手算期望上）：
+        //   −12 dBFS 峰值的正弦单通道 = −12 − 3.05 = −15.05 LUFS；8 通道加权和 8.64 → +9.37 dB
+        double singleChannelLufs = -12.0 - 3.05;
+        double eightChannelGain = 10 * Math.Log10(LoudnessMeter.DefaultChannelWeights(8).Sum());
+        double expectedLufs = singleChannelLufs + eightChannelGain;
+        Check(longReport.Loudness.HasLoudness
+              && Math.Abs(longReport.Loudness.IntegratedLufs - expectedLufs) < 0.6,
+            $"0.6 s 帧（8 通道同信号）：积分响度 {longReport.Loudness.IntegratedLufs:0.00} LUFS"
+            + $"（期望 单通道 {singleChannelLufs:0.00} + 加权 {eightChannelGain:0.00} = {expectedLufs:0.00}，±0.6）",
+            $"{longReport.Loudness.IntegratedLufs:0.00}");
+
+        // 2ch：同一套代码也要成立（本机采集卡音频就是 2ch）
+        var two = new float[2][];
+        two[0] = l;
+        two[1] = r;
+        var stereo = new AudioFrameAnalyser(2);
+        AudioFrameReport stereoReport = stereo.Analyse(two, rate, frameSeconds);
+        Check(stereoReport.ChannelCount == 2 && stereoReport.Meters.Count == 2
+              && stereoReport.Delays.Count == 0,
+            "2 声道报告：电平表 2 条、不请求延时时不给延时结果",
+            $"{stereoReport.ChannelCount}/{stereoReport.Meters.Count}/{stereoReport.Delays.Count}");
+
+        // 空输入：给空报告而不是抛异常（设备刚拔掉时会出现）
+        AudioFrameReport empty = analyser.Analyse(Array.Empty<float[]>(), rate, frameSeconds);
+        Check(empty.ChannelCount == 0 && !empty.HasSignal, "空输入 → 空报告（不抛异常）", "空报告");
+
+        return Report();
+    }
     private static int AudioMeters()
     {
         const int rate = 48000;
