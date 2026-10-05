@@ -1,4 +1,4 @@
-<Window x:Class="VideoScopePad.App.MainWindow"
+﻿<Window x:Class="VideoScopePad.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:VideoScopePad.App"
@@ -50,6 +50,32 @@
                   VerticalAlignment="Center" ValueChanged="OnOpacityChanged"
                   ToolTip="参考层不透明度（实时轨迹恒为 100%）"/>
 
+          <CheckBox x:Name="ZebraBox" Content="超白斑马" Margin="14,0,0,0"
+                    Checked="OnZebraChanged" Unchecked="OnZebraChanged"
+                    Foreground="#E6EAF0"/>
+          <ComboBox x:Name="ZebraThresholdBox" Width="92" Margin="6,0,0,0"
+                    SelectionChanged="OnZebraChanged"
+                    Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440">
+            <ComboBoxItem Content="70 IRE"/>
+            <ComboBoxItem Content="75 IRE"/>
+            <ComboBoxItem Content="90 IRE"/>
+            <ComboBoxItem Content="95 IRE"/>
+            <ComboBoxItem Content="100 IRE"/>
+          </ComboBox>
+          <CheckBox x:Name="ZebraBlackBox" Content="黑切割" Margin="10,0,0,0"
+                    Checked="OnZebraChanged" Unchecked="OnZebraChanged"
+                    Foreground="#E6EAF0"/>
+          <CheckBox x:Name="AlarmBox" Content="超标报警" IsChecked="True" Margin="12,0,0,0"
+                    Checked="OnAlarmChanged" Unchecked="OnAlarmChanged"
+                    Foreground="#E6EAF0"/>
+          <ComboBox x:Name="AlarmThresholdBox" Width="96" Margin="6,0,0,0"
+                    SelectionChanged="OnAlarmChanged"
+                    Background="#22262E" Foreground="#E6EAF0" BorderBrush="#2E3440">
+            <ComboBoxItem Content="门槛 1 次"/>
+            <ComboBoxItem Content="门槛 2 次"/>
+            <ComboBoxItem Content="门槛 3 次"/>
+          </ComboBox>
+
           <CheckBox x:Name="GraticuleBox" Content="刻度" IsChecked="True" Margin="14,0,0,0"
                     Foreground="#E6EAF0" VerticalAlignment="Center"
                     Checked="OnGraticuleToggled" Unchecked="OnGraticuleToggled"/>
@@ -74,6 +100,11 @@
 
     <Border DockPanel.Dock="Bottom" Background="#12151A" Padding="10,6">
       <StackPanel>
+        <Border x:Name="AlarmBar" Background="#3A1214" BorderBrush="#FF3B30" BorderThickness="1"
+                Padding="6,2" Margin="0,0,0,3" Visibility="Collapsed">
+          <TextBlock x:Name="AlarmText" Foreground="#FF6B61" FontFamily="Consolas"
+                     FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+        </Border>
         <TextBlock x:Name="MeasurementText" Foreground="#D8DEE8" FontFamily="Consolas"
                    TextTrimming="CharacterEllipsis"/>
         <TextBlock x:Name="DetailText" Foreground="#7C8797" TextTrimming="CharacterEllipsis"
@@ -81,13 +112,15 @@
       </StackPanel>
     </Border>
 
-    <Grid Background="#0B0D10">
+    <Border x:Name="AlarmFrame" BorderBrush="#FF3B30" BorderThickness="0">
+      <Grid Background="#0B0D10">
       <Image x:Name="Preview" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
       <!-- 刻度层：自绘元素，铺在实时位图之上（与画面同一份 ScopeLayout，所以严格对齐） -->
       <local:GraticuleElement x:Name="Graticule"/>
       <TextBlock x:Name="MessageText" Foreground="#E0B341" Margin="16"
                  VerticalAlignment="Top" HorizontalAlignment="Center" TextWrapping="Wrap" MaxWidth="900"/>
-    </Grid>
+      </Grid>
+    </Border>
 
   </DockPanel>
 </Window>

@@ -59,6 +59,8 @@ public partial class MainWindow : Window
         _frameBuffer = new byte[width * height * 4];
 
         BuildLayoutRow();
+        ZebraThresholdBox.SelectedIndex = 4;      // 默认 100 IRE（与 iPad 版一致）
+        AlarmThresholdBox.SelectedIndex = 0;      // 默认门槛 1 次
         Loaded += OnLoaded;
         Closed += OnClosed;
     }
@@ -362,6 +364,24 @@ public partial class MainWindow : Window
             }
             DeviceStateText.Text = _session.DeviceState;
 
+            // 超标报警：按版本号刷新（报警文字/红框不该每帧重建）
+            if (_session.AlarmRevision != _lastAlarmRevision)
+            {
+                _lastAlarmRevision = _session.AlarmRevision;
+                IReadOnlyList<string> warnings = _session.ActiveWarnings;
+                if (warnings.Count == 0)
+                {
+                    AlarmBar.Visibility = Visibility.Collapsed;
+                    AlarmFrame.BorderThickness = new Thickness(0);
+                }
+                else
+                {
+                    AlarmBar.Visibility = Visibility.Visible;
+                    AlarmText.Text = "⚠ 超标报警：" + string.Join("　·　", warnings);
+                    AlarmFrame.BorderThickness = new Thickness(3);
+                }
+            }
+
             // 布局是渲染线程算出来的：按引用变化同步给刻度层（换分辨率/换源时会重建）
             Graticule.Layout = _session.Layout;
             Graticule.SetFrameSize(_session.Width, _session.Height);
@@ -479,6 +499,7 @@ public partial class MainWindow : Window
 
     private const string SyntheticItem = "合成测试信号（无需硬件）";
     private int _lastDeviceRevision = -1;
+    private int _lastAlarmRevision = -1;
     private bool _buildingSourceBox;
 
     /// <summary>
@@ -644,6 +665,37 @@ public partial class MainWindow : Window
         {
             return (null, null);
         }
+    }
+
+    /// <summary>斑马纹设置（超白阈值 / 黑切割）——只影响显示通道，不碰示波器</summary>
+    private void OnZebraChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        _session.ZebraEnabled = ZebraBox.IsChecked == true;
+        _session.ZebraBlackEnabled = ZebraBlackBox.IsChecked == true;
+        _session.ZebraThresholdIre = ZebraThresholdBox.SelectedIndex switch
+        {
+            0 => 70, 1 => 75, 2 => 90, 3 => 95, _ => 100,
+        };
+        Diag.Log($"斑马纹：{(ZebraBox.IsChecked == true ? "超白开" : "超白关")}({_session.ZebraThresholdIre:0} IRE)、"
+               + $"{(ZebraBlackBox.IsChecked == true ? "黑切割开" : "黑切割关")}");
+    }
+
+    /// <summary>超标报警设置（开关 + 确认门槛）</summary>
+    private void OnAlarmChanged(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded)
+        {
+            return;
+        }
+
+        _session.AlarmEnabled = AlarmBox.IsChecked == true;
+        _session.AlarmRaiseThreshold = AlarmThresholdBox.SelectedIndex + 1;
+        Diag.Log($"超标报警：{(_session.AlarmEnabled ? "开" : "关")}，确认门槛 {_session.AlarmRaiseThreshold} 次");
     }
 
     private void OnSaveClicked(object sender, RoutedEventArgs e)

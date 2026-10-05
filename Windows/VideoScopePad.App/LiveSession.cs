@@ -78,6 +78,9 @@ public sealed class LiveSession : IDisposable
     private volatile LiveSourceKind _kind = LiveSourceKind.Synthetic;
 
     // 设备列表 / 热插拔状态
+    private readonly WarningLatch _warningLatch = new();
+    private IReadOnlyList<string> _activeWarnings = Array.Empty<string>();
+    private int _alarmRevision;
     private readonly DeviceWatcher _watcher = new();
     private int _deviceRevision;
     private volatile bool _deviceRefreshRequested;
@@ -129,6 +132,75 @@ public sealed class LiveSession : IDisposable
     {
         PaneContent.Picture, PaneContent.Waveform, PaneContent.Vectorscope, PaneContent.Parade,
     };
+
+    // ---- 斑马纹（超白 / 黑切割）：与 iPad 版同一组设置 ----
+    /// <summary>超白斑马纹开关</summary>
+    public bool ZebraEnabled { get; set; }
+
+    /// <summary>超白斑马纹阈值（IRE，默认 100）</summary>
+    public double ZebraThresholdIre { get; set; } = 100.0;
+
+    /// <summary>黑切割斑马纹开关</summary>
+    public bool ZebraBlackEnabled { get; set; }
+
+    /// <summary>黑切割阈值（IRE，默认 0 = 低于 0 IRE 才报）</summary>
+    public double ZebraBlackThresholdIre { get; set; }
+
+    // ---- 超标报警（边沿触发 + 锁存）----
+    /// <summary>超标报警开关（与 iPad 版默认一样：开）</summary>
+    public bool AlarmEnabled { get; set; } = true;
+
+    /// <summary>
+    /// 报警确认门槛：同一问题连续命中几次才算确认（与 iPad 版 warningRaiseCount 一致）。
+    /// 改门槛会**重置锁存** —— 门槛变了，之前攒的计数就失去意义了（否则要等计数慢慢衰减才生效）。
+    /// </summary>
+    public int AlarmRaiseThreshold
+    {
+        get => _alarmRaiseThreshold;
+        set
+        {
+            int clamped = Math.Max(value, 1);
+            if (clamped != _alarmRaiseThreshold)
+            {
+                _alarmRaiseThreshold = clamped;
+                ResetAlarmState();
+            }
+        }
+    }
+
+    /// <summary>百分比类判据的门槛（%，默认 0.05，与 iPad 版一致；调大=更迟钝、调小=更敏感）。改它同样重置锁存。</summary>
+    public double AlarmPercentThreshold
+    {
+        get => _alarmPercentThreshold;
+        set
+        {
+            if (Math.Abs(value - _alarmPercentThreshold) > 1e-9)
+            {
+                _alarmPercentThreshold = value;
+                ResetAlarmState();
+            }
+        }
+    }
+
+    private int _alarmRaiseThreshold = 1;
+    private double _alarmPercentThreshold = SignalMeasurementRules.PercentThreshold;
+
+    /// <summary>清空报警锁存与显示列表（改配置、关开关时用）</summary>
+    private void ResetAlarmState()
+    {
+        _warningLatch.Reset();
+        _activeWarnings = Array.Empty<string>();
+        Interlocked.Increment(ref _alarmRevision);
+    }
+
+    /// <summary>当前处于确认状态的报警项（空 = 正常）</summary>
+    public IReadOnlyList<string> ActiveWarnings => _activeWarnings;
+
+    /// <summary>报警状态版本号：界面靠它判断要不要刷新报警文字/红框（避免每帧重建字符串）</summary>
+    public int AlarmRevision => Volatile.Read(ref _alarmRevision);
+
+    /// <summary>新确认次数：界面拿它做一次红框闪烁（只在边沿递增）</summary>
+    public int AlarmRaiseCount => _warningLatch.RaiseCount;
 
     /// <summary>参考层不透明度（0.05…1.0，默认 0.55 —— 与 iPad 版 referenceOpacity 默认值一致）</summary>
     public double ReferenceOpacity { get; set; } = 0.55;
@@ -359,11 +431,17 @@ public sealed class LiveSession : IDisposable
             return;
         }
 
+        BeginDeviceProbe(key, displayName ?? key);
+    }
+
+    /// <summary>起一次后台探测；通过才允许渲染线程打开（命令行按名字解析设备时也走这里）</summary>
+    private void BeginDeviceProbe(string key, string displayName)
+    {
         _deviceApproved = false;
         _approvedKey = null;
         _deviceState = "正在检测设备…";
         string probeKey = key;
-        string probeName = displayName ?? key;
+        string probeName = displayName;
         ThreadPool.QueueUserWorkItem(_ =>
         {
             CaptureProbeResult probe = CaptureProbe.Probe(probeKey);
@@ -569,7 +647,9 @@ public sealed class LiveSession : IDisposable
                             _pendingDeviceResolve = false;
                             _selectedDeviceKey = DeviceWatcher.KeyOf(resolved);
                             _selectedDeviceName = resolved.FriendlyName;
-                            _sourceChanged = true;
+                            // ⚠️ 这里必须也起探测：命令行/自检是按名字（片段）选设备的，
+                            //    若不探测就会被"未通过探测不开"的闸门永远挡住（实测踩过）。
+                            BeginDeviceProbe(_selectedDeviceKey, _selectedDeviceName);
                         }
                         else
                         {
@@ -769,6 +849,23 @@ public sealed class LiveSession : IDisposable
                             Volatile.Write(ref _measurement, measured);
                             _peakHold.Update(measured, stopwatch.Elapsed.TotalSeconds);
                             _peakHoldState = _peakHold.Snapshot();
+
+                            // 超标报警：规则判定 + 边沿触发锁存（与 iPad 版同一套语义）
+                            if (AlarmEnabled)
+                            {
+                                IReadOnlyList<string> found = SignalMeasurementRules.Evaluate(measured, AlarmPercentThreshold);
+                                IReadOnlyList<string> active = _warningLatch.Update(found, AlarmRaiseThreshold);
+                                if (!active.SequenceEqual(_activeWarnings, StringComparer.Ordinal))
+                                {
+                                    _activeWarnings = active.ToArray();
+                                    Interlocked.Increment(ref _alarmRevision);
+                                    Diag.Log($"报警状态变化：{(active.Count == 0 ? "已恢复正常" : string.Join(" / ", active))}");
+                                }
+                            }
+                            else if (_activeWarnings.Count > 0)
+                            {
+                                ResetAlarmState();
+                            }
                         }
                     });
 
@@ -798,6 +895,10 @@ public sealed class LiveSession : IDisposable
 
                     options.ShowReference = ShowReference && engine.HasReference;
                     options.ReferenceOpacity = ReferenceOpacity;
+                    options.ZebraEnabled = ZebraEnabled;
+                    options.ZebraThresholdIre = ZebraThresholdIre;
+                    options.ZebraBlackEnabled = ZebraBlackEnabled;
+                    options.ZebraBlackThresholdIre = ZebraBlackThresholdIre;
                     options.WaveformMode = _waveformMode;
 
                     start = Stopwatch.GetTimestamp();

@@ -1,4 +1,4 @@
-//
+﻿//
 //  App.xaml.cs
 //  VideoScopePad.App
 //
@@ -98,6 +98,17 @@ public partial class App : Application
             };
             session.SwitchSource(ParseSource(source), device);
             session.Start();
+
+            // 设备源要**先等探测 + 打开完成**：探测最长 5 秒（后台线程试读），
+            // 不等的话断言会在「正在检测设备…」那一刻就跑，报告全是"设备没打开"（实测踩过）。
+            if (ParseSource(source) != LiveSourceKind.Synthetic)
+            {
+                var deviceDeadline = DateTime.UtcNow.AddSeconds(25);
+                while (session.DeviceState != "正常" && DateTime.UtcNow < deviceDeadline)
+                {
+                    Thread.Sleep(150);
+                }
+            }
 
             // 等它跑够帧数（或超时）
             var deadline = DateTime.UtcNow.AddSeconds(90);
@@ -571,6 +582,12 @@ public partial class App : Application
             // ⑥ CIE 映射常量与着色器手抄一致（两处都改了才不会错位）
             exitCode |= CheckCieConstantsMatchShader(report);
 
+            // ---------- 斑马纹 + 超标报警 ----------
+            report.Add(string.Empty);
+            report.Add("斑马纹与超标报警断言（斑马纹只能落在超阈值的像素上、绝不能影响示波器；报警规则与锁存逐条验）：");
+            exitCode |= CheckWarningRules(report);
+            exitCode |= CheckZebraAndAlarm(session, fw, fh, graticuleOptions, report);
+
             // ---------- 冻结参考层：抓取后必须多出「落在轨迹上的琥珀贡献」----------
             // ⚠️ 不能简单地"数琥珀像素"：参考层与实时轨迹是**同一信号**时两者完全重合，
             //    加法混合下绿通道直接饱和，出来的像素反而是白/绿占优 —— 一条都数不到。
@@ -785,6 +802,234 @@ public partial class App : Application
         }
     }
 
+    /// <summary>IRE → full-range 码值（本工程解码后 0 IRE = 0、100 IRE = 255）</summary>
+    private static double IreToCode(double ire) => Math.Clamp(ire / 100.0, 0.0, 1.0) * 255.0;
+
+    /// <summary>BGRA 缓冲里某个像素的 709 亮度（着色器用的就是这组权重）</summary>
+    private static double LumaAt(byte[] frame, int index)
+        => frame[index + 2] * 0.2126 + frame[index + 1] * 0.7152 + frame[index] * 0.0722;
+
+    /// <summary>报警规则（纯函数）与锁存的断言 —— 不需要硬件、不需要渲染。</summary>
+    private static int CheckWarningRules(List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        var clean = new SignalMeasurement
+        {
+            PeakWhiteIre = 100, StableWhiteIre = 99.2, BlackLevelIre = 0, StableBlackIre = 0,
+            AverageIre = 37.2, PeakSaturationPercent = 89, AboveWhitePercent = 0, BelowBlackPercent = 0,
+            SampledPixels = 2073600,
+        };
+        Check(SignalMeasurementRules.Evaluate(clean).Count == 0, "正常画面（暗到亮都在范围内）不报任何警");
+
+        Check(SignalMeasurementRules.Evaluate(clean with { AboveWhitePercent = 0.06 })
+                .Any(w => w.StartsWith("超白", StringComparison.Ordinal)),
+              "超白 0.06% > 门槛 0.05% → 报「超白」");
+        Check(SignalMeasurementRules.Evaluate(clean with { AboveWhitePercent = 0.04 }).Count == 0,
+              "超白 0.04% < 门槛 0.05% → 不报（门槛是 0.05 而不是 0.5，这个数量级不能写错）");
+        Check(SignalMeasurementRules.Evaluate(clean with { BelowBlackPercent = 0.2 })
+                .Any(w => w.StartsWith("超黑", StringComparison.Ordinal)), "超黑 → 报");
+        Check(SignalMeasurementRules.Evaluate(clean with { StableWhiteIre = 103.5 })
+                .Any(w => w.StartsWith("白电平偏高", StringComparison.Ordinal)), "白电平 103.5 IRE > 103 → 报");
+        Check(SignalMeasurementRules.Evaluate(clean with { StableWhiteIre = 103 }).Count == 0,
+              "白电平 103 IRE → 不报（判据是严格大于）");
+        Check(SignalMeasurementRules.Evaluate(clean with { StableBlackIre = -2.5 })
+                .Any(w => w.StartsWith("黑位被压缩", StringComparison.Ordinal)), "黑位 -2.5 IRE < -2 → 报");
+        Check(SignalMeasurementRules.Evaluate(clean with { StableBlackIre = 9 })
+                .Any(w => w.StartsWith("黑位抬高", StringComparison.Ordinal)), "黑位 9 IRE > 8 → 报");
+        Check(SignalMeasurementRules.Evaluate(clean with { PeakSaturationPercent = 106 })
+                .Any(w => w.StartsWith("色度超范围", StringComparison.Ordinal)), "色度 106% > 105% → 报");
+        Check(SignalMeasurementRules.Evaluate(clean with { StableWhiteIre = 2, AverageIre = 0.5 })
+                .Any(w => w == "整帧全黑"), "稳定白 < 3 IRE 且平均 < 1 IRE → 报「整帧全黑」");
+
+        // 锁存：门槛 3 次才确认；确认后要连续消失才解除；didRaise 只在边沿为真
+        var latch = new WarningLatch();
+        string[] hit = { "超白 1.00%" };
+        IReadOnlyList<string> a1 = latch.Update(hit, raiseThreshold: 3);
+        IReadOnlyList<string> a2 = latch.Update(hit, raiseThreshold: 3);
+        Check(a1.Count == 0 && a2.Count == 0 && !latch.DidRaise, "门槛 3 次：连续命中 2 次还不确认（不闪）");
+        IReadOnlyList<string> a3 = latch.Update(hit, raiseThreshold: 3);
+        Check(a3.Count == 1 && latch.DidRaise && latch.RaiseCount == 1, "第 3 次命中 → 确认，且 didRaise 只在这一次为真（边沿）");
+        IReadOnlyList<string> a4 = latch.Update(Array.Empty<string>(), raiseThreshold: 3);
+        Check(a4.Count == 1 && !latch.DidRaise, "确认后即使这一帧没命中，仍保持显示（锁存）");
+        _ = latch.Update(Array.Empty<string>(), raiseThreshold: 3);
+        IReadOnlyList<string> a6 = latch.Update(Array.Empty<string>(), raiseThreshold: 3);
+        Check(a6.Count == 0, "连续 3 帧都没命中 → 计数归零，报警解除");
+        latch.Reset();
+        Check(latch.ActiveWarnings.Count == 0, "Reset() 清空显示列表");
+
+        return failed;
+    }
+
+    /// <summary>
+    /// 斑马纹 + 报警的端到端断言：
+    ///   ① 斑马纹只出现在「基线亮度 ≥ 阈值」的像素上（逐像素核对，不靠肉眼）；
+    ///   ② 阈值越低覆盖越多（70 IRE ⊇ 100 IRE）；
+    ///   ③ 示波器格**一个像素都不能变**（斑马纹只在显示通道）；
+    ///   ④ 超白斑马偏黄（蓝通道下降）、黑切割斑马偏蓝（蓝通道上升）；
+    ///   ⑤ 报警：合成图有 12% 以上像素在 100 IRE → 必须报「超白」，关掉报警后清空。
+    /// </summary>
+    private static int CheckZebraAndAlarm(LiveSession session, int fw, int fh,
+                                          GraticuleOptions graticuleOptions, List<string> report)
+    {
+        // 前面几段把布局换成了「波形/钻石/马蹄/Parade」——没有画面格，斑马纹就无从验。
+        // 所以这里先切回默认四分割（含画面格），再按**当前**布局取画面区矩形。
+        session.Preset = MonitorLayoutPreset.Quad;
+        session.SetQuadContent(0, PaneContent.Picture);
+        session.SetQuadContent(1, PaneContent.Waveform);
+        session.SetQuadContent(2, PaneContent.Vectorscope);
+        session.SetQuadContent(3, PaneContent.Parade);
+        WaitFrames(session, 5, 3000);
+        ScopeLayoutResult layout = session.Layout;
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        PaneLayout? picture = layout.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
+        // 用**面板**矩形而不是"等比适配后的视频矩形"：视频四边形铺满整个面板（含留白），
+        // 斑马纹会有少量像素落在视频矩形之外的面板里。判据要表达的其实是
+        // 「斑马纹绝不能漏进示波器格」——所以用面板边界才是对的（实测差 58 个像素就是这么来的）。
+        if (picture?.Panel is not { } videoRect)
+        {
+            report.Add("  ✗ 布局里没有画面格，斑马纹没法验");
+            return failed + 1;
+        }
+
+        int vx0 = Math.Max((int)(videoRect.MinX * fw), 0);
+        int vy0 = Math.Max((int)(videoRect.MinY * fh), 0);
+        int vx1 = Math.Min((int)(videoRect.MaxX * fw), fw);
+        int vy1 = Math.Min((int)(videoRect.MaxY * fh), fh);
+
+        // 基线：斑马纹全关。
+        // ⚠️ 先丢一张"预热图"：刚切完布局的第一帧，示波器纹理与读数的收敛状态和后续帧略有差别
+        //    （实测差 58 个像素，全在轨迹上），不预热会让"画面格以外也变了"误报。
+        session.ZebraEnabled = false;
+        session.ZebraBlackEnabled = false;
+        WaitFrames(session, 5, 3000);
+        _ = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: false, out _, out _);
+        WaitFrames(session, 3, 2000);
+        // ⚠️ 这几张对比图**不带刻度层**：刻度里有峰值保持游标，它会随时间衰减，
+        //    两次渲染之间游标位置变了就会让"画面格以外也有像素变化"误报（实测踩过 58 个像素）。
+        byte[] baseline = LiveSnapshot.RenderBgra(session, graticuleOptions, includeGraticule: false,
+                                                  out fw, out fh);
+
+        (int Zebra, int OutsideVideo, int Violations, double MeanBlueDelta) Measure(byte[] withZebra, double thresholdIre)
+        {
+            double thresholdCode = IreToCode(thresholdIre);
+            int zebra = 0, outside = 0, violations = 0;
+            double blueDelta = 0;
+            for (int y = 0; y < fh; y++)
+            {
+                for (int x = 0; x < fw; x++)
+                {
+                    int index = (y * fw + x) * 4;
+                    int delta = Math.Abs(withZebra[index] - baseline[index])
+                              + Math.Abs(withZebra[index + 1] - baseline[index + 1])
+                              + Math.Abs(withZebra[index + 2] - baseline[index + 2]);
+                    if (delta <= 12)
+                    {
+                        continue;
+                    }
+
+                    bool insideVideo = x >= vx0 && x < vx1 && y >= vy0 && y < vy1;
+                    if (!insideVideo)
+                    {
+                        outside++;
+                        continue;
+                    }
+
+                    zebra++;
+                    blueDelta += withZebra[index] - baseline[index];
+                    if (LumaAt(baseline, index) < thresholdCode - 2)
+                    {
+                        violations++;
+                    }
+                }
+            }
+            return (zebra, outside, violations, zebra == 0 ? 0 : blueDelta / zebra);
+        }
+
+        // ① 超白斑马，阈值 100 IRE
+        session.ZebraThresholdIre = 100;
+        session.ZebraEnabled = true;
+        WaitFrames(session, 3, 2000);
+        byte[] zebra100 = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        (int z100, int out100, int bad100, double blue100) = Measure(zebra100, 100);
+        Check(bad100 == 0, $"阈值 100 IRE：斑马像素全部落在基线亮度 ≥ 100 IRE 的位置"
+              + $"（{z100} 个斑马像素、越界 {bad100} 个）—— 合成图里 100 IRE 的内容极少，所以数量可能很小");
+        Check(blue100 < -20 || z100 == 0,
+              $"超白斑马偏黄：斑马像素蓝通道平均变化 {blue100:0.0}（应为显著负值；没有斑马像素时不判）");
+
+        // ② 阈值 70 IRE：覆盖必须更多，且仍不越界
+        session.ZebraThresholdIre = 70;
+        WaitFrames(session, 3, 2000);
+        byte[] zebra70 = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        (int z70, int out70, int bad70, _) = Measure(zebra70, 70);
+        Check(z70 > z100, $"阈值降到 70 IRE：斑马像素增加到 {z70} 个（>100 IRE 时的 {z100} 个）");
+        Check(bad70 == 0, $"阈值 70 IRE 时也不越界（越界 {bad70} 个）");
+
+        // ③ 示波器格一个像素都不能变（斑马纹只在显示通道）
+        Check(out100 == 0 && out70 == 0,
+              $"画面格面板以外（示波器格等）没有任何像素被改动（100 IRE 时 {out100} 个、70 IRE 时 {out70} 个）");
+
+        // ④ 黑切割斑马（阈值 0 IRE）：偏蓝
+        session.ZebraEnabled = false;          // 只留黑切割，避免两种斑马混在一起互相抵消
+        session.ZebraBlackEnabled = true;
+        session.ZebraBlackThresholdIre = 0;
+        WaitFrames(session, 3, 2000);
+        byte[] zebraBlack = LiveSnapshot.RenderBgra(session, graticuleOptions, false, out fw, out fh);
+        (int zBlack, int outBlack, int badBlack, double blueBlack) = Measure(zebraBlack, 0);   // 阈值 0：只看"基线亮度 ≥ 0"（即全部改动）
+        _ = zBlack;
+        Check(blueBlack > 5 && outBlack == 0,
+              $"黑切割斑马偏蓝：斑马像素蓝通道平均变化 {blueBlack:0.0}（应为正值），画面格外改动 {outBlack} 个");
+        _ = badBlack;
+
+        session.ZebraEnabled = false;
+        session.ZebraBlackEnabled = false;
+        WaitFrames(session, 2, 2000);
+
+        // ⑤ 报警：合成图超白比例 > 0.05%，必须报出来；关掉报警后清空
+        // 合成图（75% 彩条）实测超白只有 0.02%，低于 0.05% 门槛 —— 想验报警就得把门槛调到它下面，
+        // 这正好也验了「门槛可调」这件事本身（真实 100% 彩条是 12%，用默认门槛就会报）。
+        session.AlarmEnabled = true;
+        session.AlarmRaiseThreshold = 1;
+        session.AlarmPercentThreshold = 0.01;
+        WaitFrames(session, 8, 3000);
+        IReadOnlyList<string> active = session.ActiveWarnings;
+        bool hasOverWhite = active.Any(w => w.StartsWith("超白", StringComparison.Ordinal));
+        report.Add($"  {(hasOverWhite ? "✓" : "✗")} 报警：合成图报出「{string.Join(" / ", active)}」"
+                 + $"（超白门槛 0.05%，画面实测超白 {(session.Measurement?.AboveWhitePercent ?? 0):0.00}%）");
+        if (!hasOverWhite) { failed++; }
+
+        string[] raised = session.ActiveWarnings.ToArray();
+        session.AlarmPercentThreshold = 0.05;     // 门槛调回默认 → 这一项不再命中
+        WaitFrames(session, 6, 3000);
+        // 判据要**与内容无关**：真实 100% 彩条的超白本来就是 12%，调高门槛并不会让它消失。
+        // 该断言的是「改门槛 → 锁存被重置 → 列表立刻等于用新门槛重新判定的结果」（不残留旧计数）。
+        IReadOnlyList<string> expectedAfterChange = session.Measurement is { } now
+            ? SignalMeasurementRules.Evaluate(now, session.AlarmPercentThreshold)
+            : Array.Empty<string>();
+        bool matchesRules = expectedAfterChange.SequenceEqual(session.ActiveWarnings, StringComparer.Ordinal);
+        Check(raised.Length > 0 && matchesRules,
+              $"改门槛后报警列表立即等于「按新门槛重新判定」的结果："
+              + $"曾报出「{string.Join(" / ", raised)}」，现在「{string.Join(" / ", session.ActiveWarnings)}」"
+              + $"（期望「{string.Join(" / ", expectedAfterChange)}」）");
+
+        session.AlarmEnabled = false;
+        WaitFrames(session, 4, 2000);
+        Check(session.ActiveWarnings.Count == 0, "关掉报警开关 → 显示列表立即清空");
+        session.AlarmEnabled = true;
+
+        return failed;
+    }
     /// <summary>
     /// 设备列表差异逻辑的断言。热插拔本身没法自动测（要真拔线），
     /// 但「谁进来了、谁走了、标识稳不稳」是纯函数 —— 这里把它钉死，

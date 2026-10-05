@@ -1,4 +1,4 @@
-//
+﻿//
 //  VideoRenderer.cs
 //  VideoScopePad.Win
 //
@@ -34,6 +34,19 @@ public sealed class RenderOptions
     /// <summary>参考层不透明度（冻结参考；1.0 = 实时轨迹）</summary>
     public double ReferenceOpacity { get; set; } = 0.55;
     public bool ShowReference { get; set; }
+
+    // ---- 斑马纹（超白 / 黑切割）----
+    /// <summary>超白斑马纹开关</summary>
+    public bool ZebraEnabled { get; set; }
+    /// <summary>超白斑马纹阈值（IRE）</summary>
+    public double ZebraThresholdIre { get; set; } = 100.0;
+    /// <summary>黑切割斑马纹开关</summary>
+    public bool ZebraBlackEnabled { get; set; }
+    /// <summary>黑切割阈值（IRE）</summary>
+    public double ZebraBlackThresholdIre { get; set; }
+
+    /// <summary>IRE → 0–1 码值（本工程解码后是 full range：0 IRE = 0、100 IRE = 255 → 归一化后 1.0）</summary>
+    public static float CodeFromIre(double ire) => (float)Math.Clamp(ire / 100.0, 0.0, 1.0);
 }
 
 public sealed class VideoRenderer : IDisposable
@@ -108,6 +121,15 @@ public sealed class VideoRenderer : IDisposable
 
             var render = RenderUniforms.Default;
             render.Flags = new Vector4(options.DisplayMode, 0, 0, 0);
+
+            // 斑马纹（超白 / 黑切割）：只在**显示通道**叠加，不进示波器与读数统计。
+            // IRE → 码值：本工程在采集入口就把 limited 展开成 full，所以 0 IRE = 0、100 IRE = 255。
+            // （着色器里比较的就是解码后的 full-range 亮度，两端对得上。）
+            render.Zebra = new Vector4(
+                RenderOptions.CodeFromIre(options.ZebraThresholdIre),
+                options.ZebraEnabled ? 1f : 0f,
+                RenderOptions.CodeFromIre(options.ZebraBlackThresholdIre),
+                options.ZebraBlackEnabled ? 1f : 0f);
             context.UpdateSubresource(in render, _renderBuffer);
 
             context.PSSetShader(_pipelines.Display);
