@@ -49,6 +49,9 @@ internal static class Program
                 case "gpu":
                     return GpuCheck(args);
 
+                case "bars":
+                    return Bars(args);
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -423,8 +426,173 @@ internal static class Program
     }
 
     // ------------------------------------------------------------------
-    //  ④ 采集帧 → GPU（YUV→RGB 转换）→ 示波器：整条链路的数值验收
+    //  ⑤ 彩条校对：用真实信号定案「BT.601 还是 BT.709」+ 量化范围
     // ------------------------------------------------------------------
+    /// <summary>
+    /// 抓一帧真实彩条，打印 7 条彩条的**原始码值**，再用
+    /// 「601/709 × limited/full」四种组合分别解码，看哪种解得回标准彩条码值。
+    ///
+    /// 为什么这么做就能定案：解码是 YUV→R'G'B' 一步，而矢量图的 75% 目标框是按
+    /// **R'G'B' 的 75% 码值**（191）用 BT.709 的 Cb/Cr 公式反推出来的。
+    /// 所以只要解码后的 RGB 等于标准 75% 码值，矢量点自然落进目标框 ——
+    /// 不需要单独去猜矢量图用哪套矩阵（着色器里固定用 709，那是 HD 的惯例）。
+    ///
+    /// ⚠️ 采样点取画面**上部 1/4 处的 7 等分中心**：标准彩条就在那一条带上。
+    ///    如果你的信号源是别的排布，看打印出来的原始 Y/U/V 也能自己判断。
+    /// </summary>
+    private static int Bars(string[] args)
+    {
+        string deviceFragment = Option(args, "--device") ?? DefaultDeviceNameFragment;
+        string? requested = Option(args, "--set");
+
+        using var mf = MediaFoundationRuntime.Start();
+        using CaptureDevice device = CaptureDevice.OpenByName(deviceFragment);
+        IReadOnlyList<CaptureFormat> formats = device.GetNativeFormats();
+        CaptureFormat wanted = requested is { Length: > 0 }
+            ? formats.FirstOrDefault(f => f.MatchesSpec(requested))
+                ?? throw new InvalidOperationException($"没有匹配「{requested}」的原生格式")
+            : CaptureFormat.PickPreferred(formats)!;
+        CaptureFormat effective = device.SetNativeFormat(wanted.NativeIndex);
+
+        Console.WriteLine($"设备        : [{device.Info.Index}] {device.Info.FriendlyName}");
+        Console.WriteLine($"生效格式    : {effective.Describe()}");
+        Console.WriteLine($"驱动声明色彩: {effective.Color.Summary}");
+        Console.WriteLine();
+
+        CapturedFrame? frame = null;
+        for (int i = 0; i < 5; i++)
+        {
+            frame = device.ReadFrame();
+        }
+        if (frame is null)
+        {
+            Check(false, "采到一帧画面", "一个样本都没读到");
+            return Report();
+        }
+
+        bool nv12 = effective.SubtypeName.Equals("NV12", StringComparison.OrdinalIgnoreCase);
+        int pitch = Math.Abs(frame.Stride);
+        int sampleY = Math.Max(frame.Height / 8, 0);
+        string[] barNames = { "白", "黄", "青", "绿", "品红", "红", "蓝" };
+
+        Console.WriteLine($"采样行      : y={sampleY}（画面上部 1/4 带），7 等分中心");
+        Console.WriteLine();
+        Console.WriteLine("  彩条   原始码值 (Y,U,V)     601-limited 解码   709-limited 解码");
+        Console.WriteLine("  ------ ------------------- ------------------ ------------------");
+
+        var samples = new (byte Y, byte U, byte V)[7];
+        for (int bar = 0; bar < 7; bar++)
+        {
+            int x = (int)((bar + 0.5) * frame.Width / 7.0);
+            x = Math.Min(Math.Max(x & ~1, 0), frame.Width - 2);
+            int rowStart = sampleY * pitch;
+
+            byte y0, u, v;
+            if (nv12)
+            {
+                y0 = frame.Data[rowStart + x];
+                int chromaRow = pitch * frame.Height + (sampleY / 2) * pitch;
+                u = frame.Data[chromaRow + (x & ~1)];
+                v = frame.Data[chromaRow + (x & ~1) + 1];
+            }
+            else
+            {
+                int i = rowStart + x * 2;
+                y0 = frame.Data[i];
+                u = frame.Data[i + 1];
+                v = frame.Data[i + 3];
+            }
+            samples[bar] = (y0, u, v);
+
+            (int r601, int g601, int b601) = DecodeYuv(y0, u, v, VideoTransferMatrix.Bt601, limited: true);
+            (int r709, int g709, int b709) = DecodeYuv(y0, u, v, VideoTransferMatrix.Bt709, limited: true);
+            Console.WriteLine($"  {barNames[bar],-4}  {y0,3},{u,3},{v,3}        "
+                            + $"({r601,3},{g601,3},{b601,3})        ({r709,3},{g709,3},{b709,3})");
+        }
+        Console.WriteLine();
+
+        // 标准 75% 与 100% 彩条的码值（解码后应当是这些值，因为解码把 limited 展开成 full）
+        var expect75 = new (int R, int G, int B)[]
+        {
+            (191, 191, 191), (191, 191, 0), (0, 191, 191), (0, 191, 0),
+            (191, 0, 191), (191, 0, 0), (0, 0, 191),
+        };
+        var expect100 = new (int R, int G, int B)[]
+        {
+            (255, 255, 255), (255, 255, 0), (0, 255, 255), (0, 255, 0),
+            (255, 0, 255), (255, 0, 0), (0, 0, 255),
+        };
+
+        Console.WriteLine("四种组合 vs 标准彩条（平均绝对误差，越小越像）：");
+        var candidates = new (string Name, VideoTransferMatrix Matrix, bool Limited)[]
+        {
+            ("BT.601 + limited（广播标清惯例）", VideoTransferMatrix.Bt601, true),
+            ("BT.709 + limited（HD 惯例）", VideoTransferMatrix.Bt709, true),
+            ("BT.601 + full（JPEG 系）", VideoTransferMatrix.Bt601, false),
+            ("BT.709 + full", VideoTransferMatrix.Bt709, false),
+        };
+
+        string? bestName = null;
+        double bestError = double.MaxValue;
+        foreach ((string name, VideoTransferMatrix matrix, bool limited) in candidates)
+        {
+            double error75 = AverageError(samples, expect75, matrix, limited);
+            double error100 = AverageError(samples, expect100, matrix, limited);
+            Console.WriteLine($"  {name,-32} 75% 彩条 {error75,6:0.0}　100% 彩条 {error100,6:0.0}");
+
+            double error = Math.Min(error75, error100);
+            if (error < bestError)
+            {
+                bestError = error;
+                bestName = $"{name}（按 {(error75 <= error100 ? "75%" : "100%")} 彩条）";
+            }
+        }
+        Console.WriteLine();
+
+        // 白条最能说明量化范围：limited 的 75% 白码值 180、full 的 75% 白是 191
+        byte whiteY = samples[0].Y;
+        Console.WriteLine($"白条 Y 码值  : {whiteY}"
+                        + $"（75% 白 = limited 180 / full 191；100% 白 = limited 235 / full 255）");
+        Console.WriteLine($"判定        : 最像的是 **{bestName}**，平均误差 {bestError:0.0} 个码值");
+        Console.WriteLine();
+
+        Check(bestError < 6, "存在一种解码组合能把彩条解回标准码值（平均误差 < 6）", $"{bestName}：{bestError:0.0}");
+        Check(bestName is not null && bestName.Contains("709"), "彩条按 BT.709 解码才对得上（信号源是 709 彩条）",
+            bestName ?? "");
+        Check(Math.Abs(whiteY - 180) <= 3 || Math.Abs(whiteY - 191) <= 3 || Math.Abs(whiteY - 235) <= 3,
+            "白条码值落在常见取值范围（limited/full × 75%/100%）", $"Y={whiteY}");
+
+        return Report();
+    }
+
+    /// <summary>用生产链路同一套系数解一个像素</summary>
+    private static (int R, int G, int B) DecodeYuv(byte y, byte u, byte v,
+                                                  VideoTransferMatrix matrix, bool limited)
+    {
+        var color = new VideoColorInfo(
+            limited ? NominalRange.Range16_235 : NominalRange.Range0_255, true,
+            VideoPrimaries.Bt709, true,
+            VideoTransferFunction.Func709, true,
+            matrix, true);
+        byte[] probe = { y, u, y, v };
+        byte[] rgba = YuvFrameConverter.Yuy2ToRgba8(probe, 2, 1, 4,
+            YuvFrameConverter.Coefficients.Select(color));
+        return (rgba[0], rgba[1], rgba[2]);
+    }
+
+    private static double AverageError((byte Y, byte U, byte V)[] samples,
+                                       (int R, int G, int B)[] expected,
+                                       VideoTransferMatrix matrix, bool limited)
+    {
+        double total = 0;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            (int r, int g, int b) = DecodeYuv(samples[i].Y, samples[i].U, samples[i].V, matrix, limited);
+            total += Math.Abs(r - expected[i].R) + Math.Abs(g - expected[i].G) + Math.Abs(b - expected[i].B);
+        }
+        return total / (samples.Length * 3);
+    }
+
     private static int GpuCheck(string[] args)
     {
         string deviceFragment = Option(args, "--device") ?? DefaultDeviceNameFragment;
