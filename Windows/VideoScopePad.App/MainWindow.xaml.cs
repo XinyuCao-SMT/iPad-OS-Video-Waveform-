@@ -83,6 +83,7 @@ public partial class MainWindow : Window
 
     private ComboBox _layoutBox = null!;
     private ComboBox _matrixBox = null!;
+    private ComboBox _rotationBox = null!;
     private TextBlock _matrixHint = null!;
     private ComboBox _fullscreenContentBox = null!;
     private readonly ComboBox[] _quadBoxes = new ComboBox[4];
@@ -99,6 +100,9 @@ public partial class MainWindow : Window
         _layoutBox = MakeComboBox(140);
         _layoutBox.Items.Add("四分割（逐格可换）");
         _layoutBox.Items.Add("全屏（一格铺满）");
+        _layoutBox.Items.Add("底部条（画面 + 示波器条）");
+        _layoutBox.Items.Add("右侧栏（画面 + 右栏示波器）");
+        _layoutBox.Items.Add("叠加（示波器压在画面上）");
         _layoutBox.SelectedIndex = 0;
         _layoutBox.SelectionChanged += OnLayoutChanged;
         LayoutRow.Children.Add(_layoutBox);
@@ -114,6 +118,17 @@ public partial class MainWindow : Window
         _matrixBox.SelectedIndex = 0;
         _matrixBox.SelectionChanged += OnColorMatrixChanged;
         LayoutRow.Children.Add(_matrixBox);
+
+        LayoutRow.Children.Add(Label("画面方向"));
+        _rotationBox = MakeComboBox(130);
+        _rotationBox.Items.Add("自动");
+        _rotationBox.Items.Add("不旋转");
+        _rotationBox.Items.Add("顺时针 90°");
+        _rotationBox.Items.Add("逆时针 90°");
+        _rotationBox.Items.Add("180°");
+        _rotationBox.SelectedIndex = 0;
+        _rotationBox.SelectionChanged += OnRotationChanged;
+        LayoutRow.Children.Add(_rotationBox);
         _matrixHint = Label(string.Empty);
         _matrixHint.Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0xC4, 0x6A));
         LayoutRow.Children.Add(_matrixHint);
@@ -184,9 +199,14 @@ public partial class MainWindow : Window
         {
             return;
         }
-        _session.Preset = _layoutBox.SelectedIndex == 1
-            ? MonitorLayoutPreset.Fullscreen
-            : MonitorLayoutPreset.Quad;
+        _session.Preset = _layoutBox.SelectedIndex switch
+        {
+            1 => MonitorLayoutPreset.Fullscreen,
+            2 => MonitorLayoutPreset.BottomStrip,
+            3 => MonitorLayoutPreset.RightColumn,
+            4 => MonitorLayoutPreset.Overlay,
+            _ => MonitorLayoutPreset.Quad,
+        };
         Diag.Log($"用户切布局 → {_session.Preset}（下拉索引 {_layoutBox.SelectedIndex}）");
         UpdateLayoutRowVisibility();
         foreach (ComboBox box in _quadBoxes)
@@ -201,9 +221,12 @@ public partial class MainWindow : Window
 
     private void UpdateLayoutRowVisibility()
     {
+        // 全屏看"内容"下拉；四分割看 4 个格下拉；
+        // 底部条/右侧栏/叠加 用的是固定的一套示波器（波形/矢量/Parade），没有逐格可选项
         bool fullscreen = _layoutBox.SelectedIndex == 1;
+        bool quad = _layoutBox.SelectedIndex == 0;
         _fullscreenPanel.Visibility = fullscreen ? Visibility.Visible : Visibility.Collapsed;
-        _quadPanel.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
+        _quadPanel.Visibility = quad ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void OnFullscreenContentChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -607,6 +630,25 @@ public partial class MainWindow : Window
             return;
         }
         ApplySourceSelection();
+    }
+
+    /// <summary>画面方向（自动 / 不旋转 / 顺逆 90 / 180）</summary>
+    private void OnRotationChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (_buildingLayoutRow || !IsLoaded)
+        {
+            return;
+        }
+
+        _session.PictureRotation = _rotationBox.SelectedIndex switch
+        {
+            1 => PictureRotation.None,
+            2 => PictureRotation.Clockwise90,
+            3 => PictureRotation.CounterClockwise90,
+            4 => PictureRotation.Rotate180,
+            _ => PictureRotation.Automatic,
+        };
+        Diag.Log($"画面方向 → {_session.PictureRotation}（下拉索引 {_rotationBox.SelectedIndex}）");
     }
 
     private void OnRefreshDevices(object sender, RoutedEventArgs e)

@@ -588,6 +588,11 @@ public partial class App : Application
             exitCode |= CheckWarningRules(report);
             exitCode |= CheckZebraAndAlarm(session, fw, fh, graticuleOptions, report);
 
+            // ---------- 布局预设（底部条 / 右侧栏 / 叠加）+ 画面方向 ----------
+            report.Add(string.Empty);
+            report.Add("布局预设与画面方向断言（格子数与几何、旋转是否真的换了轴）：");
+            exitCode |= CheckLayoutPresets(session, report);
+
             // ---------- 读数 CSV 导出 ----------
             report.Add(string.Empty);
             report.Add("读数 CSV 断言（表头与 iPad 逐字一致、数值对得上读数、节流与 BOM 都对）：");
@@ -815,6 +820,98 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// 布局预设（底部条 / 右侧栏 / 叠加）与画面方向的断言：
+    ///   预设 —— 格子数 = 1 + 示波器清单数，且几何关系符合各预设的定义（条在下、栏在右、叠加重合）；
+    ///   旋转 —— pane 的 Rotation 与 SwapsVideoAxes 要跟着变，且适配后的视频矩形宽高比确实换了轴。
+    /// 这些都是纯几何，可以直接断言数值，不依赖画面内容。
+    /// </summary>
+    private static int CheckLayoutPresets(LiveSession session, List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what)
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}");
+            if (!ok) { failed++; }
+        }
+
+        // 三个预设各看一遍：格子数、几何关系
+        session.Preset = MonitorLayoutPreset.BottomStrip;
+        WaitFrames(session, 4, 3000);
+        ScopeLayoutResult strip = session.Layout;
+        PaneLayout? stripPicture = strip.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
+        var stripScopes = strip.Panes.Where(p => p.Content != PaneContent.Picture).ToList();
+        bool stripOk = strip.Panes.Count == 1 + session.ScopePanels.Count
+                    && stripScopes.Count == session.ScopePanels.Count
+                    && stripPicture?.Panel is { } sp && stripScopes.All(p => p.Panel.MinY >= sp.MaxY - 0.02);
+        report.Add($"  {(stripOk ? "✓" : "✗")} 底部条：{strip.Panes.Count} 格（1 画面 + {stripScopes.Count} 示波器），"
+                 + $"画面底边 {stripPicture?.Panel.MaxY:0.000} ≤ 示波器顶边 {stripScopes.FirstOrDefault()?.Panel.MinY:0.000}");
+        if (!stripOk) { failed++; }
+
+        session.Preset = MonitorLayoutPreset.RightColumn;
+        WaitFrames(session, 4, 3000);
+        ScopeLayoutResult column = session.Layout;
+        PaneLayout? columnPicture = column.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
+        var columnScopes = column.Panes.Where(p => p.Content != PaneContent.Picture).ToList();
+        bool columnOk = column.Panes.Count == 1 + session.ScopePanels.Count
+                     && columnPicture?.Panel is { } cp && columnScopes.All(p => p.Panel.MinX >= cp.MaxX - 0.02)
+                     && columnScopes.Count > 0 && columnScopes[0].Panel.Width < cp.Width;
+        report.Add($"  {(columnOk ? "✓" : "✗")} 右侧栏：{column.Panes.Count} 格，示波器栏在画面右侧且更窄"
+                 + $"（栏宽 {columnScopes.FirstOrDefault()?.Panel.Width:0.000} < 画面宽 {columnPicture?.Panel.Width:0.000}）");
+        if (!columnOk) { failed++; }
+
+        session.Preset = MonitorLayoutPreset.Overlay;
+        WaitFrames(session, 4, 3000);
+        ScopeLayoutResult overlay = session.Layout;
+        PaneLayout? overlayPicture = overlay.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
+        var overlayScopes = overlay.Panes.Where(p => p.Content != PaneContent.Picture).ToList();
+        bool overlayOk = overlay.IsOverlay && overlayScopes.Count > 0
+                      && overlayPicture?.Panel is { } op && overlayScopes.All(p => p.Panel.MinY < op.MaxY)
+                      && overlayScopes.All(p => p.Panel.MaxY <= op.MaxY + 1e-6);
+        report.Add($"  {(overlayOk ? "✓" : "✗")} 叠加：IsOverlay={overlay.IsOverlay}、{overlay.Panes.Count} 格，"
+                 + "示波器格与画面格**重叠**（都在画面框内）");
+        if (!overlayOk) { failed++; }
+
+        // 画面方向：自动 / 90 / 180 / 270
+        session.Preset = MonitorLayoutPreset.Quad;
+        WaitFrames(session, 4, 3000);
+        var rotationResults = new List<string>();
+        bool rotationOk = true;
+        foreach (PictureRotation rotation in new[]
+                 {
+                     PictureRotation.None, PictureRotation.Clockwise90,
+                     PictureRotation.Rotate180, PictureRotation.CounterClockwise90,
+                 })
+        {
+            session.PictureRotation = rotation;
+            WaitFrames(session, 4, 3000);
+            PaneLayout? pane = session.Layout.Panes.FirstOrDefault(p => p.Content == PaneContent.Picture);
+            if (pane is null) { rotationOk = false; break; }
+
+            bool expectSwap = rotation is PictureRotation.Clockwise90 or PictureRotation.CounterClockwise90;
+            bool swapOk = pane.SwapsVideoAxes == expectSwap;
+            // 适配后的视频矩形：需要换轴时，宽高比应当取倒数（16:9 的源 → 9:16 的框）
+            bool aspectOk = true;
+            if (session.VideoWidth > 0 && session.VideoHeight > 0 && pane.Video is { } video)
+            {
+                double videoAspect = (double)session.VideoWidth / session.VideoHeight;
+                // ⚠️ 布局里的矩形是**单位空间**（x 按容器宽归一、y 按容器高归一），
+                //    直接相除得到的不是像素宽高比 —— 必须乘回容器像素尺寸（实测踩过：
+                //    四个档位都被判成"比例错"，其实旋转本身都是对的）。
+                double boxAspect = video.Width * session.Width / (video.Height * session.Height);
+                double want = expectSwap ? 1.0 / videoAspect : videoAspect;
+                aspectOk = Math.Abs(boxAspect - want) < 0.02;
+            }
+            rotationOk &= swapOk && aspectOk;
+            rotationResults.Add($"{(expectSwap ? "换轴" : "不换轴")}{(swapOk ? "✓" : "✗")}/比例{(aspectOk ? "对" : "错")}");
+        }
+        Check(rotationOk, $"画面方向：{string.Join("、", rotationResults)}（源 {session.VideoWidth}×{session.VideoHeight}）");
+
+        session.PictureRotation = PictureRotation.Automatic;
+        session.Preset = MonitorLayoutPreset.Quad;
+        WaitFrames(session, 3, 3000);
+        return failed;
+    }
     /// <summary>
     /// 读数 CSV 导出断言：表头逐字一致、行里的数值等于读数、节流生效、BOM 与文件落盘都对。
     /// </summary>

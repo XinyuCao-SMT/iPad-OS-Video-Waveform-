@@ -297,6 +297,27 @@ public sealed class LiveSession : IDisposable
         set { _preset = value; _rebuildRequested = true; }
     }
 
+    /// <summary>
+    /// 底部条 / 右侧栏 / 叠加 三个预设用的示波器清单（与 iPad 版的 legacyPanels 对应）。
+    /// 四分割与全屏不看它 —— 那两个是把内容写进格里。
+    /// </summary>
+    public IReadOnlyList<ScopePanelKind> ScopePanels
+    {
+        get => _scopePanels;
+        set { _scopePanels = value.ToArray(); _rebuildRequested = true; }
+    }
+
+    private ScopePanelKind[] _scopePanels = { ScopePanelKind.Waveform, ScopePanelKind.Vectorscope, ScopePanelKind.Parade };
+
+    /// <summary>画面方向（自动 / 不旋转 / 顺逆 90 / 180），与 iPad 版 pictureRotation 对应</summary>
+    public PictureRotation PictureRotation
+    {
+        get => _pictureRotation;
+        set { _pictureRotation = value; _rebuildRequested = true; }
+    }
+
+    private PictureRotation _pictureRotation = PictureRotation.Automatic;
+
     /// <summary>全屏时那一格显示什么</summary>
     public PaneContent FullscreenContent
     {
@@ -1122,7 +1143,8 @@ public sealed class LiveSession : IDisposable
             aspectMode: AspectMode.Fit,
             fullscreenContent: _fullscreenContent,
             quadContents: _quadContents,
-            legacyPanels: Array.Empty<ScopePanelKind>());
+            legacyPanels: _scopePanels,
+            pictureRotation: _pictureRotation);
         renderer.Layout = Layout;
         _scopeSettings = ScopeRenderSettings.ForLayout(Layout, ScopeStride);
     }
