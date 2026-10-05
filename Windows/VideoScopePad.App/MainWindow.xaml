@@ -19,6 +19,16 @@
       <WrapPanel x:Name="LayoutRow" VerticalAlignment="Center"/>
     </Border>
 
+    <!-- 顶部信号信息行：设备 / 格式 / 色彩 / 实时帧率 / 版本，一眼看全（对齐 iPad 版顶部状态栏） -->
+    <Border DockPanel.Dock="Top" Background="#12151A" Padding="10,5">
+      <DockPanel>
+        <TextBlock x:Name="InfoText" Foreground="#B8C2D0" FontFamily="Consolas"
+                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        <TextBlock x:Name="InfoFpsText" DockPanel.Dock="Right" Foreground="#8FE0A8" FontFamily="Consolas"
+                   VerticalAlignment="Center" HorizontalAlignment="Right" Margin="10,0,0,0"/>
+      </DockPanel>
+    </Border>
+
     <Border DockPanel.Dock="Top" Background="#171A20" Padding="10,8">
       <DockPanel>
         <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">

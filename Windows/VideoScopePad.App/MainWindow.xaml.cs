@@ -389,6 +389,13 @@ public partial class MainWindow : Window
             }
             DeviceStateText.Text = _session.DeviceState;
 
+            // 顶部信号信息行：把"在看什么信号"这件事集中到一处（设备 / 格式 / 色彩 / 版本）。
+            // 与底部 DetailText 的区别：这里只放**稳定不变**的标识信息，帧率单独放右侧并高亮，
+            // 这样刷新时不会整行跳动（读数行本来就每秒都在变，再叠一行跳动的更花）。
+            InfoText.Text = $"{stats.Source}　·　{stats.Format}　·　{stats.Color}　·　v{AppVersion}"
+                          + (string.IsNullOrEmpty(stats.Message) ? string.Empty : "　·　⚠ 见底部提示");
+            InfoFpsText.Text = $"采集 {stats.CaptureFps:0.0} fps　显示 {stats.DisplayFps:0.0} fps";
+
             // 超标报警：按版本号刷新（报警文字/红框不该每帧重建）
             if (_session.AlarmRevision != _lastAlarmRevision)
             {
