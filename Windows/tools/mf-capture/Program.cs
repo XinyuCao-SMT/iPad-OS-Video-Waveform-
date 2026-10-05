@@ -1,4 +1,4 @@
-﻿//
+//
 //  Program.cs
 //  mf-capture
 //
@@ -480,8 +480,8 @@ internal static class Program
         //    {f19f064d-…}（PKEY_AudioEngine_DeviceFormat）—— 音频引擎格式不在这个子键下。
         //    下一轮改用 WASAPI 的 IAudioClient::GetMixFormat（那本来就是"实际几声道"的最终依据，
         //    也是后面抓音频要用的同一套接口）。这条先作信息行，不掩盖。
-        report.Add($"  · （待完成）声道数解析：{devices.Count(d => d.Channels >= 1)}/{devices.Count}"
-                 + " 个端点读出了声道数（注册表子键里没有音频引擎格式；下一轮改 WASAPI GetMixFormat）");
+        Console.WriteLine($"  · （待完成）声道数解析：{devices.Count(d => d.Channels >= 1)}/{devices.Count}"
+                        + " 个端点读出了声道数（注册表子键里没有音频引擎格式；下一轮改 WASAPI GetMixFormat）");
         Check(devices.All(d => d.SampleRate == 0 || (d.SampleRate >= 8000 && d.SampleRate <= 384000)),
             "采样率都在合理范围（8k–384k）",
             string.Join(",", devices.Select(d => d.SampleRate).Distinct()));
