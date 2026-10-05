@@ -1,4 +1,4 @@
-//
+﻿//
 //  Program.cs
 //  mf-capture
 //
@@ -59,6 +59,9 @@ internal static class Program
                 case "audio":
                     return AudioDevices();
 
+                case "audiodsp":
+                    return AudioDsp();
+
                 default:
                     PrintHelp();
                     return command is "help" or "-h" or "--help" ? 0 : 2;
@@ -89,6 +92,7 @@ internal static class Program
         Console.WriteLine("       --set <WxH@fps:FourCC>  指定采集格式");
         Console.WriteLine("       --out <目录>         出图目录（默认 &lt;仓库根&gt;\\Windows\\out）");
         Console.WriteLine("       --name <文件名>      出图文件名（默认 capture-frame.png）");
+        Console.WriteLine("  audiodsp            ⑧ 音频 DSP 自检（BS.1770 响度 / 每通道电平，不需要硬件）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（各端点声道数/采样率/状态 —— 8ch 可行性先看它）");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -486,6 +490,67 @@ internal static class Program
             "采样率都在合理范围（8k–384k）",
             string.Join(",", devices.Select(d => d.SampleRate).Distinct()));
         Console.WriteLine($"  · 本机{(multichannel > 0 ? "有" : "没有")}多声道（>2ch）端点 —— 这项只作信息、不算失败");
+        return Report();
+    }
+    // ------------------------------------------------------------------
+    //  ⑧ 音频 DSP 地基自检：BS.1770 响度 + 每通道电平（不依赖任何硬件）
+    // ------------------------------------------------------------------
+    private static int AudioDsp()
+    {
+        const int rate = 48000;
+        var meter = new LoudnessMeter(rate);
+
+        // ① 1 kHz 正弦 @ −20 dBFS（单通道，加权 1.0）→ BS.1770 应当读 ≈ −20 LUFS
+        float[][] mono = LoudnessMeter.MakeSine(1, rate, 3.0, 1000.0, -20.0);
+        AudioAnalysis one = meter.Analyse(mono);
+        Console.WriteLine($"① 1 kHz @ −20 dBFS 单通道：积分响度 {one.IntegratedLufs:0.00} LUFS"
+                        + $"（参考块 {one.GatedBlocks} 个）、峰值 {one.Channels[0].PeakDbfs:0.00} dBFS、"
+                        + $"RMS {one.Channels[0].RmsDbfs:0.00} dBFS");
+        Check(Math.Abs(one.IntegratedLufs - (-23.0)) < 0.3,
+            "BS.1770 响度：1 kHz @ −20 dBFS（峰值）= −23.0 LUFS（EBU Tech 3341，±0.3）", $"{one.IntegratedLufs:0.00}");
+        Check(Math.Abs(one.Channels[0].PeakDbfs - (-20.0)) < 0.1,
+            "单通道峰值 = −20 dBFS（±0.1）", $"{one.Channels[0].PeakDbfs:0.00}");
+        Check(Math.Abs(one.Channels[0].RmsDbfs - (-23.01)) < 0.2,
+            "正弦 RMS 比峰值低 3.01 dB（−23.01 dBFS）", $"{one.Channels[0].RmsDbfs:0.00}");
+
+        // ② 同样的信号放到 8 声道：每通道读数一致，整体响度因加权而抬高
+        float[][] eight = LoudnessMeter.MakeSine(8, rate, 3.0, 1000.0, -20.0);
+        AudioAnalysis multi = meter.Analyse(eight);
+        double[] weights = LoudnessMeter.DefaultChannelWeights(8);
+        double expectedGain = 10 * Math.Log10(weights.Where(w => w > 0).Sum());
+        Console.WriteLine($"② 8 声道同信号：响度 {multi.IntegratedLufs:0.00} LUFS"
+                        + $"（加权和 {weights.Sum():0.00} → 相对单通道 +{expectedGain:0.00} dB）");
+        Check(Math.Abs(multi.IntegratedLufs - (one.IntegratedLufs + expectedGain)) < 0.5,
+            $"8 声道整体响度 = 单通道 {one.IntegratedLufs:0.00} + 加权 {expectedGain:0.00} dB（±0.5）", $"{multi.IntegratedLufs:0.00}");
+        Check(multi.Channels.Count == 8 && multi.Channels.All(c => Math.Abs(c.PeakDbfs - (-20.0)) < 0.1),
+            "8 条通道各自都有电平读数", string.Join(",", multi.Channels.Select(c => c.PeakDbfs.ToString("0.0"))));
+
+        // ③ 只有一个通道有声：其余通道必须报静音（≤ −120 dBFS）
+        float[][] sparse = new float[8][];
+        for (int ch = 0; ch < 8; ch++)
+        {
+            // 用**通道 0**（前置）而不是通道 3：7.1 权重表里通道 3 是 LFE、权重为 0，
+            // 放那儿等于没有信号（我第一版就放在 3 上，于是响度是 −∞ —— 判据也跟着写错了）。
+            sparse[ch] = ch == 0 ? mono[0] : new float[mono[0].Length];
+        }
+        AudioAnalysis only = meter.Analyse(sparse);
+        int silent = only.Channels.Count(c => c.IsSilent);
+        Check(silent == 7, "只有第 4 通道有声时，其余 7 条报静音", $"{silent} 条静音");
+        Check(Math.Abs(only.IntegratedLufs - (-20.0 + 10 * Math.Log10(0.0))) is double && only.HasLoudness,
+            "整体响度仍算得出来（LFE 权重 0 不影响）", $"{only.IntegratedLufs:0.00} LUFS");
+
+        // ④ 静音：算不出积分响度（而不是给个 −∞ 或 NaN 混过去）
+        var silence = new float[2][] { new float[rate], new float[rate] };
+        AudioAnalysis quiet = meter.Analyse(silence);
+        Check(!quiet.HasLoudness && quiet.Channels.All(c => c.IsSilent),
+            "全静音：不给积分响度、通道全静音", $"{quiet.IntegratedLufs}");
+
+        // ⑤ 门限：−75 dBFS 低于绝对门限 → 不算进积分响度
+        float[][] tiny = LoudnessMeter.MakeSine(1, rate, 3.0, 1000.0, -75.0);
+        AudioAnalysis below = meter.Analyse(tiny);
+        Check(!below.HasLoudness, "−75 dBFS 低于绝对门限（−70 LUFS）→ 不给积分响度",
+            $"{below.IntegratedLufs}");
+
         return Report();
     }
     private static int Devices()
