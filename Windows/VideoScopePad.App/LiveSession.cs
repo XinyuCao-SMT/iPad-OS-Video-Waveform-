@@ -1,4 +1,4 @@
-//
+﻿//
 //  LiveSession.cs
 //  VideoScopePad.App
 //
@@ -18,6 +18,7 @@
 
 using System.Diagnostics;
 using System.IO;
+using VideoScopePad.Win.Audio;
 using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
@@ -301,6 +302,84 @@ public sealed class LiveSession : IDisposable
     /// 底部条 / 右侧栏 / 叠加 三个预设用的示波器清单（与 iPad 版的 legacyPanels 对应）。
     /// 四分割与全屏不看它 —— 那两个是把内容写进格里。
     /// </summary>
+    // ---- 音频（WASAPI 共享模式；先做 2ch，架构按 8 条预留）----
+    private WasapiCapture? _audioCapture;
+    private AudioFrameAnalyser? _audioAnalyser;
+
+    /// <summary>最近的音频一帧报告（界面直接读它画表）</summary>
+    public AudioFrameReport AudioReport { get; private set; } = AudioFrameReport.Empty;
+
+    /// <summary>音频状态文字（未开 / 已开 2ch@48k / 失败原因）</summary>
+    public string AudioState { get; private set; } = "音频未开";
+
+    public bool AudioIsRunning => _audioCapture is not null;
+
+    /// <summary>开启/关闭音频抓取（在界面线程调用；抓取本身跑在自己的线程上）</summary>
+    public void SetAudioEnabled(bool enabled, string? endpointId)
+    {
+        try
+        {
+            if (!enabled)
+            {
+                _audioCapture?.Dispose();
+                _audioCapture = null;
+                _audioAnalyser = null;
+                AudioReport = AudioFrameReport.Empty;
+                AudioState = "音频未开";
+                return;
+            }
+
+            _audioCapture?.Dispose();
+            var capture = new WasapiCapture();
+            if (!capture.Open(endpointId))
+            {
+                AudioState = $"打开失败：{capture.LastError}";
+                capture.Dispose();
+                _audioCapture = null;
+                return;
+            }
+            if (!capture.Start())
+            {
+                AudioState = $"启动失败：{capture.LastError}";
+                capture.Dispose();
+                _audioCapture = null;
+                return;
+            }
+
+            _audioCapture = capture;
+            _audioAnalyser = new AudioFrameAnalyser(capture.Channels);
+            AudioState = $"音频已开 {capture.Channels}ch @ {capture.SampleRate} Hz"
+                       + (capture.Channels < 8 ? "（8 条电平表按实际通道数显示）" : string.Empty);
+        }
+        catch (Exception ex)
+        {
+            AudioState = $"音频异常：{ex.GetType().Name}: {ex.Message}";
+            _audioCapture?.Dispose();
+            _audioCapture = null;
+        }
+    }
+
+    /// <summary>清除电平表的 CLIP 锁存</summary>
+    public void ClearAudioClip() => _audioAnalyser?.Meters.ClearClip();
+
+    /// <summary>把最新抓到的样本喂给分析器（界面心跳里调，elapsedSeconds 是距上次的秒数）</summary>
+    public void UpdateAudio(double elapsedSeconds)
+    {
+        if (_audioCapture is null || _audioAnalyser is null)
+        {
+            return;
+        }
+        AudioCaptureFrame frame = _audioCapture.Latest;
+        if (frame.Channels.Length == 0)
+        {
+            return;
+        }
+        AudioReport = _audioAnalyser.Analyse(frame.Channels, frame.SampleRate, Math.Max(elapsedSeconds, 0.01));
+        if (_audioCapture.LastError.Length > 0)
+        {
+            AudioState = $"音频出错：{_audioCapture.LastError}";
+        }
+    }
     public IReadOnlyList<ScopePanelKind> ScopePanels
     {
         get => _scopePanels;

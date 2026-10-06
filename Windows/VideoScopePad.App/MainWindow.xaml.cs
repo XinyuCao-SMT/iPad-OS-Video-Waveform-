@@ -17,6 +17,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using VideoScopePad.Win.Audio;
 using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
@@ -59,6 +60,7 @@ public partial class MainWindow : Window
         _frameBuffer = new byte[width * height * 4];
 
         BuildLayoutRow();
+        BuildAudioRow();
         ZebraThresholdBox.SelectedIndex = 4;      // 默认 100 IRE（与 iPad 版一致）
         AlarmThresholdBox.SelectedIndex = 0;      // 默认门槛 1 次
         Loaded += OnLoaded;
@@ -400,7 +402,8 @@ public partial class MainWindow : Window
             if (double.IsNaN(LayoutRow.Width) || Math.Abs(LayoutRow.Width - rowWidth) > 1)
             {
                 LayoutRow.Width = rowWidth;          // 显式宽度（MaxWidth 在某些父级下不触发换行）
-                LayoutRow.MaxWidth = rowWidth;
+                RefreshAudioMeter(0.25);
+            LayoutRow.MaxWidth = rowWidth;
 
             // 其余 WrapPanel 也要限宽：LUT 那几个控件当初加在了**另一行**，只限 LayoutRow 不管用。
             // 父链给 WrapPanel 的可用宽是无限的，所以它一直横着排、控件被顶到窗口外面
@@ -678,6 +681,122 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- 音频控件（电平表本体在 XAML 里：AudioMeter）----
+    private long _lastAudioDiagTick;
+    private System.Windows.Threading.DispatcherTimer? _audioTimer;
+    private CheckBox _audioBox = null!;
+    private ComboBox _audioDeviceBox = null!;
+    private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
+
+    private void BuildAudioRow()
+    {
+        _audioBox = new CheckBox
+        {
+            Content = "音频",
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _audioBox.Checked += OnAudioToggled;
+        _audioBox.Unchecked += OnAudioToggled;
+        AudioControlsRow.Children.Add(_audioBox);
+
+        _audioDeviceBox = MakeComboBox(220);
+        _audioDeviceBox.SelectionChanged += OnAudioDeviceChanged;
+        AudioControlsRow.Children.Add(_audioDeviceBox);
+        RebuildAudioDevices();
+
+        var clearClip = new Button
+        {
+            Content = "清 CLIP",
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(8, 2, 8, 2),
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
+        };
+        clearClip.Click += (_, _) => _session.ClearAudioClip();
+        AudioControlsRow.Children.Add(clearClip);
+
+        var refresh = new Button
+        {
+            Content = "刷新音频设备",
+            Margin = new Thickness(6, 0, 0, 0),
+            Padding = new Thickness(8, 2, 8, 2),
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
+        };
+        refresh.Click += (_, _) => RebuildAudioDevices();
+        AudioControlsRow.Children.Add(refresh);
+
+        // 🔴 音频电平表必须用**独立定时器**刷新：原先把它挂在"视频帧统计"回调里，
+        //    结果视频没有新帧时就不刷新（实测开音频后 6 秒内一次都没刷，状态文字一直停在"音频未开"）。
+        //    音频和视频是两条独立的流，刷新也要各自独立。
+        _audioTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(100),
+        };
+        _audioTimer.Tick += (_, _) => RefreshAudioMeter(0.1);
+        _audioTimer.Start();
+    }
+
+    private void RebuildAudioDevices()
+    {
+        _audioEndpoints = WasapiFormatProbe.Enumerate().Where(e => e.IsActive && e.Channels > 0).ToList();
+        _audioDeviceBox.Items.Clear();
+        foreach (WasapiEndpointFormat endpoint in _audioEndpoints)
+        {
+            _audioDeviceBox.Items.Add($"{endpoint.FriendlyName}　{endpoint.Channels}ch @ {endpoint.SampleRate}");
+        }
+        if (_audioDeviceBox.Items.Count > 0 && _audioDeviceBox.SelectedIndex < 0)
+        {
+            _audioDeviceBox.SelectedIndex = 0;
+        }
+        Diag.Log($"音频设备刷新：{_audioEndpoints.Count} 个在用端点");
+    }
+
+    private string? SelectedAudioEndpointId
+        => _audioDeviceBox.SelectedIndex >= 0 && _audioDeviceBox.SelectedIndex < _audioEndpoints.Count
+            ? _audioEndpoints[_audioDeviceBox.SelectedIndex].EndpointId
+            : null;
+
+    private void OnAudioToggled(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded) { return; }
+        _session.SetAudioEnabled(_audioBox.IsChecked == true, SelectedAudioEndpointId);
+        Diag.Log($"音频开关 → {_audioBox.IsChecked}：{_session.AudioState}");
+    }
+
+    private void OnAudioDeviceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded) { return; }
+        if (_audioBox.IsChecked == true)
+        {
+            _session.SetAudioEnabled(true, SelectedAudioEndpointId);   // 换设备 = 重开
+        }
+        Diag.Log($"音频设备 → {_audioDeviceBox.SelectedItem}");
+    }
+
+    /// <summary>每帧把音频读数喂给电平表</summary>
+    private void RefreshAudioMeter(double elapsedSeconds)
+    {
+        _session.UpdateAudio(elapsedSeconds);
+        AudioFrameReport report = _session.AudioReport;
+        AudioMeter.Levels = report.Meters;
+        AudioMeter.Caption = report.ChannelCount > 0
+            ? $"音频 {report.ChannelCount}ch @ {report.SampleRate} Hz"
+            : "音频";
+        AudioMeter.IntegratedLufs = report.Loudness.HasLoudness ? report.Loudness.IntegratedLufs : null;
+        AudioMeter.InvalidateVisual();
+        AudioStateText.Text = _session.AudioState;
+
+        // 一次性诊断：确认这条路径真的在跑、拿到几通道几帧（排查"状态文字没更新"用）
+        if (Environment.TickCount64 - _lastAudioDiagTick > 3000)
+        {
+            _lastAudioDiagTick = Environment.TickCount64;
+            Diag.Log($"电平表刷新：状态「{_session.AudioState}」、"
+                   + $"通道 {report.ChannelCount}、电平表 {report.Meters.Count} 条、"
+                   + $"采样率 {report.SampleRate}、响度 {report.Loudness.IntegratedLufs:0.0}");
+        }
+    }
     private void OnRefreshDevices(object sender, RoutedEventArgs e)
     {
         _session.RequestDeviceRefresh();
