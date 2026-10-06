@@ -305,6 +305,11 @@ public sealed class LiveSession : IDisposable
     // ---- 音频（WASAPI 共享模式；先做 2ch，架构按 8 条预留）----
     private WasapiCapture? _audioCapture;
     private AudioFrameAnalyser? _audioAnalyser;
+    private readonly List<float[]> _audioHistory = new();
+    private double _audioHistorySeconds;
+
+    /// <summary>滚动缓冲里已积累的秒数（响度要 ≥0.4 s 才算得出，自检会断言它真的攒够了）</summary>
+    public double AudioHistorySeconds => _audioHistorySeconds;
 
     /// <summary>最近的音频一帧报告（界面直接读它画表）</summary>
     public AudioFrameReport AudioReport { get; private set; } = AudioFrameReport.Empty;
@@ -324,6 +329,8 @@ public sealed class LiveSession : IDisposable
                 _audioCapture?.Dispose();
                 _audioCapture = null;
                 _audioAnalyser = null;
+                _audioHistory.Clear();
+                _audioHistorySeconds = 0;
                 AudioReport = AudioFrameReport.Empty;
                 AudioState = "音频未开";
                 return;
@@ -348,6 +355,8 @@ public sealed class LiveSession : IDisposable
 
             _audioCapture = capture;
             _audioAnalyser = new AudioFrameAnalyser(capture.Channels);
+            _audioHistory.Clear();
+            _audioHistorySeconds = 0;
             AudioState = $"音频已开 {capture.Channels}ch @ {capture.SampleRate} Hz"
                        + (capture.Channels < 8 ? "（8 条电平表按实际通道数显示）" : string.Empty);
         }
@@ -359,6 +368,44 @@ public sealed class LiveSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// 把新抓到的样本追加进滚动缓冲，只保留最近约 1.2 秒（BS.1770 的块是 400 ms，留三倍余量）。
+    /// 响度与频谱都吃长窗，所以这里必须攒够；电平表仍用当前短帧（更跟手）。
+    /// </summary>
+    private void AppendAudioHistory(IReadOnlyList<float[]> channels, int sampleRate)
+    {
+        int channelCount = channels.Count;
+        if (channelCount == 0 || sampleRate <= 0)
+        {
+            return;
+        }
+
+        while (_audioHistory.Count < channelCount)
+        {
+            _audioHistory.Add(Array.Empty<float>());
+        }
+
+        for (int ch = 0; ch < channelCount; ch++)
+        {
+            float[] previous = _audioHistory[ch];
+            float[] merged = new float[previous.Length + channels[ch].Length];
+            Array.Copy(previous, merged, previous.Length);
+            Array.Copy(channels[ch], 0, merged, previous.Length, channels[ch].Length);
+            _audioHistory[ch] = merged;
+        }
+
+        int keep = (int)(sampleRate * 1.2);
+        if (_audioHistory[0].Length > keep)
+        {
+            int drop = _audioHistory[0].Length - keep;
+            for (int ch = 0; ch < _audioHistory.Count; ch++)
+            {
+                _audioHistory[ch] = _audioHistory[ch][drop..];
+            }
+        }
+
+        _audioHistorySeconds = _audioHistory[0].Length / (double)sampleRate;
+    }
     /// <summary>清除电平表的 CLIP 锁存</summary>
     public void ClearAudioClip() => _audioAnalyser?.Meters.ClearClip();
 
@@ -374,7 +421,10 @@ public sealed class LiveSession : IDisposable
         {
             return;
         }
-        AudioReport = _audioAnalyser.Analyse(frame.Channels, frame.SampleRate, Math.Max(elapsedSeconds, 0.01));
+        // 滚动缓冲：响度/频谱要长窗（BS.1770 的块是 400 ms），电平表用当前短帧
+        AppendAudioHistory(frame.Channels, frame.SampleRate);
+        AudioReport = _audioAnalyser.Analyse(frame.Channels, frame.SampleRate, Math.Max(elapsedSeconds, 0.01),
+                                             _audioHistory.Count > 0 ? _audioHistory : null);
         if (_audioCapture.LastError.Length > 0)
         {
             AudioState = $"音频出错：{_audioCapture.LastError}";

@@ -1,4 +1,4 @@
-//
+﻿//
 //  AudioFrameAnalyser.cs
 //  VideoScopePad.Win
 //
@@ -62,7 +62,13 @@ public sealed class AudioFrameAnalyser
     /// <summary>
     /// 分析一帧。<paramref name="elapsedSeconds"/> 是距上一帧的时长（电平表的保持/衰减用它）。
     /// </summary>
-    public AudioFrameReport Analyse(IReadOnlyList<float[]> channels, int sampleRate, double elapsedSeconds)
+    /// <param name="longWindow">
+    /// 长窗样本（通常喂 ~1 秒的滚动缓冲）：**响度与频谱**用它的 —— BS.1770 要 400 ms 的块，
+    /// 只喂一帧 50 ms 的话积分响度恒为 −∞（实测踩过）。电平表仍用 <paramref name="channels"/>（短帧更跟手）。
+    /// 不传就退回用短帧（此时响度多半算不出来，属于预期）。
+    /// </param>
+    public AudioFrameReport Analyse(IReadOnlyList<float[]> channels, int sampleRate, double elapsedSeconds,
+                                    IReadOnlyList<float[]>? longWindow = null)
     {
         ArgumentNullException.ThrowIfNull(channels);
         if (channels.Count == 0 || sampleRate <= 0)
@@ -72,9 +78,10 @@ public sealed class AudioFrameAnalyser
 
         _elapsedSeconds += elapsedSeconds;
         IReadOnlyList<ChannelMeterState> meters = _meters.Update(channels, elapsedSeconds);
-        AudioAnalysis loudness = new LoudnessMeter(sampleRate).Analyse(channels);
+        IReadOnlyList<float[]> measured = longWindow is { Count: > 0 } ? longWindow : channels;
+        AudioAnalysis loudness = new LoudnessMeter(sampleRate).Analyse(measured);
         IReadOnlyList<SpectrumBand> spectrum = MeasureSpectrum
-            ? SpectrumAnalyser.Analyse(channels, sampleRate)
+            ? SpectrumAnalyser.Analyse(measured, sampleRate)
             : Array.Empty<SpectrumBand>();
         GoniometerResult phase = GoniometerAnalyser.Analyse(channels, PhaseLeftChannel, PhaseRightChannel);
         IReadOnlyList<TrackDelay> delays = VideoChangeSeconds is { } videoChange

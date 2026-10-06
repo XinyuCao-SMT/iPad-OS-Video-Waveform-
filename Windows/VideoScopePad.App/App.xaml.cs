@@ -13,6 +13,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Media.Imaging;
+using VideoScopePad.Win.Audio;
 using VideoScopePad.Win.Capture;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
@@ -593,6 +594,11 @@ public partial class App : Application
             report.Add("布局调试叠加层断言（开=画出面板框，关=一个像素都不留）：");
             exitCode |= CheckLayoutDebugOverlay(session, graticuleOptions, report);
 
+            // ---------- 音频（抓取 + 电平表 + 响度长窗）----------
+            report.Add(string.Empty);
+            report.Add("音频断言（真实抓取：缓冲够长、报告产出、静音时的正确行为）：");
+            exitCode |= CheckAudio(session, report);
+
             // ---------- 布局预设（底部条 / 右侧栏 / 叠加） ----------
             report.Add(string.Empty);
             report.Add("布局预设断言（格子数与几何关系）：");
@@ -825,6 +831,54 @@ public partial class App : Application
         }
     }
 
+    /// <summary>
+    /// 音频断言（真实抓取，不需要信号源有声音）：
+    ///   · 打开默认采集端点 → 抓 ~2.5 秒 → 滚动缓冲必须攒够 ≥0.4 s（BS.1770 的块长）
+    ///   · 报告里电平表条数 = 设备通道数（本机 2）
+    ///   · 采到数字静音时**响度应当算不出来**（门限滤掉）—— 这是正确行为，不是缺陷；
+    ///     有声音时就会出数（引擎侧已用 1 kHz 正弦对过 EBU 3341 的标准值）。
+    /// </summary>
+    private static int CheckAudio(LiveSession session, List<string> report)
+    {
+        int failed = 0;
+        void Check(bool ok, string what, string detail = "")
+        {
+            report.Add($"  {(ok ? "✓" : "✗")} {what}" + (detail.Length > 0 ? $"：{detail}" : string.Empty));
+            if (!ok) { failed++; }
+        }
+
+        session.SetAudioEnabled(true, null);
+        if (!session.AudioIsRunning)
+        {
+            report.Add($"  · 音频未开：{session.AudioState}（没有可用采集端点时跳过，不算失败）");
+            return failed;
+        }
+
+        DateTime deadline = DateTime.UtcNow.AddSeconds(2.5);
+        while (DateTime.UtcNow < deadline)
+        {
+            session.UpdateAudio(0.05);
+            Thread.Sleep(50);
+        }
+
+        AudioFrameReport audio = session.AudioReport;
+        Check(session.AudioHistorySeconds >= 0.4,
+            $"滚动缓冲攒够长窗：{session.AudioHistorySeconds:0.00} s（BS.1770 需要 ≥0.40 s）",
+            $"{session.AudioHistorySeconds:0.00} s");
+        Check(audio.Meters.Count >= 1 && audio.ChannelCount >= 1,
+            $"音频报告产出：{audio.ChannelCount} 通道、{audio.Meters.Count} 条电平表、"
+            + $"采样率 {audio.SampleRate}",
+            $"{audio.ChannelCount}ch");
+        Check(!audio.Loudness.HasLoudness && audio.Loudness.SampleRate == audio.SampleRate,
+            "采到数字静音 → 响度算不出来（BS.1770 门限滤掉，正确行为；有声音时才会出数）",
+            audio.Loudness.HasLoudness ? $"{audio.Loudness.IntegratedLufs:0.0}" : "未算出");
+        Check(audio.Spectrum.Count == 31, $"频谱 31 条带（用长窗算）", $"{audio.Spectrum.Count}");
+
+        session.SetAudioEnabled(false, null);
+        Check(!session.AudioIsRunning && session.AudioHistorySeconds == 0,
+            "关掉音频后停止抓取并清空缓冲", session.AudioState);
+        return failed;
+    }
     /// <summary>
     /// 布局调试叠加层断言：开启后画面里必须出现**纯洋红**的面板框（全书只有它用洋红），
     /// 关闭后必须一个洋红像素都没有；并且洋红要落在面板边界上（±3 px），而不是随便画在某处。

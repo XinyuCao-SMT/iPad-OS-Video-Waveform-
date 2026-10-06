@@ -794,7 +794,8 @@ public partial class MainWindow : Window
             _lastAudioDiagTick = Environment.TickCount64;
             Diag.Log($"电平表刷新：状态「{_session.AudioState}」、"
                    + $"通道 {report.ChannelCount}、电平表 {report.Meters.Count} 条、"
-                   + $"采样率 {report.SampleRate}、响度 {report.Loudness.IntegratedLufs:0.0}");
+                   + $"采样率 {report.SampleRate}、缓冲 {_session.AudioHistorySeconds:0.00} s、" +
+                   $"响度 {(report.Loudness.HasLoudness ? $"{report.Loudness.IntegratedLufs:0.0} LUFS" : "未算出")}");
         }
     }
     private void OnRefreshDevices(object sender, RoutedEventArgs e)
