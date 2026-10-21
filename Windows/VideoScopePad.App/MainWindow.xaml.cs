@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         // 音频也能占一格（与 iPad 版一致：音频是"格子内容"的一种，不是固定底栏）
         ("音频频谱", PaneContent.AudioSpectrum, WaveformMode.Luma),
         ("音频声相", PaneContent.AudioPhase, WaveformMode.Luma),
+        ("音频电平", PaneContent.AudioLevels, WaveformMode.Luma),
     };
 
     private ComboBox _layoutBox = null!;

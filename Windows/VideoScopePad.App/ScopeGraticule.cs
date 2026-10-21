@@ -98,7 +98,7 @@ public static class ScopeGraticule
         foreach (PaneLayout pane in layout.Panes)
         {
             // 音频格：由这里画（D3D 只画画面与示波器；音频是界面层的东西）
-            if (pane.Content is PaneContent.AudioSpectrum or PaneContent.AudioPhase)
+            if (pane.Content is PaneContent.AudioSpectrum or PaneContent.AudioPhase or PaneContent.AudioLevels)
             {
                 DrawAudioPane(dc, Map(pane.Panel, imageRect), pane.Content, options.Audio);
                 continue;
@@ -237,6 +237,49 @@ public static class ScopeGraticule
             return;
         }
 
+        if (content == PaneContent.AudioLevels)
+        {
+            // 电平表占一格：每通道柱条 + 峰值保持线 + CLIP + 通道号
+            IReadOnlyList<ChannelMeterState> meters = audio.Meters;
+            if (meters.Count == 0)
+            {
+                DrawText(dc, "电平未就绪", Sans, 11, textBrush, new Point(area.X + 8, area.Y + 8), TextAlign.Left);
+                return;
+            }
+
+            double floor = -60.0;
+            double top = area.Y + 14;
+            double barsHeight = Math.Max(area.Bottom - top - 14, 4);
+            double slot = area.Width / meters.Count;
+            double barWidth = Math.Max(slot * 0.5, 4);
+            var peakPen = new Pen(new SolidColorBrush(Color.FromRgb(230, 234, 240)), 2);
+            var clipBrush = new SolidColorBrush(Color.FromRgb(255, 90, 80));
+            var warnBrush = new SolidColorBrush(Color.FromRgb(240, 196, 74));
+
+            for (int i = 0; i < meters.Count; i++)
+            {
+                ChannelMeterState state = meters[i];
+                double db = Math.Clamp(state.LevelDbfs, floor, 0);
+                double filled = (db - floor) / (0 - floor) * barsHeight;
+                double x = area.X + i * slot + (slot - barWidth) / 2;
+                Brush brush = state.Clipped ? clipBrush : db > -6 ? warnBrush : barBrush;
+                dc.DrawRectangle(brush, null, new Rect(x, area.Bottom - 14 - filled, barWidth, Math.Max(filled, 0.5)));
+
+                if (!double.IsNegativeInfinity(state.PeakHoldDbfs))
+                {
+                    double peak = Math.Clamp(state.PeakHoldDbfs, floor, 0);
+                    double peakY = area.Bottom - 14 - (peak - floor) / (0 - floor) * barsHeight;
+                    dc.DrawLine(peakPen, new Point(x, peakY), new Point(x + barWidth, peakY));
+                }
+
+                string label = state.Clipped ? "CLIP" : (i + 1).ToString();
+                DrawText(dc, label, Sans, 9, state.Clipped ? clipBrush : textBrush,
+                         new Point(x + barWidth / 2 - 6, area.Bottom - 12), TextAlign.Left);
+            }
+
+            DrawText(dc, $"电平 {meters.Count}ch", Sans, 10, textBrush, new Point(area.X + 6, area.Y + 3), TextAlign.Left);
+            return;
+        }
         if (content == PaneContent.AudioSpectrum)
         {
             IReadOnlyList<SpectrumBand> spectrum = audio.Spectrum;

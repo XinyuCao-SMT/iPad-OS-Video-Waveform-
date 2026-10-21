@@ -21,6 +21,8 @@ public enum PaneContent
     AvSync,
     AudioPhase,
     AudioSpectrum,
+    /// <summary>音频电平表（每通道柱条 + 峰值保持 + CLIP），占一格</summary>
+    AudioLevels,
 }
 
 /// <summary>示波器种类（与 ShaderTypes.h 里的 VS_GAMUT_SECTION_* 对应）</summary>
