@@ -81,6 +81,9 @@ public partial class MainWindow : Window
         ("矢量图", PaneContent.Vectorscope, WaveformMode.Luma),
         ("钻石图", PaneContent.Diamond, WaveformMode.Luma),
         ("马蹄图（CIE）", PaneContent.Cie, WaveformMode.Luma),
+        // 音频也能占一格（与 iPad 版一致：音频是"格子内容"的一种，不是固定底栏）
+        ("音频频谱", PaneContent.AudioSpectrum, WaveformMode.Luma),
+        ("音频声相", PaneContent.AudioPhase, WaveformMode.Luma),
     };
 
     private ComboBox _layoutBox = null!;
@@ -724,6 +727,22 @@ public partial class MainWindow : Window
             Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
             Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
         };
+        var measure = new Button
+        {
+            Content = "测延时",
+            Margin = new Thickness(8, 0, 0, 0),
+            Padding = new Thickness(8, 2, 8, 2),
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
+            ToolTip = "点一次＝以点击瞬间为画面变化时刻，抓 0.6 秒算每轨的声画延时（对着拍手/场记板用）",
+        };
+        measure.Click += (_, _) =>
+        {
+            _session.BeginAudioDelayMeasurement();
+            Diag.Log("开始测延时（以点击瞬间为画面变化时刻）");
+        };
+        AudioControlsRow.Children.Add(measure);
+
         refresh.Click += (_, _) => RebuildAudioDevices();
         AudioControlsRow.Children.Add(refresh);
 
@@ -786,6 +805,17 @@ public partial class MainWindow : Window
             : "音频";
         AudioMeter.IntegratedLufs = report.Loudness.HasLoudness ? report.Loudness.IntegratedLufs : null;
         AudioMeter.InvalidateVisual();
+
+        // 频谱 / 声相 / 逐轨延时（数据都在同一份报告里，直接搬）
+        AudioScope.Spectrum = report.Spectrum;
+        AudioScope.Phase = report.Phase;
+        AudioScope.Delays = report.Delays;
+        AudioScope.InvalidateVisual();
+
+        // 音频格（PaneContent.AudioSpectrum / AudioPhase）由**界面叠加层**画：喂报告 + 重绘
+        Graticule.Options = Graticule.Options with { Audio = report };
+        Graticule.InvalidateVisual();
+
         AudioStateText.Text = _session.AudioState;
 
         // 一次性诊断：确认这条路径真的在跑、拿到几通道几帧（排查"状态文字没更新"用）

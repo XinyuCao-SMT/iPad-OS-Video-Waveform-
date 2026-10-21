@@ -1,4 +1,4 @@
-//
+﻿//
 //  ScopeGraticule.cs
 //  VideoScopePad.App
 //
@@ -23,6 +23,7 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
+using VideoScopePad.Win.Audio;
 using VideoScopePad.Win.Core;
 using VideoScopePad.Win.Render;
 
@@ -43,6 +44,9 @@ public sealed record GraticuleOptions(
     /// （对齐 iPad v1.6.1 的布局调试叠加层）。用来核对"刻度/轨迹/画面到底对齐在哪个矩形上"。
     /// </summary>
     public bool ShowLayoutDebug { get; init; }
+
+    /// <summary>音频报告（画"音频频谱/音频声相"格时用；为空时那些格显示"无信号"）</summary>
+    public AudioFrameReport? Audio { get; init; }
 }
 
 /// <summary>示波器刻度绘制（静态方法，画面与出图共用同一份）。</summary>
@@ -93,6 +97,13 @@ public static class ScopeGraticule
 
         foreach (PaneLayout pane in layout.Panes)
         {
+            // 音频格：由这里画（D3D 只画画面与示波器；音频是界面层的东西）
+            if (pane.Content is PaneContent.AudioSpectrum or PaneContent.AudioPhase)
+            {
+                DrawAudioPane(dc, Map(pane.Panel, imageRect), pane.Content, options.Audio);
+                continue;
+            }
+
             if (pane.Content.ScopeKind() is not { } kind || pane.Plot is not { } plotUnit)
             {
                 continue;
@@ -203,6 +214,75 @@ public static class ScopeGraticule
             DrawText(dc, text, Sans, fontSize, new SolidColorBrush(Color.FromRgb(255, 0, 255)),
                      new Point(panel.X + 6, panel.Y + fontSize + 4), TextAlign.Left, bold: true);
         }
+    }
+    /// <summary>
+    /// 音频格：频谱（31 条带柱）或声相（李萨如 + 相关系数）。
+    /// 数据来自 GraticuleOptions.Audio（每帧由界面塞进来）；没有数据时明确显示"无信号"。
+    /// </summary>
+    private static void DrawAudioPane(DrawingContext dc, Rect area, PaneContent content, AudioFrameReport? audio)
+    {
+        if (area.Width < 30 || area.Height < 24)
+        {
+            return;
+        }
+
+        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(16, 19, 24)), null, area);
+        var textBrush = new SolidColorBrush(Color.FromRgb(124, 135, 151));
+        var barBrush = new SolidColorBrush(Color.FromRgb(80, 160, 220));
+        var phaseBrush = new SolidColorBrush(Color.FromRgb(92, 255, 140));
+
+        if (audio is null || audio.ChannelCount == 0)
+        {
+            DrawText(dc, "无信号（未开音频）", Sans, 11, textBrush, new Point(area.X + 8, area.Y + 8), TextAlign.Left);
+            return;
+        }
+
+        if (content == PaneContent.AudioSpectrum)
+        {
+            IReadOnlyList<SpectrumBand> spectrum = audio.Spectrum;
+            if (spectrum.Count == 0)
+            {
+                DrawText(dc, "频谱未算", Sans, 11, textBrush, new Point(area.X + 8, area.Y + 8), TextAlign.Left);
+                return;
+            }
+            double floor = -90.0;
+            double slot = area.Width / spectrum.Count;
+            double barWidth = Math.Max(slot - 1, 1.5);
+            for (int i = 0; i < spectrum.Count; i++)
+            {
+                double db = Math.Max(spectrum[i].Dbfs, floor);
+                double height = (db - floor) / (0 - floor) * area.Height;
+                dc.DrawRectangle(barBrush, null,
+                    new Rect(area.X + i * slot, area.Bottom - height, barWidth, Math.Max(height, 0.5)));
+            }
+            DrawText(dc, $"频谱 {audio.ChannelCount}ch", Sans, 10, textBrush, new Point(area.X + 6, area.Y + 4), TextAlign.Left);
+            return;
+        }
+
+        // 声相：十字 + 单位圆 + 点集 + r
+        double size = Math.Min(area.Width, area.Height) - 8;
+        double cx = area.X + area.Width / 2;
+        double cy = area.Y + area.Height / 2;
+        double radius = Math.Max(size / 2, 4);
+        var axis = new Pen(new SolidColorBrush(Color.FromRgb(70, 78, 92)), 1);
+        var circle = new Pen(new SolidColorBrush(Color.FromRgb(52, 60, 72)), 1);
+        dc.DrawLine(axis, new Point(cx, cy - radius), new Point(cx, cy + radius));
+        dc.DrawLine(axis, new Point(cx - radius, cy), new Point(cx + radius, cy));
+        dc.DrawEllipse(null, circle, new Point(cx, cy), radius, radius);
+
+        GoniometerResult phase = audio.Phase;
+        if (phase.Points.Count == 0 || !phase.HasSignal)
+        {
+            DrawText(dc, "无信号", Sans, 11, textBrush, new Point(cx - 16, cy - 6), TextAlign.Left);
+            return;
+        }
+        foreach ((float x, float y) in phase.Points)
+        {
+            dc.DrawRectangle(phaseBrush, null,
+                new Rect(cx + x * radius, cy - y * radius, 1.6, 1.6));
+        }
+        DrawText(dc, $"r={phase.Correlation:0.00}", Sans, 10, textBrush,
+                 new Point(area.X + 6, area.Bottom - 16), TextAlign.Left);
     }
     private static void DrawGutter(DrawingContext dc, Rect gutter, Rect plot, ScopePanelKind kind, GraticuleOptions options)
     {
