@@ -47,6 +47,9 @@ public sealed record GraticuleOptions(
 
     /// <summary>音频报告（画"音频频谱/音频声相"格时用；为空时那些格显示"无信号"）</summary>
     public AudioFrameReport? Audio { get; init; }
+
+    /// <summary>实时声画延时（毫秒；null = 还没配成一对）。正数 = 声音比画面慢</summary>
+    public double? AvDelayMs { get; init; }
 }
 
 /// <summary>示波器刻度绘制（静态方法，画面与出图共用同一份）。</summary>
@@ -100,7 +103,7 @@ public static class ScopeGraticule
             // 音频格：由这里画（D3D 只画画面与示波器；音频是界面层的东西）
             if (pane.Content is PaneContent.AudioSpectrum or PaneContent.AudioPhase or PaneContent.AudioLevels)
             {
-                DrawAudioPane(dc, Map(pane.Panel, imageRect), pane.Content, options.Audio);
+                DrawAudioPane(dc, Map(pane.Panel, imageRect), pane.Content, options.Audio, options.AvDelayMs);
                 continue;
             }
 
@@ -219,7 +222,7 @@ public static class ScopeGraticule
     /// 音频格：频谱（31 条带柱）或声相（李萨如 + 相关系数）。
     /// 数据来自 GraticuleOptions.Audio（每帧由界面塞进来）；没有数据时明确显示"无信号"。
     /// </summary>
-    private static void DrawAudioPane(DrawingContext dc, Rect area, PaneContent content, AudioFrameReport? audio)
+    private static void DrawAudioPane(DrawingContext dc, Rect area, PaneContent content, AudioFrameReport? audio, double? avDelayMs)
     {
         if (area.Width < 30 || area.Height < 24)
         {
@@ -300,6 +303,20 @@ public static class ScopeGraticule
         {
             DrawText(dc, "LUFS ——", Monospace, 10, textBrush,
                      new Point(area.Right - 58, area.Y + 6), TextAlign.Left);
+        }
+        // 声画延时：音频格右下角（现场常和 LUFS 一起盯）
+        if (avDelayMs is { } delayMs)
+        {
+            var delayBrush = Math.Abs(delayMs) > 40
+                ? new SolidColorBrush(Color.FromRgb(255, 90, 80))
+                : Math.Abs(delayMs) > 20
+                    ? new SolidColorBrush(Color.FromRgb(240, 196, 74))
+                    : new SolidColorBrush(Color.FromRgb(92, 255, 140));
+            string text = $"延时 {delayMs:+0.0;-0.0} ms（{delayMs / 20:+0.0;-0.0} 场）";
+            FormattedText formatted = new(text, System.Globalization.CultureInfo.InvariantCulture,
+                                          FlowDirection.LeftToRight, Monospace,
+                                          Math.Clamp(area.Height * 0.12, 9, 14), delayBrush, 1.0);
+            dc.DrawText(formatted, new Point(area.Right - formatted.Width - 8, area.Bottom - formatted.Height - 6));
         }
         if (content == PaneContent.AudioSpectrum)
         {

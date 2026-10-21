@@ -866,7 +866,7 @@ public partial class MainWindow : Window
         AudioScope.InvalidateVisual();
 
         // 音频格（PaneContent.AudioSpectrum / AudioPhase）由**界面叠加层**画：喂报告 + 重绘
-        Graticule.Options = Graticule.Options with { Audio = report };
+        Graticule.Options = Graticule.Options with { Audio = report, AvDelayMs = _session.AudioVideoDelayMs };
         Graticule.InvalidateVisual();
 
         AudioStateText.Text = _session.AudioState

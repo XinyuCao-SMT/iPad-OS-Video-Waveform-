@@ -62,7 +62,10 @@ internal static class Program
                 case "wasapi":
                     return WasapiFormats();
 
-                case "audiocapture":
+                                case "calibrate":
+                    return Calibrate(args);
+
+case "audiocapture":
                     return AudioCapture();
 
                 case "audiodsp":
@@ -121,6 +124,7 @@ internal static class Program
         Console.WriteLine("  audioreport         ⑬ 一帧音频报告自检（2ch / 8ch 组装，界面只需读它）");
         Console.WriteLine("  audio               ⑦ 音频采集端点侦察（注册表：名字/状态）");
         Console.WriteLine("  wasapi              ⑭ **真实格式**侦察（IAudioClient::GetMixFormat —— 几声道看它）");
+        Console.WriteLine("  calibrate [--file <路径>] ⑰ **标定回归**：用 Sync-it 素材验声画延时算法（需要 ffmpeg）");
         Console.WriteLine("  audiocapture [秒数] ⑮ **实时抓音频** + 打印电平条 + 独占模式 8ch 探测");
         Console.WriteLine("  probe [选项]         诊断：把「怎么打开设备」的三条路都试一遍");
         Console.WriteLine("  formats 选项：" );
@@ -472,6 +476,133 @@ internal static class Program
     //  ⑦ 音频端点侦察：先知道硬件给几声道（8ch 需求的关键前提）
     // ------------------------------------------------------------------
     /// <summary>⑭ WASAPI 真实格式侦察：GetMixFormat 才是"实际能拿到几声道"的依据</summary>
+    /// <summary>
+    /// ⑰ 标定回归：用用户的 Sync-it 素材（每秒亮闪 + 千周）验证声画延时算法。
+    /// 素材自身是零延时基准（实测 59 轮全 0），所以任何算法偏置都会变成非 0 读数。
+    ///
+    /// 需要 ffmpeg（开发期专用，不进发行包）：默认在 Windows\tools\ffmpeg 下递归找。
+    /// 找不到 ffmpeg 或素材时**跳过而不是失败** —— 这台机器不该因为没装工具就红。
+    /// </summary>
+    private static int Calibrate(string[] args)
+    {
+        string? file = args.SkipWhile(a => a != "--file").Skip(1).FirstOrDefault()
+                    ?? @"E:\Files&Document\Sync-it test Video\Sync-it 50fps 1080i Apple Pro Res PCM audio.mov";
+        // 从 exe 目录往上找 tools\ffmpeg（dev 构建与发布目录的层级不同，所以逐层找，别硬编码 ..\..）
+        string? ffmpeg = null;
+        string? probe = AppContext.BaseDirectory;
+        for (int depth = 0; depth < 7 && ffmpeg is null && !string.IsNullOrEmpty(probe); depth++)
+        {
+            string candidate = Path.Combine(probe, "tools", "ffmpeg");
+            if (Directory.Exists(candidate))
+            {
+                ffmpeg = Directory.EnumerateFiles(candidate, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault();
+            }
+            probe = Path.GetDirectoryName(probe.TrimEnd(Path.DirectorySeparatorChar));
+        }
+
+        if (ffmpeg is null) { Console.WriteLine("  · 跳过：没找到 ffmpeg（Windows\\tools\\ffmpeg 下）——不算失败"); return Report(); }
+        if (!File.Exists(file)) { Console.WriteLine($"  · 跳过：素材不存在（{file}）——不算失败"); return Report(); }
+        Console.WriteLine($"素材：{Path.GetFileName(file)}");
+        Console.WriteLine($"ffmpeg：{ffmpeg}");
+
+        string temp = Path.Combine(Path.GetTempPath(), "vsp-calibrate");
+        Directory.CreateDirectory(temp);
+        string audioRaw = Path.Combine(temp, "audio.raw");
+        string videoRaw = Path.Combine(temp, "video.raw");
+
+        if (!Run(ffmpeg, $"-hide_banner -v error -y -i \"{file}\" -vn -ac 1 -ar 48000 -f f32le \"{audioRaw}\"")
+            || !Run(ffmpeg, $"-hide_banner -v error -y -i \"{file}\" -vf \"fps=50,scale=32:18,format=gray\" -f rawvideo -pix_fmt gray \"{videoRaw}\""))
+        {
+            Check(false, "ffmpeg 解出音轨与视频", "失败");
+            return Report();
+        }
+
+        // 音频起音（1 ms 窗）
+        byte[] audioBytes = File.ReadAllBytes(audioRaw);
+        int samples = audioBytes.Length / 4;
+        const int window = 48;
+        int windows = samples / window;
+        var envelope = new double[windows];
+        for (int w = 0; w < windows; w++)
+        {
+            double sum = 0;
+            for (int k = 0; k < window; k++)
+            {
+                float v = BitConverter.ToSingle(audioBytes, ((w * window) + k) * 4);
+                sum += (double)v * v;
+            }
+            envelope[w] = Math.Sqrt(sum / window);
+        }
+        double peak = envelope.Length > 0 ? envelope.Max() : 0;
+        double threshold = peak * 0.25;
+        var onsets = new List<double>();
+        for (int w = 3; w < envelope.Length; w++)
+        {
+            if (envelope[w] > threshold && envelope[w - 1] <= threshold
+                && envelope[w - 2] <= threshold && envelope[w - 3] <= threshold)
+            {
+                onsets.Add(w * window / 48000.0);
+            }
+        }
+
+        // 画面骤亮（逐场平均亮度）
+        byte[] videoBytes = File.ReadAllBytes(videoRaw);
+        const int frameBytes = 32 * 18;
+        int frames = videoBytes.Length / frameBytes;
+        var luma = new double[frames];
+        for (int f = 0; f < frames; f++)
+        {
+            double sum = 0;
+            for (int b = 0; b < frameBytes; b++) { sum += videoBytes[f * frameBytes + b]; }
+            luma[f] = sum / frameBytes;
+        }
+        double average = luma.Length > 0 ? luma.Average() : 0;
+        var flashes = new List<double>();
+        for (int f = 2; f < frames; f++)
+        {
+            if (luma[f] > average + 8 && luma[f - 1] < average + 4 && luma[f - 2] < average + 4)
+            {
+                flashes.Add(f / 50.0);
+            }
+        }
+
+        Console.WriteLine($"  音频起音 {onsets.Count} 次、画面骤亮 {flashes.Count} 次");
+        Check(onsets.Count >= 50 && flashes.Count >= 50,
+            "素材里检出足够多的校准轮次（≥50）", $"{onsets.Count}/{flashes.Count}");
+
+        int pairs = Math.Min(onsets.Count, flashes.Count);
+        double worst = 0;
+        int within = 0;
+        for (int i = 0; i < pairs; i++)
+        {
+            double delta = (onsets[i] - flashes[i]) * 1000.0;
+            worst = Math.Max(worst, Math.Abs(delta));
+            if (Math.Abs(delta) <= 2.0) { within++; }
+        }
+        Check(pairs > 0 && worst <= 2.0,
+            $"每轮延时都落在 ±2 ms 内（最差 {worst:0.00} ms，{within}/{pairs} 轮）——素材自身是零延时基准",
+            $"{worst:0.00} ms");
+
+        try { Directory.Delete(temp, true); } catch (Exception) { }
+        return Report();
+    }
+
+    private static bool Run(string exe, string arguments)
+    {
+        try
+        {
+            using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = exe,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            });
+            process?.WaitForExit(120000);
+            return process is { ExitCode: 0 };
+        }
+        catch (Exception) { return false; }
+    }
     /// <summary>⑮ 实时抓音频：打印电平条 + 独占模式 8 声道探测（回答"能不能出 8ch"）</summary>
     private static int AudioCapture(double seconds = 3.0)
     {
