@@ -34,7 +34,8 @@ public sealed record AudioDeviceInfo(
     int DeviceSampleRate,
     int OemChannels,
     int OemSampleRate,
-    int DeviceState)
+    int DeviceState,
+    string InstanceId)
 {
     /// <summary>能拿到的最多声道数（设备格式与 OEM 格式取大者）</summary>
     public int Channels => Math.Max(DeviceChannels, OemChannels);
@@ -159,7 +160,10 @@ public static class AudioDeviceEnumerator
                 }
             }
 
-            devices.Add(new AudioDeviceInfo(id, name, channels, rate, oemChannels, oemRate, state));
+            // PKEY_Device_InstanceId：形如 USB\VID_1F6A&PID_15AE&MI_00\... —— 用它和视频侧的 vid/pid 对上，
+            // 这才是"同一台设备"的可靠依据（名字里不一定带型号，例如「数字音频接口」）。
+            string instanceId = FindByPkey(values, "b3f8fa53-0004-438e-9003-51a46e139bfc", 2) as string ?? string.Empty;
+            devices.Add(new AudioDeviceInfo(id, name, channels, rate, oemChannels, oemRate, state, instanceId));
         }
 
         // 声道多的排前面（要凑 8ch 时一眼能看到哪台设备够用），再按名字稳定排序

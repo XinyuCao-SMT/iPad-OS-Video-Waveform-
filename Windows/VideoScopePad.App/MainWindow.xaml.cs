@@ -728,13 +728,22 @@ public partial class MainWindow : Window
             }
         }
 
+        // ⚠️ 不要在这里就把 row 设成 Child：它下面还要被放进 StackPanel，
+        //    一个元素不能同时是两个父级的子元素（实测启动即抛 InvalidOperationException）。
         var host = new Border
         {
             Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(20, 24, 32)),
             Padding = new Thickness(10, 5, 10, 5),
-            Child = row,
         };
         System.Windows.Controls.DockPanel.SetDock(host, System.Windows.Controls.Dock.Top);
+        // 音频开关/设备/校准模式也放这一行（底部那条已经去掉，显示全在格子里）
+        var stack = new StackPanel();
+        stack.Children.Add(row);
+        if (_audioControlsRow is not null)
+        {
+            stack.Children.Add(_audioControlsRow);
+        }
+        host.Child = stack;
         host.Name = "OptionsRowHost";
         root.Children.Insert(1, host);
     }
@@ -744,6 +753,8 @@ public partial class MainWindow : Window
     private CheckBox _audioBox = null!;
     private ComboBox _audioDeviceBox = null!;
     private ComboBox _syncModeBox = null!;
+    private WrapPanel? _audioControlsRow;
+    private TextBlock? _audioStateText;
     private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
 
     private void BuildAudioRow()
@@ -754,13 +765,17 @@ public partial class MainWindow : Window
             Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
             VerticalAlignment = VerticalAlignment.Center,
         };
+        if (_audioControlsRow is null)
+        {
+            _audioControlsRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
+        }
         _audioBox.Checked += OnAudioToggled;
         _audioBox.Unchecked += OnAudioToggled;
-        AudioControlsRow.Children.Add(_audioBox);
+        _audioControlsRow.Children.Add(_audioBox);
 
         _audioDeviceBox = MakeComboBox(220);
         _audioDeviceBox.SelectionChanged += OnAudioDeviceChanged;
-        AudioControlsRow.Children.Add(_audioDeviceBox);
+        _audioControlsRow.Children.Add(_audioDeviceBox);
         RebuildAudioDevices();
 
         var clearClip = new Button
@@ -773,7 +788,7 @@ public partial class MainWindow : Window
         };
         clearClip.Click += (_, _) => _session.ClearAudioClip();
         AutoSelectAudioForVideo();   // 音视频同源：跟着视频源挑音频端点并同开
-        AudioControlsRow.Children.Add(clearClip);
+        _audioControlsRow.Children.Add(clearClip);
 
         var refresh = new Button
         {
@@ -797,13 +812,13 @@ public partial class MainWindow : Window
             _session.BeginAudioDelayMeasurement();
             Diag.Log("开始测延时（以点击瞬间为画面变化时刻）");
         };
-        AudioControlsRow.Children.Add(measure);
+        _audioControlsRow.Children.Add(measure);
 
         refresh.Click += (_, _) => RebuildAudioDevices();
-        AudioControlsRow.Children.Add(refresh);
+        _audioControlsRow.Children.Add(refresh);
 
         // 校准模式：Sync-it（亮闪保持） / 彩条千周（静态彩条 + 短脉冲）
-        AudioControlsRow.Children.Add(new TextBlock
+        _audioControlsRow.Children.Add(new TextBlock
         {
             Text = "校准模式",
             Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
@@ -825,7 +840,7 @@ public partial class MainWindow : Window
             };
             Diag.Log($"校准模式 → {_session.SyncMode}");
         };
-        AudioControlsRow.Children.Add(_syncModeBox);
+        _audioControlsRow.Children.Add(_syncModeBox);
 
         // 🔴 音频电平表必须用**独立定时器**刷新：原先把它挂在"视频帧统计"回调里，
         //    结果视频没有新帧时就不刷新（实测开音频后 6 秒内一次都没刷，状态文字一直停在"音频未开"）。
@@ -836,6 +851,15 @@ public partial class MainWindow : Window
         };
         _audioTimer.Tick += (_, _) => RefreshAudioMeter(0.1);
         _audioTimer.Start();
+
+        // 音频状态提示（原来在底部音频块里，现在跟着控件一起放顶部选项行）
+        _audioStateText = new TextBlock
+        {
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(124, 135, 151)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0),
+        };
+        _audioControlsRow.Children.Add(_audioStateText);
     }
 
     /// <summary>
@@ -847,15 +871,50 @@ public partial class MainWindow : Window
     /// </summary>
     private bool AutoSelectAudioForVideo()
     {
+        Diag.Log($"同源检查：视频「{SourceBox.Text}」，音频候选 {_audioEndpoints.Count} 个");
         if (_audioEndpoints.Count == 0 || _audioDeviceBox is null)
         {
             return false;
         }
 
-        string videoName = SourceBox.SelectedItem as string ?? string.Empty;
+        // ⚠️ 不能写 SelectedItem as string：源下拉里放的是**对象**，转 string 得到 null →
+        //    方法一开始就返回，表现为"同源完全不生效"（实测就是这么漏的）。用 Text 取显示文字。
+        string videoName = SourceBox.Text ?? string.Empty;
         if (videoName.Length == 0)
         {
             return false;
+        }
+
+        // 首选 **VID/PID** 匹配：视频符号链接里有 vid_1f6a&pid_15ae&mi_00，
+        // 音频端点的 PKEY_Device_InstanceId 是 USB\VID_1F6A&PID_15AE&MI_00\... ——
+        // 这才是"同一台设备"的可靠依据（音频端点名字不一定带型号，例如「数字音频接口」）。
+        string? deviceKey = _session.SelectedDeviceKey;
+        var vidPid = System.Text.RegularExpressions.Regex.Match(
+            deviceKey ?? string.Empty, "vid_([0-9a-f]{4})&pid_([0-9a-f]{4})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (vidPid.Success)
+        {
+            string vid = vidPid.Groups[1].Value;
+            string pid = vidPid.Groups[2].Value;
+            IReadOnlyList<AudioDeviceInfo> registryDevices = AudioDeviceEnumerator.Enumerate();
+            for (int i = 0; i < _audioEndpoints.Count; i++)
+            {
+                string endpointId = _audioEndpoints[i].EndpointId;
+                AudioDeviceInfo? match = registryDevices.FirstOrDefault(d =>
+                    endpointId.Contains(d.Id.Trim('{', '}'), StringComparison.OrdinalIgnoreCase));
+                if (match is null || match.InstanceId.Length == 0)
+                {
+                    continue;
+                }
+                if (match.InstanceId.Contains($"VID_{vid}", StringComparison.OrdinalIgnoreCase)
+                    && match.InstanceId.Contains($"PID_{pid}", StringComparison.OrdinalIgnoreCase))
+                {
+                    _audioDeviceBox.SelectedIndex = i;
+                    if (_audioBox.IsChecked != true) { _audioBox.IsChecked = true; }
+                    Diag.Log($"音视频同源（VID/PID）：{vid}/{pid} → 「{match.FriendlyName}」");
+                    return true;
+                }
+            }
+            Diag.Log($"音视频同源（VID/PID）：{vid}/{pid} 没找到对应音频端点，退回按名字匹配");
         }
 
         // 抽出所有 ≥6 位的字母数字 token（型号 / 序列号）
@@ -934,39 +993,23 @@ public partial class MainWindow : Window
     {
         _session.UpdateAudio(elapsedSeconds);
         AudioFrameReport report = _session.AudioReport;
-        AudioMeter.Levels = report.Meters;
-        AudioMeter.Caption = report.ChannelCount > 0
-            ? $"音频 {report.ChannelCount}ch @ {report.SampleRate} Hz"
-            : "音频";
-        AudioMeter.IntegratedLufs = report.Loudness.HasLoudness ? report.Loudness.IntegratedLufs : null;
-        AudioMeter.InvalidateVisual();
 
-        // 频谱 / 声相 / 逐轨延时（数据都在同一份报告里，直接搬）
-        AudioScope.Spectrum = report.Spectrum;
-        AudioScope.Phase = report.Phase;
-        AudioScope.Delays = report.Delays;
-        AudioScope.InvalidateVisual();
-
-        // 音频格（PaneContent.AudioSpectrum / AudioPhase）由**界面叠加层**画：喂报告 + 重绘
-        Graticule.Options = Graticule.Options with { Audio = report, AvDelayMs = _session.AudioVideoDelayMs };
+        // 显示全部在格子里（音频电平/频谱/声相/声画同步），这里只把数据喂给刻度层叠加
+        Graticule.Options = Graticule.Options with
+        {
+            Audio = report,
+            AvDelayMs = _session.AudioVideoDelayMs,
+        };
         Graticule.InvalidateVisual();
 
-        AudioStateText.Text = _session.AudioState
-            + (_session.AudioVideoDelayMs is { } delay
-                ? $"　声画延时 {delay:+0.0;-0.0} ms（{delay / 20:+0.0;-0.0} 场）"
-                : string.Empty);
-
-        // 一次性诊断：确认这条路径真的在跑、拿到几通道几帧（排查"状态文字没更新"用）
-        if (Environment.TickCount64 - _lastAudioDiagTick > 3000)
+        if (_audioStateText is not null)
         {
-            _lastAudioDiagTick = Environment.TickCount64;
-            Diag.Log($"电平表刷新：状态「{_session.AudioState}」、"
-                   + $"通道 {report.ChannelCount}、电平表 {report.Meters.Count} 条、"
-                   + $"采样率 {report.SampleRate}、缓冲 {_session.AudioHistorySeconds:0.00} s、" +
-                   $"响度 {(report.Loudness.HasLoudness ? $"{report.Loudness.IntegratedLufs:0.0} LUFS" : "未算出")}");
+            _audioStateText.Text = _session.AudioState
+                + (_session.AudioVideoDelayMs is { } delay
+                    ? $"　延时 {delay:+0.0;-0.0} ms"
+                    : string.Empty);
         }
-    }
-    private void OnRefreshDevices(object sender, RoutedEventArgs e)
+    }    private void OnRefreshDevices(object sender, RoutedEventArgs e)
     {
         _session.RequestDeviceRefresh();
         DeviceStateText.Text = "正在刷新设备列表…";
