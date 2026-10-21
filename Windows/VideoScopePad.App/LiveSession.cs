@@ -568,24 +568,76 @@ public sealed class LiveSession : IDisposable
     /// <summary>最近一次闪变在帧内的占比（1 = 整帧都在闪；0.5 = 帧中途开始）</summary>
     public double LastFlashFraction => _lastFlashFraction;
     /// <summary>用最近一次闪变与最近一次音频起音配对算延时（两者必须相隔 2 秒内）</summary>
+    private readonly List<double> _recentFlashes = new();
+    private readonly List<double> _recentOnsets = new();
+    private readonly List<double> _delayHistory = new();
+    private double _lastSeenFlash = -1;
+    private double _lastSeenOnset = -1;
+
+    /// <summary>
+    /// 配对：**最近邻**（本轮闪变只和 ±250 ms 内最接近的起音配对），再用中位数平滑。
+    ///
+    /// 🔴 原来直接拿"最近一次闪"和"最近一次起音"相减 → 两个时刻属于不同轮次时会得到 ±1 s 的
+    ///    随机值（现场实测"乱跳"就是这个）。所以必须按时间就近配对，并限制在 ±250 ms 内。
+    /// 中位数（最近 5 次）把残余抖动压掉，读数才不会每帧跳。
+    /// </summary>
     private void PairSync()
     {
-        if (_audioCapture is null || _lastFlashSeconds < 0)
+        double now = _syncClock.Elapsed.TotalSeconds;
+
+        // 收进新的闪变 / 起音（各自只在"变了"的时候入队，避免重复计数）
+        if (_lastFlashSeconds > 0 && Math.Abs(_lastFlashSeconds - _lastSeenFlash) > 1e-6)
+        {
+            _lastSeenFlash = _lastFlashSeconds;
+            _recentFlashes.Add(_lastFlashSeconds);
+        }
+        if (_audioCapture is not null)
+        {
+            double onset = _audioCapture.LastOnsetSeconds;
+            if (onset > 0 && Math.Abs(onset - _lastSeenOnset) > 1e-6)
+            {
+                _lastSeenOnset = onset;
+                _recentOnsets.Add(onset);
+            }
+        }
+
+        _recentFlashes.RemoveAll(t => now - t > 3.0);
+        _recentOnsets.RemoveAll(t => now - t > 3.0);
+        if (_recentFlashes.Count == 0 || _recentOnsets.Count == 0)
         {
             return;
         }
-        double onset = _audioCapture.LastOnsetSeconds;
-        if (onset < 0)
+
+        double flash = _recentFlashes[^1];
+        double best = double.NaN;
+        double bestAbs = double.MaxValue;
+        foreach (double onset in _recentOnsets)
         {
-            return;
+            double delta = (onset - flash) * 1000.0;
+            if (Math.Abs(delta) < bestAbs)
+            {
+                bestAbs = Math.Abs(delta);
+                best = delta;
+            }
         }
-        double delta = onset - _lastFlashSeconds;
-        if (Math.Abs(delta) <= 2.0)
+
+        if (bestAbs > 250)
         {
-            AudioVideoDelayMs = delta * 1000.0;
+            return;    // 附近没有起音 → 不算一对（宁可空着，也不要错配出 ±1 s 的假读数）
         }
+
+        _delayHistory.Add(best);
+        if (_delayHistory.Count > 5)
+        {
+            _delayHistory.RemoveAt(0);
+        }
+        var sorted = _delayHistory.OrderBy(v => v).ToList();
+        AudioVideoDelayMs = sorted[sorted.Count / 2];    // 中位数
+        LastPairGapMs = bestAbs;
     }
 
+    /// <summary>最近一次配对的时间差绝对值（毫秒；越小越可信）</summary>
+    public double LastPairGapMs { get; private set; }
     /// <summary>每帧调一次：拿当前帧的平均 IRE 做闪变检测，并与音频起音配对（界面每帧调用）</summary>
     public void UpdateSyncFromFrame()
     {

@@ -1018,7 +1018,7 @@ public partial class MainWindow : Window
         {
             // 没测出来时**明确告诉卡在哪一步**：是没看到闪变，还是没听到千周
             string step = _session.AudioVideoDelayMs is { } delay
-                ? $"　延时 {delay:+0.0;-0.0} ms"
+                ? $"　延时 {delay:+0.0;-0.0} ms（配对差 {_session.LastPairGapMs:0.0} ms）"
                 : _session.LastFlashSeconds < 0 && _session.AudioOnsetSeconds < 0 ? "　等闪变+等起音"
                 : _session.LastFlashSeconds < 0 ? $"　等画面闪变（亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE）"
                 : _session.AudioOnsetSeconds < 0 ? "　等音频起音"
