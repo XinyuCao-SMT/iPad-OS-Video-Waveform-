@@ -54,6 +54,8 @@ public sealed class WasapiCapture : IDisposable
     private IntPtr _format;
     private volatile bool _running;
     private Thread? _thread;
+    private double _recentPeak;
+    private bool _wasLoud;
 
     /// <summary>抓到的通道数（等于设备混音格式的通道数）</summary>
     public int Channels { get; private set; }
@@ -68,6 +70,18 @@ public sealed class WasapiCapture : IDisposable
 
     /// <summary>最近一帧（供界面读取）</summary>
     public AudioCaptureFrame Latest { get; private set; } = AudioCaptureFrame.Empty;
+
+    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+    private double _lastOnsetMs = -1;
+
+    /// <summary>进程启动以来的秒数（与视频侧共用同一个时钟，用来算声画延时）</summary>
+    public double ClockSeconds => _clock.Elapsed.TotalSeconds;
+
+    /// <summary>最近一次音频起音的时刻（秒，同一时钟；没检测到为 -1）</summary>
+    public double LastOnsetSeconds => _lastOnsetMs < 0 ? -1 : _lastOnsetMs / 1000.0;
+
+    /// <summary>起音检测的门槛（相对近 1 秒峰值的比例）</summary>
+    public double OnsetThresholdRatio { get; set; } = 0.25;
 
     /// <summary>打开指定端点（endpointId 为空时用默认采集设备）</summary>
     public bool Open(string? endpointId)
@@ -223,6 +237,26 @@ public sealed class WasapiCapture : IDisposable
         }
         pending.RemoveRange(0, frames * Channels);
         Latest = new AudioCaptureFrame(channels, SampleRate, 0);
+
+        // 起音检测（在抓取线程里做，时间戳才准；界面刷新频率是 100ms，太粗）
+        double blockPeak = 0;
+        for (int ch = 0; ch < Channels; ch++)
+        {
+            foreach (float sample in channels[ch])
+            {
+                double v = Math.Abs(sample);
+                if (v > blockPeak) { blockPeak = v; }
+            }
+        }
+        if (blockPeak > _recentPeak) { _recentPeak = blockPeak; }
+        else { _recentPeak *= 0.999; }     // 缓慢回落，避免一直被历史峰值压住
+        double threshold = _recentPeak * OnsetThresholdRatio;
+        bool loud = blockPeak > threshold && blockPeak > 0.01;
+        if (loud && !_wasLoud)
+        {
+            _lastOnsetMs = _clock.Elapsed.TotalMilliseconds - (frames / (double)SampleRate) * 1000.0;
+        }
+        _wasLoud = loud;
     }
 
     /// <summary>

@@ -406,6 +406,75 @@ public sealed class LiveSession : IDisposable
 
         _audioHistorySeconds = _audioHistory[0].Length / (double)sampleRate;
     }
+    private double? _audioVideoChangeSeconds;
+
+    /// <summary>
+    /// 开始一次声画延时测量：把"现在"记为画面变化时刻，0.6 秒后拿滚动缓冲算每轨延时。
+    /// 现场用法：对着拍手/场记板点一次（画面跳变与声音爆音几乎同时发生）。
+    /// </summary>
+    public void BeginAudioDelayMeasurement()
+    {
+        if (!AudioIsRunning || _audioHistory.Count == 0)
+        {
+            return;
+        }
+        // 点击时刻对应缓冲里的位置：就是当前末尾
+        _audioVideoChangeSeconds = _audioHistory[0].Length / (double)(AudioReport.SampleRate > 0 ? AudioReport.SampleRate : 48000);
+    }
+
+    private readonly System.Diagnostics.Stopwatch _syncClock = System.Diagnostics.Stopwatch.StartNew();
+    private double _lastFlashSeconds = -1;
+    private double _previousAverageIre = -1;
+
+    /// <summary>最近一次画面闪变的时刻（秒，与会话共同时钟）</summary>
+    public double LastFlashSeconds => _lastFlashSeconds;
+
+    /// <summary>实时声画延时（毫秒；null = 还没配成一对）。正数 = 声音比画面慢。</summary>
+    public double? AudioVideoDelayMs { get; private set; }
+
+    /// <summary>
+    /// 视频侧闪变检测：用每帧的**平均 IRE** 做突升判定（彩条打亮闪时平均亮度会明显跳）。
+    /// 时间戳用与音频同一个 Stopwatch，两者相减才是可信的延时。
+    /// </summary>
+    private void DetectFlash(double averageIre)
+    {
+        if (_previousAverageIre >= 0 && averageIre > _previousAverageIre + 6 && averageIre > 12)
+        {
+            _lastFlashSeconds = _syncClock.Elapsed.TotalSeconds;
+        }
+        _previousAverageIre = averageIre;
+    }
+
+    /// <summary>用最近一次闪变与最近一次音频起音配对算延时（两者必须相隔 2 秒内）</summary>
+    private void PairSync()
+    {
+        if (_audioCapture is null || _lastFlashSeconds < 0)
+        {
+            return;
+        }
+        double onset = _audioCapture.LastOnsetSeconds;
+        if (onset < 0)
+        {
+            return;
+        }
+        double delta = onset - _lastFlashSeconds;
+        if (Math.Abs(delta) <= 2.0)
+        {
+            AudioVideoDelayMs = delta * 1000.0;
+        }
+    }
+
+    /// <summary>每帧调一次：拿当前帧的平均 IRE 做闪变检测，并与音频起音配对（界面每帧调用）</summary>
+    public void UpdateSyncFromFrame()
+    {
+        SignalMeasurement measurement = Measurement;
+        if (measurement.AverageIre > 0)
+        {
+            DetectFlash(measurement.AverageIre);
+        }
+        PairSync();
+    }
+
     /// <summary>清除电平表的 CLIP 锁存</summary>
     public void ClearAudioClip() => _audioAnalyser?.Meters.ClearClip();
 
@@ -423,8 +492,15 @@ public sealed class LiveSession : IDisposable
         }
         // 滚动缓冲：响度/频谱要长窗（BS.1770 的块是 400 ms），电平表用当前短帧
         AppendAudioHistory(frame.Channels, frame.SampleRate);
+        _audioAnalyser.VideoChangeSeconds = _audioVideoChangeSeconds;
         AudioReport = _audioAnalyser.Analyse(frame.Channels, frame.SampleRate, Math.Max(elapsedSeconds, 0.01),
                                              _audioHistory.Count > 0 ? _audioHistory : null);
+        PairSync();
+        // 延时一旦算出来就停（一次点击＝一次测量，避免每帧刷新后读数乱跳）
+        if (_audioVideoChangeSeconds is not null && AudioReport.Delays.Any(d => d.HasOnset))
+        {
+            _audioVideoChangeSeconds = null;
+        }
         if (_audioCapture.LastError.Length > 0)
         {
             AudioState = $"音频出错：{_audioCapture.LastError}";

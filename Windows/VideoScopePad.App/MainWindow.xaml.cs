@@ -396,6 +396,7 @@ public partial class MainWindow : Window
             InfoText.Text = $"{stats.Source}　·　{stats.Format}　·　{stats.Color}　·　v{AppVersion}"
                           + (string.IsNullOrEmpty(stats.Message) ? string.Empty : "　·　⚠ 见底部提示");
             InfoFpsText.Text = $"采集 {stats.CaptureFps:0.0} fps　显示 {stats.DisplayFps:0.0} fps";
+            _session.UpdateSyncFromFrame();   // 视频闪变 + 音频起音配对（每帧一次）
 
             // 🔴 顶部控件行必须**限宽**才会换行：父链给 WrapPanel 的是无限宽，
             //    所以它一直横着排，控件被顶到窗口外面（实测 LUT 取样下拉排到 x=2886，窗口才 1700 宽，
@@ -868,7 +869,10 @@ public partial class MainWindow : Window
         Graticule.Options = Graticule.Options with { Audio = report };
         Graticule.InvalidateVisual();
 
-        AudioStateText.Text = _session.AudioState;
+        AudioStateText.Text = _session.AudioState
+            + (_session.AudioVideoDelayMs is { } delay
+                ? $"　声画延时 {delay:+0.0;-0.0} ms（{delay / 20:+0.0;-0.0} 场）"
+                : string.Empty);
 
         // 一次性诊断：确认这条路径真的在跑、拿到几通道几帧（排查"状态文字没更新"用）
         if (Environment.TickCount64 - _lastAudioDiagTick > 3000)
