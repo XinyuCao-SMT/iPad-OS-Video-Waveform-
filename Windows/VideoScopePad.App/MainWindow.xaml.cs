@@ -86,6 +86,7 @@ public partial class MainWindow : Window
         ("音频频谱", PaneContent.AudioSpectrum, WaveformMode.Luma),
         ("音频声相", PaneContent.AudioPhase, WaveformMode.Luma),
         ("音频电平", PaneContent.AudioLevels, WaveformMode.Luma),
+        ("声画同步", PaneContent.AvSync, WaveformMode.Luma),
     };
 
     private ComboBox _layoutBox = null!;
@@ -742,6 +743,7 @@ public partial class MainWindow : Window
     private System.Windows.Threading.DispatcherTimer? _audioTimer;
     private CheckBox _audioBox = null!;
     private ComboBox _audioDeviceBox = null!;
+    private ComboBox _syncModeBox = null!;
     private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
 
     private void BuildAudioRow()
@@ -798,6 +800,31 @@ public partial class MainWindow : Window
 
         refresh.Click += (_, _) => RebuildAudioDevices();
         AudioControlsRow.Children.Add(refresh);
+
+        // 校准模式：Sync-it（亮闪保持） / 彩条千周（静态彩条 + 短脉冲）
+        AudioControlsRow.Children.Add(new TextBlock
+        {
+            Text = "校准模式",
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 4, 0),
+        });
+        _syncModeBox = MakeComboBox(170);
+        _syncModeBox.Items.Add("自动");
+        _syncModeBox.Items.Add("Sync-it（每秒亮闪）");
+        _syncModeBox.Items.Add("彩条 + 千周脉冲");
+        _syncModeBox.SelectedIndex = 0;
+        _syncModeBox.SelectionChanged += (_, _) =>
+        {
+            _session.SyncMode = _syncModeBox.SelectedIndex switch
+            {
+                1 => SyncTestMode.SyncIt,
+                2 => SyncTestMode.BarsTone,
+                _ => SyncTestMode.Auto,
+            };
+            Diag.Log($"校准模式 → {_session.SyncMode}");
+        };
+        AudioControlsRow.Children.Add(_syncModeBox);
 
         // 🔴 音频电平表必须用**独立定时器**刷新：原先把它挂在"视频帧统计"回调里，
         //    结果视频没有新帧时就不刷新（实测开音频后 6 秒内一次都没刷，状态文字一直停在"音频未开"）。

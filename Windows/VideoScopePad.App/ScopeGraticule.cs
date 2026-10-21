@@ -107,6 +107,19 @@ public static class ScopeGraticule
                 continue;
             }
 
+            // 声画同步格：大号延时 + 状态（等闪变 / 等起音 / 已同步）
+            if (pane.Content is PaneContent.AvSync)
+            {
+                DrawSyncPane(dc, Map(pane.Panel, imageRect), options.AvDelayMs, options.Audio);
+                continue;
+            }
+
+            // 画面格：**音柱叠在画面上**（底部一条半透明背板 + 每通道竖条）
+            if (pane.Content is PaneContent.Picture && pane.Video is { } videoUnit2 && options.Audio is { } overlayAudio)
+            {
+                DrawMeterOverlay(dc, Map(videoUnit2, imageRect), overlayAudio);
+            }
+
             if (pane.Content.ScopeKind() is not { } kind || pane.Plot is not { } plotUnit)
             {
                 continue;
@@ -364,6 +377,72 @@ public static class ScopeGraticule
         }
         DrawText(dc, $"r={phase.Correlation:0.00}", Sans, 10, textBrush,
                  new Point(area.X + 6, area.Bottom - 16), TextAlign.Left);
+    }
+    /// <summary>声画同步格：中间一个大号延时数字 + 单位（ms / 场）+ 状态提示</summary>
+    private static void DrawSyncPane(DrawingContext dc, Rect area, double? delayMs, AudioFrameReport? audio)
+    {
+        dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(16, 19, 24)), null, area);
+        var textBrush = new SolidColorBrush(Color.FromRgb(124, 135, 151));
+
+        DrawText(dc, "声画同步", Sans, 11, textBrush, new Point(area.X + 8, area.Y + 6), TextAlign.Left);
+
+        if (delayMs is not { } delay)
+        {
+            string hint = audio is null || audio.ChannelCount == 0 ? "未开音频" : "等闪变 / 等千周…";
+            DrawText(dc, hint, Sans, 12, textBrush, new Point(area.X + 8, area.Y + 26), TextAlign.Left);
+            DrawText(dc, "用法：屏上播 Sync-it 或彩条+千周", Sans, 10, textBrush,
+                     new Point(area.X + 8, area.Bottom - 18), TextAlign.Left);
+            return;
+        }
+
+        var brush = Math.Abs(delay) > 40 ? new SolidColorBrush(Color.FromRgb(255, 90, 80))
+                  : Math.Abs(delay) > 20 ? new SolidColorBrush(Color.FromRgb(240, 196, 74))
+                  : new SolidColorBrush(Color.FromRgb(92, 255, 140));
+        double fontSize = Math.Clamp(area.Height * 0.34, 20, 46);
+        FormattedText big = new($"{delay:+0.0;-0.0}", System.Globalization.CultureInfo.InvariantCulture,
+                                FlowDirection.LeftToRight, Monospace, fontSize, brush, 1.0);
+        dc.DrawText(big, new Point(area.X + (area.Width - big.Width) / 2, area.Y + area.Height * 0.22));
+        DrawText(dc, "ms", Monospace, 11, textBrush,
+                 new Point(area.X + area.Width / 2 + 6, area.Y + area.Height * 0.22 + big.Height - 4), TextAlign.Left);
+        DrawText(dc, $"±{delay / 20:0.0} 场（50 场/秒）", Sans, 10, textBrush,
+                 new Point(area.X + 8, area.Bottom - 18), TextAlign.Left);
+    }
+
+    /// <summary>音柱叠在画面上：底部一条半透明背板 + 每通道竖条 + 峰值线（iPad 版的叠加形态）</summary>
+    private static void DrawMeterOverlay(DrawingContext dc, Rect video, AudioFrameReport audio)
+    {
+        if (audio.Meters.Count == 0 || video.Width < 40 || video.Height < 30)
+        {
+            return;
+        }
+
+        double height = Math.Clamp(video.Height * 0.22, 24, 90);
+        var strip = new Rect(video.X, video.Bottom - height, video.Width, height);
+        dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 10, 12, 16)), null, strip);
+
+        double slot = strip.Width / audio.Meters.Count;
+        double barWidth = Math.Max(slot * 0.45, 3);
+        var barBrush = new SolidColorBrush(Color.FromRgb(63, 185, 116));
+        var warnBrush = new SolidColorBrush(Color.FromRgb(240, 196, 74));
+        var clipBrush = new SolidColorBrush(Color.FromRgb(255, 90, 80));
+        var peakPen = new Pen(new SolidColorBrush(Color.FromRgb(230, 234, 240)), 1.5);
+
+        for (int i = 0; i < audio.Meters.Count; i++)
+        {
+            ChannelMeterState state = audio.Meters[i];
+            double db = Math.Clamp(state.LevelDbfs, -60, 0);
+            double filled = (db + 60) / 60 * (height - 4);
+            double x = strip.X + i * slot + (slot - barWidth) / 2;
+            Brush brush = state.Clipped ? clipBrush : db > -6 ? warnBrush : barBrush;
+            dc.DrawRectangle(brush, null, new Rect(x, strip.Bottom - 2 - filled, barWidth, Math.Max(filled, 0.5)));
+
+            if (!double.IsNegativeInfinity(state.PeakHoldDbfs))
+            {
+                double peak = Math.Clamp(state.PeakHoldDbfs, -60, 0);
+                double peakY = strip.Bottom - 2 - (peak + 60) / 60 * (height - 4);
+                dc.DrawLine(peakPen, new Point(x, peakY), new Point(x + barWidth, peakY));
+            }
+        }
     }
     private static void DrawGutter(DrawingContext dc, Rect gutter, Rect plot, ScopePanelKind kind, GraticuleOptions options)
     {

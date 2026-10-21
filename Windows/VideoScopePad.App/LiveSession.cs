@@ -28,6 +28,17 @@ using Vortice.MediaFoundation;
 
 namespace VideoScopePad.App;
 
+/// <summary>声画同步的校准模式</summary>
+public enum SyncTestMode
+{
+    /// <summary>自动（按检测到的波形自行判断）</summary>
+    Auto,
+    /// <summary>Sync-it：亮闪后保持一段时间（每秒一次）</summary>
+    SyncIt,
+    /// <summary>彩条 + 千周：画面是静态彩条，声音是 1 kHz 短脉冲</summary>
+    BarsTone,
+}
+
 /// <summary>信号源</summary>
 public enum LiveSourceKind
 {
@@ -425,6 +436,7 @@ public sealed class LiveSession : IDisposable
     private readonly System.Diagnostics.Stopwatch _syncClock = System.Diagnostics.Stopwatch.StartNew();
     private double _lastFlashSeconds = -1;
     private double _lastSyncSeconds;
+    private double _pulseBaseline;
     private double _previousAverageIre = -1;
 
     /// <summary>最近一次画面闪变的时刻（秒，与会话共同时钟）</summary>
@@ -472,6 +484,24 @@ public sealed class LiveSession : IDisposable
             return;
         }
 
+        // 彩条千周模式：亮脉冲是"短促一冲"，不是"跳上去保持" ——
+        // 所以按"相对滑动平均高出很多"判定，峰值帧即脉冲中心；Sync-it 模式仍是阶跃判定。
+        bool pulseMode = SyncMode == SyncTestMode.BarsTone;
+        if (pulseMode)
+        {
+            _pulseBaseline = _pulseBaseline <= 0 ? averageIre : _pulseBaseline * 0.95 + averageIre * 0.05;
+            if (_flashPrevIre > 0 && averageIre > _pulseBaseline + 8 && averageIre > 12
+                && !_flashAwaitingSteady)
+            {
+                _flashCandidateIre = averageIre;
+                _flashCandidateTime = timeSeconds;
+                _flashAwaitingSteady = true;
+                return;
+            }
+            _flashPrevIre = averageIre;
+            return;
+        }
+
         if (_flashPrevIre > 0 && averageIre > _flashPrevIre + 6 && averageIre > 12)
         {
             // 检测到一节跳变：先记下 A/X/T，等下一帧定 B
@@ -485,6 +515,12 @@ public sealed class LiveSession : IDisposable
     }
 
     private double _lastFlashFraction;
+
+    /// <summary>校准模式：Sync-it（亮闪后保持）或彩条千周（静态彩条 + 短促亮脉冲）</summary>
+    public SyncTestMode SyncMode { get; set; } = SyncTestMode.Auto;
+
+    /// <summary>最近一次闪变的帧数（脉冲模式下用来判断脉宽）</summary>
+    public int LastFlashPulseFrames { get; private set; }
 
     /// <summary>最近一次闪变在帧内的占比（1 = 整帧都在闪；0.5 = 帧中途开始）</summary>
     public double LastFlashFraction => _lastFlashFraction;
