@@ -399,6 +399,15 @@ public partial class MainWindow : Window
             InfoFpsText.Text = $"采集 {stats.CaptureFps:0.0} fps　显示 {stats.DisplayFps:0.0} fps";
             _session.UpdateSyncFromFrame();   // 视频闪变 + 音频起音配对（每帧一次）
 
+            // 音视频同源：等**设备键真正就位**再匹配（在选源回调里匹配会赶在会话处理之前，
+            // 那时 SelectedDeviceKey 还是空的 —— 实测就漏在这里）。
+            string? currentKey = _session.SelectedDeviceKey;
+            if (!string.IsNullOrEmpty(currentKey) && currentKey != _lastMatchedKey)
+            {
+                _lastMatchedKey = currentKey;
+                AutoSelectAudioForVideo();
+            }
+
             // 🔴 顶部控件行必须**限宽**才会换行：父链给 WrapPanel 的是无限宽，
             //    所以它一直横着排，控件被顶到窗口外面（实测 LUT 取样下拉排到 x=2886，窗口才 1700 宽，
             //    于是"看不到"—— 不是颜色问题，是根本没显示在屏幕上）。
@@ -754,6 +763,7 @@ public partial class MainWindow : Window
     private ComboBox _audioDeviceBox = null!;
     private ComboBox _syncModeBox = null!;
     private WrapPanel? _audioControlsRow;
+    private string? _lastMatchedKey;
     private TextBlock? _audioStateText;
     private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
 
@@ -871,7 +881,8 @@ public partial class MainWindow : Window
     /// </summary>
     private bool AutoSelectAudioForVideo()
     {
-        Diag.Log($"同源检查：视频「{SourceBox.Text}」，音频候选 {_audioEndpoints.Count} 个");
+        Diag.Log($"同源检查：源「{SourceBox.Text}」，设备键 {(string.IsNullOrEmpty(_session.SelectedDeviceKey) ? "(无)" : "有")}，"
+               + $"音频候选 {_audioEndpoints.Count} 个");
         if (_audioEndpoints.Count == 0 || _audioDeviceBox is null)
         {
             return false;
