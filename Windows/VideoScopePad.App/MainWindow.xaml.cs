@@ -762,6 +762,7 @@ public partial class MainWindow : Window
     private CheckBox _audioBox = null!;
     private ComboBox _audioDeviceBox = null!;
     private ComboBox _syncModeBox = null!;
+    private TextBox _syncOffsetBox = null!;
     private WrapPanel? _audioControlsRow;
     private string? _lastMatchedKey;
     private long _lastSyncDiagTick;
@@ -852,6 +853,38 @@ public partial class MainWindow : Window
             Diag.Log($"校准模式 → {_session.SyncMode}");
         };
         _audioControlsRow.Children.Add(_syncModeBox);
+
+        _audioControlsRow.Children.Add(new TextBlock
+        {
+            Text = "延时补偿",
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 4, 0),
+        });
+        _syncOffsetBox = new TextBox
+        {
+            Text = "0",
+            Width = 64,
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "毫秒。读到一个稳定偏差时，把它的相反数填进来即可归零（补偿的是本程序内部的固定滞后）",
+        };
+        _syncOffsetBox.TextChanged += (_, _) =>
+        {
+            if (double.TryParse(_syncOffsetBox.Text, out double value))
+            {
+                _session.SyncOffsetMs = value;
+            }
+        };
+        _audioControlsRow.Children.Add(_syncOffsetBox);
+        _audioControlsRow.Children.Add(new TextBlock
+        {
+            Text = "ms",
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0),
+        });
 
         // 🔴 音频电平表必须用**独立定时器**刷新：原先把它挂在"视频帧统计"回调里，
         //    结果视频没有新帧时就不刷新（实测开音频后 6 秒内一次都没刷，状态文字一直停在"音频未开"）。

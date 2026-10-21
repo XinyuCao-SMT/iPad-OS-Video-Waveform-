@@ -632,9 +632,18 @@ public sealed class LiveSession : IDisposable
             _delayHistory.RemoveAt(0);
         }
         var sorted = _delayHistory.OrderBy(v => v).ToList();
-        AudioVideoDelayMs = sorted[sorted.Count / 2];    // 中位数
+        AudioVideoDelayMs = sorted[sorted.Count / 2] + SyncOffsetMs;    // 中位数 + 固定补偿
         LastPairGapMs = bestAbs;
     }
+
+    /// <summary>
+    /// 声画延时的**固定补偿**（毫秒，默认 0）。
+    /// 用途：吸收本程序内部已知的固定偏移 —— 主要是视频读数来自 GPU 非阻塞回读，
+    /// 比画面本身滞后若干帧（实测约 9 帧 @40fps ≈ 227 ms），这一段与素材无关、是实现的固有延迟。
+    /// 现场用法：对着已知同步的素材（如 Sync-it 的 0 ms 基准）读到一个稳定偏差，
+    /// 把该偏差的相反数填进来即可归零。**它不是用来掩盖真实链路延时的**，真实延时仍然会体现。
+    /// </summary>
+    public double SyncOffsetMs { get; set; }
 
     /// <summary>最近一次配对的时间差绝对值（毫秒；越小越可信）</summary>
     public double LastPairGapMs { get; private set; }
