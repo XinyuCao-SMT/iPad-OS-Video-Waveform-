@@ -772,6 +772,7 @@ public partial class MainWindow : Window
             Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
         };
         clearClip.Click += (_, _) => _session.ClearAudioClip();
+        AutoSelectAudioForVideo();   // 音视频同源：跟着视频源挑音频端点并同开
         AudioControlsRow.Children.Add(clearClip);
 
         var refresh = new Button
@@ -837,6 +838,59 @@ public partial class MainWindow : Window
         _audioTimer.Start();
     }
 
+    /// <summary>
+    /// 默认**音视频同源、同开**：选视频源时，自动挑同一台设备的音频端点并打开音频。
+    /// 匹配办法：从视频设备名里抽出型号/序列号这类长 token（如 "00K0601910"），
+    /// 在音频端点名里找包含它的那条 —— 采集卡的视频与音频在 Windows 里是两个端点，
+    /// 名字通常共用同一个标识（UT-VID 00K0601910 ↔ UT-AUD 00K0601910 / 数字音频接口）。
+    /// 找不到就保持用户手动选择，不强行改。
+    /// </summary>
+    private bool AutoSelectAudioForVideo()
+    {
+        if (_audioEndpoints.Count == 0 || _audioDeviceBox is null)
+        {
+            return false;
+        }
+
+        string videoName = SourceBox.SelectedItem as string ?? string.Empty;
+        if (videoName.Length == 0)
+        {
+            return false;
+        }
+
+        // 抽出所有 ≥6 位的字母数字 token（型号 / 序列号）
+        var tokens = System.Text.RegularExpressions.Regex
+            .Matches(videoName, "[A-Za-z0-9]{6,}")
+            .Select(match => match.Value)
+            .Where(token => !token.All(char.IsLetter))
+            .ToList();
+        if (tokens.Count == 0)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < _audioEndpoints.Count; i++)
+        {
+            string audioName = _audioEndpoints[i].FriendlyName;
+            if (tokens.Any(token => audioName.Contains(token, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (_audioDeviceBox.SelectedIndex != i)
+                {
+                    _audioDeviceBox.SelectedIndex = i;
+                    Diag.Log($"音视频同源：视频「{videoName}」→ 音频「{audioName}」");
+                }
+                // 同开：勾上并启动（勾选框的 Checked 事件会真正打开抓取）
+                if (_audioBox.IsChecked != true)
+                {
+                    _audioBox.IsChecked = true;
+                    Diag.Log("音视频同开：已自动打开音频");
+                }
+                return true;
+            }
+        }
+        Diag.Log($"音视频同源：视频「{videoName}」没找到匹配的音频端点（保持手动选择）");
+        return false;
+    }
     private void RebuildAudioDevices()
     {
         _audioEndpoints = WasapiFormatProbe.Enumerate().Where(e => e.IsActive && e.Channels > 0).ToList();
@@ -850,6 +904,7 @@ public partial class MainWindow : Window
             _audioDeviceBox.SelectedIndex = 0;
         }
         Diag.Log($"音频设备刷新：{_audioEndpoints.Count} 个在用端点");
+        AutoSelectAudioForVideo();
     }
 
     private string? SelectedAudioEndpointId
