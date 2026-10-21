@@ -1,4 +1,4 @@
-//
+﻿//
 //  ContentView.swift
 //  VideoScopePad
 //
@@ -75,6 +75,13 @@ struct ContentView: View {
             } else {
                 coordinator.stopAudio()
             }
+        }
+        // 音视频**同源同开**：选到视频设备后，音频交给 AudioMonitor 自动挑同源输入（优先 USB 音频口），并自动打开。
+        .onChange(of: capture.selectedDeviceID) { _, newValue in
+            guard newValue != nil else { return }
+            settings.audioInputID = ""
+            coordinator.restartAudio(preferredInputID: nil)
+            if !settings.audioEnabled { settings.audioEnabled = true }
         }
         .onChange(of: settings.audioInputID) { _, newValue in
             coordinator.restartAudio(preferredInputID: newValue.isEmpty ? nil : newValue)
