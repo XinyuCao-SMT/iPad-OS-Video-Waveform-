@@ -439,6 +439,9 @@ public sealed class LiveSession : IDisposable
     private double _pulseBaseline;
     private double _previousAverageIre = -1;
 
+    /// <summary>最近一次音频起音的时刻（秒；-1 = 还没检测到）</summary>
+    public double AudioOnsetSeconds => _audioCapture?.LastOnsetSeconds ?? -1;
+
     /// <summary>最近一次画面闪变的时刻（秒，与会话共同时钟）</summary>
     public double LastFlashSeconds => _lastFlashSeconds;
 

@@ -764,6 +764,7 @@ public partial class MainWindow : Window
     private ComboBox _syncModeBox = null!;
     private WrapPanel? _audioControlsRow;
     private string? _lastMatchedKey;
+    private long _lastSyncDiagTick;
     private TextBlock? _audioStateText;
     private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
 
@@ -1015,10 +1016,23 @@ public partial class MainWindow : Window
 
         if (_audioStateText is not null)
         {
-            _audioStateText.Text = _session.AudioState
-                + (_session.AudioVideoDelayMs is { } delay
-                    ? $"　延时 {delay:+0.0;-0.0} ms"
-                    : string.Empty);
+            // 没测出来时**明确告诉卡在哪一步**：是没看到闪变，还是没听到千周
+            string step = _session.AudioVideoDelayMs is { } delay
+                ? $"　延时 {delay:+0.0;-0.0} ms"
+                : _session.LastFlashSeconds < 0 && _session.AudioOnsetSeconds < 0 ? "　等闪变+等起音"
+                : _session.LastFlashSeconds < 0 ? "　等画面闪变"
+                : _session.AudioOnsetSeconds < 0 ? "　等音频起音"
+                : "　两者都有但间隔 >2 s";
+            _audioStateText.Text = _session.AudioState + step + $"　（模式 {_session.SyncMode}）";
+        }
+
+        // 每 2 秒把三个关键量写进日志，便于事后核对
+        if (Environment.TickCount64 - _lastSyncDiagTick > 2000)
+        {
+            _lastSyncDiagTick = Environment.TickCount64;
+            Diag.Log($"同步诊断：闪变 {_session.LastFlashSeconds:0.000}s、起音 {_session.AudioOnsetSeconds:0.000}s、"
+                   + $"延时 {(_session.AudioVideoDelayMs is { } d2 ? d2.ToString("0.0") : "无")} ms、"
+                   + $"模式 {_session.SyncMode}、{_session.AudioState}");
         }
     }    private void OnRefreshDevices(object sender, RoutedEventArgs e)
     {
