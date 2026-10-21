@@ -8,7 +8,8 @@
 
 | 版本 | 提交 | Tag | 内容 | exe |
 |---|---|---|---|---|
-| **win-v0.8.1 响度版**<br>（最新，**推荐装**） | `待填` | tag `win-v0.8.1-audio-loudness` | 音频滚动缓冲（响度/频谱用 ≥400 ms 长窗，修掉 LUFS 恒为 −∞）+ 5 条音频自检断言 | `dist/win-v0.8.1-audio-loudness/VideoScopePad-win-v0.8.1-audio-loudness-unsigned.exe` |
+| **win-v0.9.0 音频面板版**<br>（最新，**推荐装**） | `待填` | tag `win-v0.9.0-audio-scope` | 音频分析面板：**1/3 倍频程频谱**（31 条带）+ **声相李萨如**（相关性）+ **逐轨声画延时**（每轨单独值）；新增「测延时」按钮 | `dist/win-v0.9.0-audio-scope/VideoScopePad-win-v0.9.0-audio-scope-unsigned.exe` |
+| **win-v0.8.1 响度版** | `待填` | tag `win-v0.8.1-audio-loudness` | 音频滚动缓冲（响度/频谱用 ≥400 ms 长窗，修掉 LUFS 恒为 −∞）+ 5 条音频自检断言 | `dist/win-v0.8.1-audio-loudness/VideoScopePad-win-v0.8.1-audio-loudness-unsigned.exe` |
 | **win-v0.8.0 音频版** | `364dd6f` | tag `win-v0.8.0-audio` | 新增**音频面板**：WASAPI 共享模式实时抓取（实测 3.03 秒 145,440 帧）、按实际通道数的电平表（峰值保持/CLIP/dB 网格）、音频设备下拉与开关 | `dist/win-v0.8.0-audio/VideoScopePad-win-v0.8.0-audio-unsigned.exe` |
 | **win-v0.7.1 品牌版** | `c79217e` | tag `win-v0.7.1-brandlogo` | 在 0.7.0 基础上把**品牌 logo 放到窗口右下角**（用 iPad 版 BrandLogo 原图，高度与 iPad 一致 18） | `dist/win-v0.7.1-brandlogo/VideoScopePad-win-v0.7.1-brandlogo-unsigned.exe` |
 | **win-v0.7.0 外观版** | `5d4ad47` | tag `win-v0.7.0-skin` | 图标与署名 logo 换成 **iPad 版原文件**（AppIcon.png / BrandLogo@3x.png）；**去掉画面旋转**；修复下拉框看不到当前选项（选中框配色 + 控件被顶出屏幕） | `dist/win-v0.7.0-skin/VideoScopePad-win-v0.7.0-skin-unsigned.exe` |
@@ -64,6 +65,7 @@ copy dist\win-v0.1.0-monitor\VideoScopePad-win-v0.1.0-monitor-unsigned.exe D:\�
 
 | 文件 | 大小 | SHA256 |
 |---|---|---|
+| `VideoScopePad-win-v0.9.0-audio-scope-unsigned.exe` | 72,589,495 字节（69.2 MB） | `536DB5EABAC9944075DCD0EE2180880FB93CC4A57B43844C8AA26B6139EC72AC` |
 | `VideoScopePad-win-v0.8.1-audio-loudness-unsigned.exe` | 72,583,358 字节（69.2 MB） | `027A875349448A1B6196FDF06AD98FF2D40DEB7C64ACB5D8DD223B7554823E6F` |
 | `VideoScopePad-win-v0.8.0-audio-unsigned.exe` | 72,580,766 字节（69.2 MB） | `4D0A643227E2D2FEC3BFBAF8DED97AB7F45A561299181C7F4C2119EF39F9337C` |
 | `VideoScopePad-win-v0.7.1-brandlogo-unsigned.exe` | 72,568,975 字节（69.2 MB） | `8A46DFA75E12DF017AC3F4BD86D1143D7C005C9C54CDBDEC8937F72EB4A587D4` |

@@ -869,9 +869,19 @@ public partial class App : Application
             $"音频报告产出：{audio.ChannelCount} 通道、{audio.Meters.Count} 条电平表、"
             + $"采样率 {audio.SampleRate}",
             $"{audio.ChannelCount}ch");
-        Check(!audio.Loudness.HasLoudness && audio.Loudness.SampleRate == audio.SampleRate,
-            "采到数字静音 → 响度算不出来（BS.1770 门限滤掉，正确行为；有声音时才会出数）",
-            audio.Loudness.HasLoudness ? $"{audio.Loudness.IntegratedLufs:0.0}" : "未算出");
+        // ⚠️ 这一条原来写成"必须算不出来"，是错的：环境里一旦有声音（麦克风拾音、别的程序出声），
+        //    BS.1770 就会真的给出读数（实测发版闸门里读到 **−25.6 LUFS**，于是误判失败）。
+        //    正确的判据是**与环境自洽**：有声音 → 给出 −70…0 LUFS 的合理值；没声音（电平 ≤ −60 dBFS）→ 算不出。
+        bool hasLoudness = audio.Loudness.HasLoudness;
+        double maxLevel = audio.Meters.Count > 0 ? audio.Meters.Max(x => x.LevelDbfs) : -240;
+        bool consistent = hasLoudness
+            ? audio.Loudness.IntegratedLufs is > -70 and < 0
+            : maxLevel < -60;
+        Check(consistent,
+            "响度与环境自洽：" + (hasLoudness
+                ? $"有信号 → 算出 {audio.Loudness.IntegratedLufs:0.0} LUFS（合理区间 −70…0）"
+                : $"电平 {maxLevel:0} dBFS 的静音 → 算不出来（BS.1770 门限滤掉，正确行为）"),
+            hasLoudness ? $"{audio.Loudness.IntegratedLufs:0.0} LUFS" : "未算出");
         Check(audio.Spectrum.Count == 31, $"频谱 31 条带（用长窗算）", $"{audio.Spectrum.Count}");
 
         session.SetAudioEnabled(false, null);
