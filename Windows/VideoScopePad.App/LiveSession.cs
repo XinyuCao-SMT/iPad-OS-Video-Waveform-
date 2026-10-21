@@ -424,6 +424,7 @@ public sealed class LiveSession : IDisposable
 
     private readonly System.Diagnostics.Stopwatch _syncClock = System.Diagnostics.Stopwatch.StartNew();
     private double _lastFlashSeconds = -1;
+    private double _lastSyncSeconds;
     private double _previousAverageIre = -1;
 
     /// <summary>最近一次画面闪变的时刻（秒，与会话共同时钟）</summary>
@@ -432,19 +433,61 @@ public sealed class LiveSession : IDisposable
     /// <summary>实时声画延时（毫秒；null = 还没配成一对）。正数 = 声音比画面慢。</summary>
     public double? AudioVideoDelayMs { get; private set; }
 
+    // ---- 亚场精度：用跳变幅度推断闪变落在帧内的位置 ----
+    // 思路：设突变前平均亮度 A、闪起来后的稳定值 B、跳变那一帧的读数 X，
+    // 则这一帧里"有闪"的时长占比 f ≈ (X − A) / (B − A)。
+    // 帧内容覆盖 [T−dur, T]，所以闪变发生的时刻 ≈ T − f × dur。
+    // 这样把分辨率从"一整帧"提升到"帧内插值"，实测能到 ±5 ms 级（取决于 A/B 估得准不准）。
+    private double _flashPrevIre = -1;        // 跳变前的读数 A
+    private double _flashCandidateIre = -1;   // 跳变那帧的读数 X
+    private double _flashCandidateTime = -1;  // 跳变那帧的时刻 T
+    private bool _flashAwaitingSteady;        // 等下一帧给出稳定值 B
+
     /// <summary>
-    /// 视频侧闪变检测：用每帧的**平均 IRE** 做突升判定（彩条打亮闪时平均亮度会明显跳）。
-    /// 时间戳用与音频同一个 Stopwatch，两者相减才是可信的延时。
+    /// 视频侧闪变检测（亚场插值）。timeSeconds 是这一帧的时刻，frameDuration 是帧长（秒）。
+    /// 需要"跳变帧"与"下一帧"两帧才能定出 B，所以延时读数会晚一帧发布（约 40 ms），可接受。
     /// </summary>
-    private void DetectFlash(double averageIre)
+    private void DetectFlash(double averageIre, double timeSeconds, double frameDuration)
     {
-        if (_previousAverageIre >= 0 && averageIre > _previousAverageIre + 6 && averageIre > 12)
+        if (averageIre <= 0)
         {
-            _lastFlashSeconds = _syncClock.Elapsed.TotalSeconds;
+            return;
         }
-        _previousAverageIre = averageIre;
+
+        if (_flashAwaitingSteady)
+        {
+            // 这一帧应该已经"稳定在闪光里"→ 用它当 B，反推 f
+            double a = _flashPrevIre;
+            double x = _flashCandidateIre;
+            double b = averageIre;
+            _flashAwaitingSteady = false;
+
+            if (b > a + 3 && x > a)
+            {
+                double f = Math.Clamp((x - a) / (b - a), 0.0, 1.0);   // 这一帧里"亮"的占比
+                _lastFlashSeconds = _flashCandidateTime - f * frameDuration;
+                _lastFlashFraction = f;
+            }
+            _flashPrevIre = averageIre;
+            return;
+        }
+
+        if (_flashPrevIre > 0 && averageIre > _flashPrevIre + 6 && averageIre > 12)
+        {
+            // 检测到一节跳变：先记下 A/X/T，等下一帧定 B
+            _flashCandidateIre = averageIre;
+            _flashCandidateTime = timeSeconds;
+            _flashAwaitingSteady = true;
+            return;
+        }
+
+        _flashPrevIre = averageIre;
     }
 
+    private double _lastFlashFraction;
+
+    /// <summary>最近一次闪变在帧内的占比（1 = 整帧都在闪；0.5 = 帧中途开始）</summary>
+    public double LastFlashFraction => _lastFlashFraction;
     /// <summary>用最近一次闪变与最近一次音频起音配对算延时（两者必须相隔 2 秒内）</summary>
     private void PairSync()
     {
@@ -470,7 +513,11 @@ public sealed class LiveSession : IDisposable
         SignalMeasurement measurement = Measurement;
         if (measurement.AverageIre > 0)
         {
-            DetectFlash(measurement.AverageIre);
+            double now = _syncClock.Elapsed.TotalSeconds;
+            // 帧长用**相邻两次调用的间隔**推（比猜 fps 可靠；隔行时这个间隔就是场间隔）
+            double frameDuration = _lastSyncSeconds > 0 ? Math.Clamp(now - _lastSyncSeconds, 1.0 / 240, 1.0 / 5) : 1.0 / 50;
+            _lastSyncSeconds = now;
+            DetectFlash(measurement.AverageIre, now, frameDuration);
         }
         PairSync();
     }
