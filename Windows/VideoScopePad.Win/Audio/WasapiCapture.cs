@@ -62,6 +62,9 @@ public sealed class WasapiCapture : IDisposable
 
     public int SampleRate { get; private set; }
 
+    /// <summary>实际申请到的缓冲时长（毫秒）—— 这一段就是音频相对实时的固有延迟</summary>
+    public double BufferDurationMs { get; private set; }
+
     /// <summary>最近一次错误（没有错误时为空）</summary>
     public string LastError { get; private set; } = string.Empty;
 
@@ -118,9 +121,20 @@ public sealed class WasapiCapture : IDisposable
             Channels = Marshal.ReadInt16(_format, 2);
             SampleRate = Marshal.ReadInt32(_format, 4);
 
-            // 共享模式：1 秒缓冲（对表头显示足够，也不吃太多内存）
+            // 🔴 缓冲必须用**设备默认周期**（通常 10 ms），不能贪大：
+            //    我原来给了 1 秒（10_000_000 个 100ns 单位），结果样本晚约 0.5 s 才到 →
+            //    起音时间戳比闪变晚半个周期，现场表现为"两者相差 0.5 s、永远配不上对"。
+            _client.GetDevicePeriod(out long defaultPeriod, out long _);
+            long bufferDuration = defaultPeriod > 0 ? defaultPeriod : 1_000_000L;   // 兜底 100 ms
             hr = _client.Initialize(ShareModeShared, StreamFlagsNoPersist,
-                                    10_000_000L, 0, _format, IntPtr.Zero);
+                                    bufferDuration, 0, _format, IntPtr.Zero);
+            if (hr != 0)
+            {
+                // 有些设备不接受设备周期，退回 100 ms 缓冲（仍远小于原来的 1 s）
+                hr = _client.Initialize(ShareModeShared, StreamFlagsNoPersist,
+                                        1_000_000L, 0, _format, IntPtr.Zero);
+            }
+            BufferDurationMs = bufferDuration / 10_000.0;
             if (hr != 0)
             {
                 LastError = $"Initialize(共享) 失败（HRESULT 0x{hr:X8}）—— 设备可能被独占占用";
