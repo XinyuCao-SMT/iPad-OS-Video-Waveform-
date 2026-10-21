@@ -1,4 +1,4 @@
-//
+﻿//
 //  AudioMonitor.swift
 //  VideoScopePad
 //
@@ -170,6 +170,21 @@ final class AudioMonitor: ObservableObject {
 
     // MARK: - 启动 / 停止
 
+    /// <summary>
+    /// 自动挑"同源"音频输入：优先 USB 音频口（UVC/UAC 采集卡的音频在 iPadOS 上就是 usbAudio 端口），
+    /// 其次选非内置麦克风的第一个。找不到就返回 nil（保持系统默认）。
+    /// 与 Windows 版的 VID/PID 同源匹配是同一个思路：**按硬件归属挑，而不是随便用默认输入**。
+    /// </summary>
+    static func autoPreferredInput(from inputs: [AVAudioSessionPortDescription]?) -> AVAudioSessionPortDescription? {
+        guard let inputs, !inputs.isEmpty else { return nil }
+        if let usb = inputs.first(where: { $0.portType == .usbAudio }) {
+            return usb
+        }
+        if let external = inputs.first(where: { $0.portType != .builtInMic }) {
+            return external
+        }
+        return nil
+    }
     func start(preferredInputID: String?) {
         guard !isRunning else { return }
         guard Self.hasPermission else {
@@ -187,6 +202,12 @@ final class AudioMonitor: ObservableObject {
                 try session.setPreferredInput(match)
             }
         } catch {
+            else if let auto = Self.autoPreferredInput(from: session.availableInputs) {
+                // 没指定输入时**自动选同源**：优先 USB 音频口（采集卡的音频在 iPadOS 上就是 USB Audio），
+                // 其次排除内置麦克风后的第一个。与 Windows 版的音视频同源思路一致。
+                try session.setPreferredInput(auto)
+                statusText = "自动选择音频输入：\(auto.portName)"
+            }
             statusText = "音频会话失败：\(error.localizedDescription)"
             return
         }
