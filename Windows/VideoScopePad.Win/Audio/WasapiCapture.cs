@@ -254,7 +254,22 @@ public sealed class WasapiCapture : IDisposable
         bool loud = blockPeak > threshold && blockPeak > 0.01;
         if (loud && !_wasLoud)
         {
-            _lastOnsetMs = _clock.Elapsed.TotalMilliseconds - (frames / (double)SampleRate) * 1000.0;
+            // 🔴 起音时刻必须**定位到块内的具体样本**，不能拿"块起点"顶替：
+            //    块长 50 ms，用块起点会系统性地早 0–50 ms（平均 25 ms），
+            //    现场实测稳定的 −62.5 ms 里就有这一块偏差。
+            double blockStartMs = _clock.Elapsed.TotalMilliseconds - (frames / (double)SampleRate) * 1000.0;
+            int onsetIndex = 0;
+            double thresholdOn = Math.Max(threshold, 0.01);
+            for (int ch = 0; ch < Channels; ch++)
+            {
+                if (channels[ch].Length == 0) { continue; }
+                for (int i = 0; i < channels[ch].Length; i++)
+                {
+                    if (Math.Abs(channels[ch][i]) > thresholdOn) { onsetIndex = i; break; }
+                }
+                break;   // 用第一通道定位起音即可（多通道是同一时刻）
+            }
+            _lastOnsetMs = blockStartMs + (onsetIndex / (double)SampleRate) * 1000.0;
         }
         _wasLoud = loud;
     }
