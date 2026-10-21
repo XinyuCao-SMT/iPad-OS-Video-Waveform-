@@ -434,6 +434,21 @@ public sealed class LiveSession : IDisposable
     }
 
     private readonly System.Diagnostics.Stopwatch _syncClock = System.Diagnostics.Stopwatch.StartNew();
+
+    /// <summary>
+    /// 显示帧率目标（0 = 自由跑，尽力而为）。
+    /// 锁定后渲染循环按固定间隔启动，好处：闪变判定的时间分辨率固定（50fps → 20ms），
+    /// 且"测量回读滞后若干帧"变成一个**固定的整数倍**，延时补偿填一次就长期有效。
+    /// 注意：采集读取也在渲染循环里，所以这一项同时限住了读取节奏。
+    /// </summary>
+    public int RenderFpsTarget
+    {
+        get => _renderFpsTarget;
+        set => _renderFpsTarget = Math.Clamp(value, 0, 120);
+    }
+
+    private volatile int _renderFpsTarget;
+    private long _lastRenderTick;
     private double _lastFlashSeconds = -1;
     private double _lastSyncSeconds;
     private double _pulseBaseline;
@@ -1072,6 +1087,15 @@ public sealed class LiveSession : IDisposable
 
             while (_running)
             {
+                // 显示节拍：按目标帧率限制本轮**启动间隔**（不动循环体结构）
+                if (_renderFpsTarget > 0)
+                {
+                    double frameMs = 1000.0 / _renderFpsTarget;
+                    double usedMs = (Stopwatch.GetTimestamp() - _lastRenderTick) * 1000.0 / Stopwatch.Frequency;
+                    double waitMs = frameMs - usedMs;
+                    if (waitMs > 0.5) { Thread.Sleep((int)waitMs); }
+                    _lastRenderTick = Stopwatch.GetTimestamp();
+                }
                 // ---------- 设备在场服务（每帧，内部节流）----------
                 // 为什么放在这儿而不是放在重建分支里：重建分支只在"换源"时跑一次，
                 // 而热插拔要**持续**看着设备列表 —— 每帧检查、每秒真枚举。

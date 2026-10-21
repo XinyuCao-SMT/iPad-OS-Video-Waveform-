@@ -762,6 +762,7 @@ public partial class MainWindow : Window
     private CheckBox _audioBox = null!;
     private ComboBox _audioDeviceBox = null!;
     private ComboBox _syncModeBox = null!;
+    private ComboBox _renderFpsBox = null!;
     private TextBox _syncOffsetBox = null!;
     private WrapPanel? _audioControlsRow;
     private string? _lastMatchedKey;
@@ -853,6 +854,34 @@ public partial class MainWindow : Window
             Diag.Log($"校准模式 → {_session.SyncMode}");
         };
         _audioControlsRow.Children.Add(_syncModeBox);
+
+        _audioControlsRow.Children.Add(new TextBlock
+        {
+            Text = "显示帧率",
+            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 4, 0),
+        });
+        _renderFpsBox = MakeComboBox(120);
+        _renderFpsBox.Items.Add("自由");
+        _renderFpsBox.Items.Add("25（20 ms）");
+        _renderFpsBox.Items.Add("30（33 ms）");
+        _renderFpsBox.Items.Add("50（20 ms）");
+        _renderFpsBox.Items.Add("60（16.7 ms）");
+        _renderFpsBox.SelectedIndex = 0;
+        _renderFpsBox.SelectionChanged += (_, _) =>
+        {
+            _session.RenderFpsTarget = _renderFpsBox.SelectedIndex switch
+            {
+                1 => 25,
+                2 => 30,
+                3 => 50,
+                4 => 60,
+                _ => 0,
+            };
+            Diag.Log($"显示帧率目标 → {(_session.RenderFpsTarget == 0 ? "自由" : _session.RenderFpsTarget + " fps")}");
+        };
+        _audioControlsRow.Children.Add(_renderFpsBox);
 
         _audioControlsRow.Children.Add(new TextBlock
         {
