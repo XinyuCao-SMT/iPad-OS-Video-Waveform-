@@ -408,38 +408,65 @@ public static class ScopeGraticule
                  new Point(area.X + 8, area.Bottom - 18), TextAlign.Left);
     }
 
-    /// <summary>音柱叠在画面上：底部一条半透明背板 + 每通道竖条 + 峰值线（iPad 版的叠加形态）</summary>
+    /// <summary>
+    /// 音柱叠在画面上：**细柱分放左右两侧**（用户反馈底部粗条难看）。
+    /// 通道一分为二：左半通道贴左边、右半贴右边，柱宽按画面宽度自适应（4–9 px），
+    /// 柱后面只铺一条很窄的半透明背板（不挡画面），峰值保持线照旧画。
+    /// </summary>
     private static void DrawMeterOverlay(DrawingContext dc, Rect video, AudioFrameReport audio)
     {
-        if (audio.Meters.Count == 0 || video.Width < 40 || video.Height < 30)
+        int channels = audio.Meters.Count;
+        if (channels == 0 || video.Width < 60 || video.Height < 40)
         {
             return;
         }
 
-        double height = Math.Clamp(video.Height * 0.22, 24, 90);
-        var strip = new Rect(video.X, video.Bottom - height, video.Width, height);
-        dc.DrawRectangle(new SolidColorBrush(Color.FromArgb(150, 10, 12, 16)), null, strip);
+        double barWidth = Math.Clamp(video.Width * 0.006, 4, 9);      // 细柱
+        double gap = Math.Max(barWidth * 0.45, 2);
+        double margin = Math.Max(video.Width * 0.004, 3);            // 离画面边缘一点点
+        double top = video.Y + video.Height * 0.06;
+        double trackHeight = video.Height * 0.88;
 
-        double slot = strip.Width / audio.Meters.Count;
-        double barWidth = Math.Max(slot * 0.45, 3);
+        int leftCount = (channels + 1) / 2;                          // 2ch → 左 1 右 1
+        int rightCount = channels - leftCount;
+
         var barBrush = new SolidColorBrush(Color.FromRgb(63, 185, 116));
         var warnBrush = new SolidColorBrush(Color.FromRgb(240, 196, 74));
         var clipBrush = new SolidColorBrush(Color.FromRgb(255, 90, 80));
-        var peakPen = new Pen(new SolidColorBrush(Color.FromRgb(230, 234, 240)), 1.5);
+        var peakPen = new Pen(new SolidColorBrush(Color.FromRgb(230, 234, 240)), 1.2);
+        var backBrush = new SolidColorBrush(Color.FromArgb(105, 8, 10, 14));
 
-        for (int i = 0; i < audio.Meters.Count; i++)
+        // 两侧的窄背板（只铺柱宽那一条，不遮挡画面主体）
+        if (leftCount > 0)
+        {
+            double width = leftCount * barWidth + (leftCount - 1) * gap + margin * 2;
+            dc.DrawRectangle(backBrush, null, new Rect(video.X, top - margin, width, trackHeight + margin * 2));
+        }
+        if (rightCount > 0)
+        {
+            double width = rightCount * barWidth + (rightCount - 1) * gap + margin * 2;
+            dc.DrawRectangle(backBrush, null, new Rect(video.Right - width, top - margin, width, trackHeight + margin * 2));
+        }
+
+        for (int i = 0; i < channels; i++)
         {
             ChannelMeterState state = audio.Meters[i];
             double db = Math.Clamp(state.LevelDbfs, -60, 0);
-            double filled = (db + 60) / 60 * (height - 4);
-            double x = strip.X + i * slot + (slot - barWidth) / 2;
+            // 最小 3 px：静音时也能看见柱子在哪（否则"没画"和"静音"分不出来）
+            double filled = Math.Max((db + 60) / 60 * trackHeight, 3);
+            bool leftSide = i < leftCount;
+            int indexInSide = leftSide ? i : i - leftCount;
+            double x = leftSide
+                ? video.X + margin + indexInSide * (barWidth + gap)
+                : video.Right - margin - barWidth - indexInSide * (barWidth + gap);
+
             Brush brush = state.Clipped ? clipBrush : db > -6 ? warnBrush : barBrush;
-            dc.DrawRectangle(brush, null, new Rect(x, strip.Bottom - 2 - filled, barWidth, Math.Max(filled, 0.5)));
+            dc.DrawRectangle(brush, null, new Rect(x, top + trackHeight - filled, barWidth, Math.Max(filled, 0.5)));
 
             if (!double.IsNegativeInfinity(state.PeakHoldDbfs))
             {
                 double peak = Math.Clamp(state.PeakHoldDbfs, -60, 0);
-                double peakY = strip.Bottom - 2 - (peak + 60) / 60 * (height - 4);
+                double peakY = top + trackHeight - (peak + 60) / 60 * trackHeight;
                 dc.DrawLine(peakPen, new Point(x, peakY), new Point(x + barWidth, peakY));
             }
         }
