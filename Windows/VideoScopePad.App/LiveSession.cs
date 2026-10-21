@@ -494,6 +494,14 @@ public sealed class LiveSession : IDisposable
                 _lastFlashSeconds = _flashCandidateTime - f * frameDuration;
                 _lastFlashFraction = f;
             }
+            else
+            {
+                // 🔴 **短脉冲**：亮一下就回落（Sync-it 实测就是这样，摆幅 30+ IRE 只持续一两帧）。
+                // 原来这里直接丢弃 → 永远"等闪变"。现在用候选帧自身当峰值，
+                // 事件时刻取该帧中点（±半帧，即 ±20 ms@25fps / ±10 ms@50fps）。
+                _lastFlashSeconds = _flashCandidateTime - 0.5 * frameDuration;
+                _lastFlashFraction = 1.0;
+            }
             _flashPrevIre = averageIre;
             return;
         }
