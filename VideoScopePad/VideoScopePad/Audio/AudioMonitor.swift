@@ -200,14 +200,13 @@ final class AudioMonitor: ObservableObject {
             if let id = preferredInputID,
                let match = session.availableInputs?.first(where: { $0.uid == id }) {
                 try session.setPreferredInput(match)
-            }
-        } catch {
-            else if let auto = Self.autoPreferredInput(from: session.availableInputs) {
+            } else if let auto = Self.autoPreferredInput(from: session.availableInputs) {
                 // 没指定输入时**自动选同源**：优先 USB 音频口（采集卡的音频在 iPadOS 上就是 USB Audio），
                 // 其次排除内置麦克风后的第一个。与 Windows 版的音视频同源思路一致。
                 try session.setPreferredInput(auto)
                 statusText = "自动选择音频输入：\(auto.portName)"
             }
+        } catch {
             statusText = "音频会话失败：\(error.localizedDescription)"
             return
         }
