@@ -838,19 +838,14 @@ public partial class MainWindow : Window
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(10, 0, 4, 0),
         });
+        // Sync-it 模式已按用户要求**去掉**，只保留彩条 + 千周脉冲
         _syncModeBox = MakeComboBox(170);
-        _syncModeBox.Items.Add("自动");
-        _syncModeBox.Items.Add("Sync-it（每秒亮闪）");
         _syncModeBox.Items.Add("彩条 + 千周脉冲");
         _syncModeBox.SelectedIndex = 0;
+        _session.SyncMode = SyncTestMode.BarsTone;
         _syncModeBox.SelectionChanged += (_, _) =>
         {
-            _session.SyncMode = _syncModeBox.SelectedIndex switch
-            {
-                1 => SyncTestMode.SyncIt,
-                2 => SyncTestMode.BarsTone,
-                _ => SyncTestMode.Auto,
-            };
+            _session.SyncMode = SyncTestMode.BarsTone;
             Diag.Log($"校准模式 → {_session.SyncMode}");
         };
         _audioControlsRow.Children.Add(_syncModeBox);

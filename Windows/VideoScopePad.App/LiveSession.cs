@@ -575,7 +575,7 @@ public sealed class LiveSession : IDisposable
     private double _lastFlashFraction;
 
     /// <summary>校准模式：Sync-it（亮闪后保持）或彩条千周（静态彩条 + 短促亮脉冲）</summary>
-    public SyncTestMode SyncMode { get; set; } = SyncTestMode.Auto;
+    public SyncTestMode SyncMode { get; set; } = SyncTestMode.BarsTone;
 
     /// <summary>最近一次闪变的帧数（脉冲模式下用来判断脉宽）</summary>
     public int LastFlashPulseFrames { get; private set; }

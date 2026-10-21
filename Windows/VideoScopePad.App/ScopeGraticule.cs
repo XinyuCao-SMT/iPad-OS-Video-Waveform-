@@ -511,7 +511,9 @@ public static class ScopeGraticule
                 continue;
             }
 
-            DrawText(dc, unit.Format(value), Monospace, fontSize, TextBrush,
+            // ⚠️ 这里必须传 **IRE**：Format() 内部会做 FromIre 换算（mV = IRE×7）。
+                //    原来传的是 value（TickValues 给的已经是 mV），于是又乘了一次 7 → 700 显示成 4900。
+                DrawText(dc, unit.Format(ire), Monospace, fontSize, TextBrush,
                      new Point(gutter.Right - Math.Max(fontSize * 0.5, 4), y), TextAlign.Right);
         }
     }

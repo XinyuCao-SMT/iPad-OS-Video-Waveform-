@@ -594,6 +594,22 @@ public partial class App : Application
             report.Add("布局调试叠加层断言（开=画出面板框，关=一个像素都不留）：");
             exitCode |= CheckLayoutDebugOverlay(session, graticuleOptions, report);
 
+            // ---------- 刻度单位换算（mV 不再乘两次）----------
+            report.Add(string.Empty);
+            report.Add("刻度单位断言（等效电平 100 IRE = 700 mV，防止单位换算重复应用）：");
+            {
+                double maxTick = ScaleUnit.Millivolt.TickValues().Max();
+                string label100 = ScaleUnit.Millivolt.Format(100.0);
+                // 刻度标签的正确算法：tick（mV）先 ToIre 再 Format（Format 的入参是 IRE）——
+                // 这正是之前出错的地方：直接 Format(mV) 会再乘一次 7 → 4900 mV。
+                string labelTick = ScaleUnit.Millivolt.Format(ScaleUnit.Millivolt.ToIre(ScaleUnit.Millivolt.TickValues()[^1]));
+                ReportCheck(report, ref exitCode, Math.Abs(maxTick - 700) < 1e-9,
+                    $"mV 刻度上限 = 700 mV（实测 {maxTick:0}）");
+                ReportCheck(report, ref exitCode, label100 == "700 mV",
+                    $"100 IRE 显示为 700 mV（实测「{label100}」）");
+                ReportCheck(report, ref exitCode, labelTick == "700 mV",
+                    $"刻度 700 → 标签「{labelTick}」（正确路径是 ToIre 再 Format；曾错成 4900 mV）");
+            }
             // ---------- 音频（抓取 + 电平表 + 响度长窗）----------
             report.Add(string.Empty);
             report.Add("音频断言（真实抓取：缓冲够长、报告产出、静音时的正确行为）：");
@@ -838,6 +854,13 @@ public partial class App : Application
     ///   · 采到数字静音时**响度应当算不出来**（门限滤掉）—— 这是正确行为，不是缺陷；
     ///     有声音时就会出数（引擎侧已用 1 kHz 正弦对过 EBU 3341 的标准值）。
     /// </summary>
+    /// <summary>就地报告一条断言（RunHeadless 里没有局部 Check 时用）</summary>
+    private static void ReportCheck(List<string> report, ref int exitCode, bool ok, string what)
+    {
+        report.Add($"  {(ok ? "✓" : "✗")} {what}");
+        if (!ok) { exitCode = 1; }
+    }
+
     private static int CheckAudio(LiveSession session, List<string> report)
     {
         int failed = 0;
