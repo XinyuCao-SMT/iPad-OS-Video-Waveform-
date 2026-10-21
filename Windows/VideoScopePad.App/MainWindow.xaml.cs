@@ -61,6 +61,7 @@ public partial class MainWindow : Window
 
         BuildLayoutRow();
         BuildAudioRow();
+        SplitOptionsRow();
         ZebraThresholdBox.SelectedIndex = 4;      // 默认 100 IRE（与 iPad 版一致）
         AlarmThresholdBox.SelectedIndex = 0;      // 默认门槛 1 次
         Loaded += OnLoaded;
@@ -684,6 +685,56 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// 把「LUT / 刻度 / 布局调试」这几个控件从那条很长的横向 StackPanel 里搬出来，
+    /// 单独放一行 **WrapPanel**。
+    /// 🔴 原因：StackPanel 永远不换行，控件一多就被顶到窗口外面（实测「LUT 取样」排到 x=2886，
+    ///    而屏幕只有 2560 宽 → 用户看到的是"没有这个选项"）。WrapPanel 才能换行，
+    ///    再配合心跳里的限宽（FindWrapPanels）就稳了。
+    /// </summary>
+    private void SplitOptionsRow()
+    {
+        if (Content is not DockPanel root || LoadLutButton.Parent is not Panel source)
+        {
+            return;
+        }
+
+        UIElement[] moving =
+        {
+            LoadLutButton, LutBox, LutStrengthSlider, ScopeInputBox, LutHint, LayoutDebugBox, GraticuleBox,
+        };
+
+        var row = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+        foreach (UIElement element in moving)
+        {
+            if (element is FrameworkElement fe && ReferenceEquals(fe.Parent, source))
+            {
+                source.Children.Remove(element);
+                row.Children.Add(element);
+            }
+        }
+
+        // 还有「刻度单位」那个下拉也在这条横条里（实测排到 x=2585、屏幕才 2560，就差一点点）。
+        // 不猜它的 x:Name，直接按"选项里含 IRE 的下拉"识别，一并搬走。
+        foreach (ComboBox child in source.Children.OfType<ComboBox>().ToList())
+        {
+            if (child.Items.OfType<ComboBoxItem>().Any(item => (item.Content as string) == "IRE"))
+            {
+                source.Children.Remove(child);
+                row.Children.Add(child);
+            }
+        }
+
+        var host = new Border
+        {
+            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(20, 24, 32)),
+            Padding = new Thickness(10, 5, 10, 5),
+            Child = row,
+        };
+        System.Windows.Controls.DockPanel.SetDock(host, System.Windows.Controls.Dock.Top);
+        host.Name = "OptionsRowHost";
+        root.Children.Insert(1, host);
+    }
     // ---- 音频控件（电平表本体在 XAML 里：AudioMeter）----
     private long _lastAudioDiagTick;
     private System.Windows.Threading.DispatcherTimer? _audioTimer;
