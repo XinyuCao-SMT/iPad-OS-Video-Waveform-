@@ -1020,7 +1020,7 @@ public partial class MainWindow : Window
             string step = _session.AudioVideoDelayMs is { } delay
                 ? $"　延时 {delay:+0.0;-0.0} ms"
                 : _session.LastFlashSeconds < 0 && _session.AudioOnsetSeconds < 0 ? "　等闪变+等起音"
-                : _session.LastFlashSeconds < 0 ? "　等画面闪变"
+                : _session.LastFlashSeconds < 0 ? $"　等画面闪变（亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE）"
                 : _session.AudioOnsetSeconds < 0 ? "　等音频起音"
                 : "　两者都有但间隔 >2 s";
             _audioStateText.Text = _session.AudioState + step + $"　（模式 {_session.SyncMode}）";
@@ -1032,7 +1032,7 @@ public partial class MainWindow : Window
             _lastSyncDiagTick = Environment.TickCount64;
             Diag.Log($"同步诊断：闪变 {_session.LastFlashSeconds:0.000}s、起音 {_session.AudioOnsetSeconds:0.000}s、"
                    + $"延时 {(_session.AudioVideoDelayMs is { } d2 ? d2.ToString("0.0") : "无")} ms、"
-                   + $"模式 {_session.SyncMode}、{_session.AudioState}");
+                   + $"模式 {_session.SyncMode}、亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE、{_session.AudioState}");
         }
     }    private void OnRefreshDevices(object sender, RoutedEventArgs e)
     {

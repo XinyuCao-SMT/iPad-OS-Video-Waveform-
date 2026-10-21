@@ -437,6 +437,17 @@ public sealed class LiveSession : IDisposable
     private double _lastFlashSeconds = -1;
     private double _lastSyncSeconds;
     private double _pulseBaseline;
+    private double _recentMaxSwing;
+    private double _swingWindowStart;
+
+    /// <summary>最近一次画面亮度突变幅度（IRE；正=变亮，负=变暗，0=没变化）</summary>
+    public double LastIreSwing { get; private set; }
+
+    private double _lastIreSwing
+    {
+        get => LastIreSwing;
+        set => LastIreSwing = value;
+    }
     private double _previousAverageIre = -1;
 
     /// <summary>最近一次音频起音的时刻（秒；-1 = 还没检测到）</summary>
@@ -505,7 +516,28 @@ public sealed class LiveSession : IDisposable
             return;
         }
 
-        if (_flashPrevIre > 0 && averageIre > _flashPrevIre + 6 && averageIre > 12)
+        // 🔴 判据从「+6 IRE 且 >12」放宽到「+2 IRE 且 >6」：实测 Sync-it 的亮闪在采集卡上
+        //    平均 IRE 抬升可能远小于 6（整帧平均被大面积不变的内容稀释）。
+        //    另外把"亮度突变"（上升或下降 >3 IRE）也当成一次事件 —— 有些素材是"闪一下又落回"。
+        // 最近 2 秒内的**最大**亮度摆幅：每帧只在超过历史最大时更新，2 秒窗口滚动重置。
+        // （如果每帧都重算，"没有变化的那些帧"会把值冲成 0，现场根本看不出闪变有多大。）
+        if (_flashPrevIre > 0)
+        {
+            double swing = Math.Abs(averageIre - _flashPrevIre);
+            double now = _syncClock.Elapsed.TotalSeconds;
+            if (now - _swingWindowStart > 2.0)
+            {
+                _swingWindowStart = now;
+                _recentMaxSwing = 0;
+            }
+            if (swing > _recentMaxSwing)
+            {
+                _recentMaxSwing = swing;
+                LastIreSwing = averageIre >= _flashPrevIre ? swing : -swing;
+            }
+        }
+
+        if (_flashPrevIre > 0 && averageIre > _flashPrevIre + 2.0 && averageIre > 6)
         {
             // 检测到一节跳变：先记下 A/X/T，等下一帧定 B
             _flashCandidateIre = averageIre;
