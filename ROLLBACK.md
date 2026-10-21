@@ -162,3 +162,13 @@ Get-FileHash .\dist\VideoScopePad-v1.11.0-reference-unsigned.ipa -Algorithm SHA2
 * `main` 分支始终是最新版；旧版只存在于 tag / `legacy/*` 分支上，不会被后续提交覆盖。
 * 每次要发新版前，建议照这个套路固定一次：`git tag -a v1.x.y-xxx <提交> -m "说明"` + `git push origin --tags`，再把 IPA 挂到 Release 上。
 * 待办清单（Peak Hold / 斑马纹 / 超标报警）仍在 `NEXT-STEPS.md` 里冻结着，与本次改版无关。
+
+## v1.12.0-samesource（iPad，2026-10-21）
+
+- 产物：`dist/VideoScopePad-v1.12.0-samesource-unsigned.ipa`
+- 大小：4565795 字节（4.4 MB）　SHA256：`3B9A2DF0D156F86AFF0C8238B97893C114171B0B82D5F5DA411C79279F8B2AE1`
+- tag：`v1.12.0-samesource`　源码提交：`78fb29d`
+- 内容：**音视频同源同开** —— 选到视频设备后，音频自动挑同源输入（优先 USB 音频口）并自动打开；
+  Windows 版对应 win-v0.12.1-samesource-ok。
+- 验证：GitHub Actions build-ipa.yml run **#45 success**（未签名 IPA，需自签安装）
+- 回滚：`dist/VideoScopePad-v1.11.0-reference-unsigned.ipa`（tag `v1.11.0-reference`）
