@@ -280,6 +280,27 @@ public static class ScopeGraticule
             DrawText(dc, $"电平 {meters.Count}ch", Sans, 10, textBrush, new Point(area.X + 6, area.Y + 3), TextAlign.Left);
             return;
         }
+        // 大号 LUFS：音频格右上角，一眼能读（现场常常只盯这一个数）
+        if (audio.Loudness.HasLoudness)
+        {
+            double lufs = audio.Loudness.IntegratedLufs;
+            double fontSize = Math.Clamp(area.Height * 0.28, 16, 40);
+            var lufsBrush = lufs > -9 ? new SolidColorBrush(Color.FromRgb(255, 90, 80))
+                          : lufs > -18 ? new SolidColorBrush(Color.FromRgb(240, 196, 74))
+                          : new SolidColorBrush(Color.FromRgb(92, 255, 140));
+            string number = lufs.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+            FormattedText big = new(number, System.Globalization.CultureInfo.InvariantCulture,
+                                    FlowDirection.LeftToRight, Monospace, fontSize, lufsBrush, 1.0);
+            double x = area.Right - big.Width - 8;
+            double y = area.Y + 6;
+            dc.DrawText(big, new Point(x, y));
+            DrawText(dc, "LUFS", Monospace, 9, textBrush, new Point(x, y + big.Height), TextAlign.Left);
+        }
+        else
+        {
+            DrawText(dc, "LUFS ——", Monospace, 10, textBrush,
+                     new Point(area.Right - 58, area.Y + 6), TextAlign.Left);
+        }
         if (content == PaneContent.AudioSpectrum)
         {
             IReadOnlyList<SpectrumBand> spectrum = audio.Spectrum;
