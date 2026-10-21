@@ -1,4 +1,4 @@
-# ---- Xcode ----
+﻿# ---- Xcode ----
 xcuserdata/
 *.xcuserstate
 *.xcworkspace/xcuserdata/
@@ -29,3 +29,6 @@ Windows/**/bin/
 Windows/**/obj/
 Windows/out/
 *.user
+
+# 便携 ffmpeg（仅开发期校准用，不进仓库、不进发行包）
+Windows/tools/ffmpeg/
