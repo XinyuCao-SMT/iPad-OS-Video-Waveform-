@@ -440,7 +440,7 @@ public sealed class LiveSession : IDisposable
     /// <summary>
     /// 显示帧率目标（0 = 自由跑，尽力而为）。
     /// 锁定后渲染循环按固定间隔启动，好处：闪变判定的时间分辨率固定（50fps → 20ms），
-    /// 且"测量回读滞后若干帧"变成一个**固定的整数倍**，延时补偿填一次就长期有效。
+    /// 且"测量回读滞后若干帧"这部分的抖动会被中位数压掉（不再需要人工补偿）。
     /// 注意：采集读取也在渲染循环里，所以这一项同时限住了读取节奏。
     /// </summary>
     public int RenderFpsTarget
@@ -649,18 +649,10 @@ public sealed class LiveSession : IDisposable
             _delayHistory.RemoveAt(0);
         }
         var sorted = _delayHistory.OrderBy(v => v).ToList();
-        AudioVideoDelayMs = sorted[sorted.Count / 2] + SyncOffsetMs;    // 中位数 + 固定补偿
+        // 直接取中位数，**不做任何补偿**（用户决定：读多少就是多少，不垫固定偏移）
+        AudioVideoDelayMs = sorted[sorted.Count / 2];
         LastPairGapMs = bestAbs;
     }
-
-    /// <summary>
-    /// 声画延时的**固定补偿**（毫秒，默认 0）。
-    /// 用途：吸收本程序内部已知的固定偏移 —— 主要是视频读数来自 GPU 非阻塞回读，
-    /// 比画面本身滞后若干帧（实测约 9 帧 @40fps ≈ 227 ms），这一段与素材无关、是实现的固有延迟。
-    /// 现场用法：对着已知同步的素材（如 Sync-it 的 0 ms 基准）读到一个稳定偏差，
-    /// 把该偏差的相反数填进来即可归零。**它不是用来掩盖真实链路延时的**，真实延时仍然会体现。
-    /// </summary>
-    public double SyncOffsetMs { get; set; }
 
     /// <summary>最近一次配对的时间差绝对值（毫秒；越小越可信）</summary>
     public double LastPairGapMs { get; private set; }
