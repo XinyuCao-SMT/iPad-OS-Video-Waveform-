@@ -1,4 +1,4 @@
-﻿//
+//
 //  LiveSession.cs
 //  VideoScopePad.App
 //
@@ -31,11 +31,13 @@ namespace VideoScopePad.App;
 /// <summary>声画同步的校准模式</summary>
 public enum SyncTestMode
 {
-    /// <summary>自动（按检测到的波形自行判断）</summary>
-    Auto,
-    /// <summary>Sync-it：亮闪后保持一段时间（每秒一次）</summary>
-    SyncIt,
-    /// <summary>彩条 + 千周：画面是静态彩条，声音是 1 kHz 短脉冲</summary>
+    /// <summary>
+    /// 彩条 + 千周 —— **唯一模式**（用户决定：Sync-it 不再使用）。
+    ///
+    /// 基准是「**彩条前后沿脉冲**」：彩条出现（前沿）与彩条消失（后沿）各算一次视频事件，
+    /// 分别与 1 kHz 千周声的起始 / 结束对齐，两次测量应当一致；不一致说明链路有抖动或配对错了轮次。
+    /// 不再需要 Sync-it 那种「亮闪后保持」的素材，也不再有外部基准文件（ProRes/ffmpeg 那套已废弃）。
+    /// </summary>
     BarsTone,
 }
 

@@ -1,22 +1,31 @@
-﻿
+
 ---
 
-## 校准工具与测试文件（用户提供的基准）
+## 声画延时的基准：彩条前后沿脉冲（用户决定）
 
-**测试文件**：`E:\Files&Document\Sync-it test Video\Sync-it 50fps 1080i Apple Pro Res PCM audio.mov`
-- 252.8 MB，`ftypqt` 容器 + `icpf`（**Apple ProRes**）+ PCM 音频
-- 用途：**声画延时校准的基准**（用户正式测试时会用这个文件）
+**决定（取代之前那套）**：`Sync-it` 素材与 ffmpeg 导帧那套**不再使用**。
+以后一律以 **「彩条前后沿脉冲」** 为准 —— 不需要外部基准文件、不需要便携 ffmpeg。
 
-**解码工具：ffmpeg（便携版，不进发行包）**
-- 位置：`Windows\tools\ffmpeg\`（工作区内，不写系统 PATH）
-- **明确决定：打包时**不带**（用户确认）** —— `dist\` 只放应用 exe，体积不变
-- 获取：`https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip` 解压到上面目录
-- 用法：
-  - `ffprobe -hide_banner <文件>` 看真实参数（帧率/场序/音频格式）
-  - `ffmpeg -i <文件> -vf fps=50 frames\%05d.png` 导帧，用来定位"画面跳变帧"
-  - `ffmpeg -i <文件> -vn -acodec pcm_f32le -f f32le audio.raw` 导音频，用来定位"1 kHz 千周起始样本"
+**怎么算**
+- **前沿**：彩条出现的那一刻 ↔ 1 kHz 千周声的**起始**（起音）
+- **后沿**：彩条消失的那一刻 ↔ 1 kHz 千周声的**结束**（收音）
+- 两次测量应当**一致**；不一致说明链路有抖动、或用时基不同源，或配对错了轮次。
+  这比单个事件更能暴露问题：任何"系统性提前/滞后"都会同时出现在前后沿上，
+  而"配对错一个周期"只会让其中一次偏离整整一个脉冲周期。
 
-**校准闭环（下一步）**
-1. 用 ffmpeg 从该文件解出"画面跳变"与"1 kHz 起始"的样本级真值（**基准**）
-2. 应用内加"视频闪变检测"，与 `AvSyncAnalyser`（音频起音）合成实时"彩条 + 千周"一键测量
-3. 用基准校验实时测量 —— 偏差即算法误差
+**现场用法**
+1. 播「彩条 + 前后各一声千周」的测试信号（信号源自带，或用本机合成信号）
+2. 选音频输入（优先与画面同源的采集卡/内嵌音频）
+3. 读「延时」值；用「固定补偿」把本程序的固有滞后归零（见 `SyncOffsetMs` 的注释：
+   实测约 9 帧 @40fps ≈ 227 ms，属实现固有延迟，不是链路延时）
+4. 前后沿各读一次，两次之差就是当前测量的**可信度**
+
+**已废弃**（保留说明，避免以后又绕回来）
+- `E:\Files&Document\Sync-it test Video\...Apple ProRes...mov` 之类的 Sync-it 基准文件
+- 便携 ffmpeg（`Windows\tools\ffmpeg\`）导帧/导音频求样本级真值的流程
+- 代码里 `SyncTestMode.SyncIt` / `SyncTestMode.Auto` 两个枚举值（已删除，只剩 `BarsTone`）
+
+**代码位置**
+- 视频侧事件：`VideoScopePad.App\LiveSession.cs` 的 `DetectFlash`（彩条脉冲判定）与 `PairSync`（就近配对 + 中位数）
+- 音频侧事件：`VideoScopePad.Win\Audio\AvSyncAnalyser.cs`（包络 → 起音）
+- 自检：`dotnet run --project tools\mf-capture -- avsync`（构造脉冲，逐轨分别测算，免硬件）
