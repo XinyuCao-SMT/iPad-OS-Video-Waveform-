@@ -1080,7 +1080,7 @@ public partial class MainWindow : Window
                 : _session.LastFlashSeconds < 0 ? $"　等画面闪变（亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE）"
                 : _session.AudioOnsetSeconds < 0 ? "　等音频起音"
                 : "　两者都有但间隔 >2 s";
-            _audioStateText.Text = _session.AudioState + step + $"　（彩条前后沿脉冲）";
+            _audioStateText.Text = _session.AudioState + step + $"　（彩条 + 千周）";
         }
 
         // 每 2 秒把三个关键量写进日志，便于事后核对
@@ -1089,7 +1089,7 @@ public partial class MainWindow : Window
             _lastSyncDiagTick = Environment.TickCount64;
             Diag.Log($"同步诊断：闪变 {_session.LastFlashSeconds:0.000}s、起音 {_session.AudioOnsetSeconds:0.000}s、"
                    + $"延时 {(_session.AudioVideoDelayMs is { } d2 ? d2.ToString("0.0") : "无")} ms、"
-                   + $"彩条前后沿脉冲、亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE、{_session.AudioState}");
+                   + $"彩条+千周、亮度突变 {_session.LastIreSwing:+0.0;-0.0;0} IRE、{_session.AudioState}");
         }
     }    private void OnRefreshDevices(object sender, RoutedEventArgs e)
     {
