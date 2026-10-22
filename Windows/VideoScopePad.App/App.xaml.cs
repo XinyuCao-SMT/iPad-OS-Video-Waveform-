@@ -1,4 +1,4 @@
-﻿//
+//
 //  App.xaml.cs
 //  VideoScopePad.App
 //
@@ -70,6 +70,18 @@ public partial class App : Application
         int frames = ParseInt(ArgumentValue(args, "--frames"), 180);
         int width = ParseInt(ArgumentValue(args, "--width"), 1600);
         int height = ParseInt(ArgumentValue(args, "--height"), 900);
+        // 合成测试信号是固定的 1920×1080（彩条 + 千周）：会话也按这个尺寸建，
+        // 让合成纹理 / 合成图 / 读数采样全程同尺寸 —— 不一致时恒等 LUT 的逐像素比对会差几十个码值。
+        if (ParseSource(ArgumentValue(args, "--source") ?? "synthetic") == LiveSourceKind.Synthetic)
+        {
+            if (width != LiveSession.SyntheticWidth || height != LiveSession.SyntheticHeight)
+            {
+                Console.WriteLine($"合成信号固定 1920×1080，忽略 --width/--height（{width}×{height}）");
+            }
+            width = LiveSession.SyntheticWidth;
+            height = LiveSession.SyntheticHeight;
+        }
+
         int stride = ParseInt(ArgumentValue(args, "--stride"), 1);
         string source = ArgumentValue(args, "--source") ?? "synthetic";
         string device = ArgumentValue(args, "--device") ?? "UT-VID";
@@ -393,8 +405,10 @@ public partial class App : Application
 
                 // CPU 侧期望值：同一张合成图（AnimateSynthetic = false 时它是**确定性**的，
                 // 重新生成一份即可逐像素相同），用与着色器相同的码值语义另算一份直方图。
-                byte[] cpuFrame = SyntheticSource.MakeTestFrame(width, height, out _);
-                CpuReference expected = CpuReference.FromFrame(cpuFrame, width, height);
+                // 合成信号固定 1920×1080（LiveSession.SyntheticWidth/Height），CPU 参考帧也必须按这个尺寸生成，
+                // 否则 --width/--height 与合成尺寸不一致时读数会对不上（实测 1280×720 就是这么失败的）。
+                byte[] cpuFrame = SyntheticSource.MakeTestFrame(LiveSession.SyntheticWidth, LiveSession.SyntheticHeight, out _);
+                CpuReference expected = CpuReference.FromFrame(cpuFrame, LiveSession.SyntheticWidth, LiveSession.SyntheticHeight);
 
                 exitCode |= CheckClose(report, "峰值白", measurement.PeakWhiteIre, expected.PeakIre, 0.5,
                     $"CPU 最高 luma 码值 {expected.PeakCode}（灰阶斜坡顶到 100 IRE，合成图本来就含它）");
@@ -407,8 +421,8 @@ public partial class App : Application
                 exitCode |= CheckClose(report, "稳定黑", measurement.StableBlackIre, expected.StableBlackIre, 0.6,
                     $"CPU 0.1% 分位（从暗端）码值 {expected.StableBlackCode}");
 
-                bool samplesOk = measurement.SampledPixels == (long)width * height;
-                report.Add($"  {(samplesOk ? "✓" : "✗")} 采样像素数 = 全帧像素数（{measurement.SampledPixels} vs {(long)width * height}）");
+                bool samplesOk = measurement.SampledPixels == (long)LiveSession.SyntheticWidth * LiveSession.SyntheticHeight;
+                report.Add($"  {(samplesOk ? "✓" : "✗")} 采样像素数 = 全帧像素数（{measurement.SampledPixels} vs {(long)LiveSession.SyntheticWidth * LiveSession.SyntheticHeight}）");
                 exitCode |= samplesOk ? 0 : 1;
 
                 // ⚠️ 色度峰的期望**不是 75%**：6 个 75% 目标框落在一个「方框」的边上而不是圆上，

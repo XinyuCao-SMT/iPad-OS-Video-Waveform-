@@ -1,4 +1,4 @@
-﻿//
+//
 //  WasapiCapture.cs
 //  VideoScopePad.Win
 //
@@ -34,7 +34,7 @@ public sealed record ExclusiveFormatProbe(
     int ClosestSampleRate);
 
 /// <summary>WASAPI 音频抓取器（共享模式；用完必须 Dispose）</summary>
-public sealed class WasapiCapture : IDisposable
+public sealed class WasapiCapture : IAudioSource
 {
     private const int ClsCtxAll = 0x17;
     private const int Capture = 1;

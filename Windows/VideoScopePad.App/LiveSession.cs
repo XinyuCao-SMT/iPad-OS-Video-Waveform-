@@ -316,7 +316,11 @@ public sealed class LiveSession : IDisposable
     /// 四分割与全屏不看它 —— 那两个是把内容写进格里。
     /// </summary>
     // ---- 音频（WASAPI 共享模式；先做 2ch，架构按 8 条预留）----
-    private WasapiCapture? _audioCapture;
+    private IAudioSource? _audioCapture;
+    /// <summary>测试信号自带的 1 kHz 千周（切到合成信号时用它，而不是继续用上一个硬件设备）</summary>
+    private SyntheticToneSource? _syntheticAudio;
+    /// <summary>音频时钟原点（会话秒）：音频源重启后 LastOnsetSeconds 的 0 点要换算到会话时钟上</summary>
+    private double _audioOriginSeconds;
     private AudioFrameAnalyser? _audioAnalyser;
     private readonly List<float[]> _audioHistory = new();
     private double _audioHistorySeconds;
@@ -333,7 +337,7 @@ public sealed class LiveSession : IDisposable
     public bool AudioIsRunning => _audioCapture is not null;
 
     /// <summary>开启/关闭音频抓取（在界面线程调用；抓取本身跑在自己的线程上）</summary>
-    public void SetAudioEnabled(bool enabled, string? endpointId)
+    public void SetAudioEnabled(bool enabled, string? endpointId, bool synthetic = false)
     {
         try
         {
@@ -341,6 +345,8 @@ public sealed class LiveSession : IDisposable
             {
                 _audioCapture?.Dispose();
                 _audioCapture = null;
+                _syntheticAudio?.Dispose();
+                _syntheticAudio = null;
                 _audioAnalyser = null;
                 _audioHistory.Clear();
                 _audioHistorySeconds = 0;
@@ -350,6 +356,30 @@ public sealed class LiveSession : IDisposable
             }
 
             _audioCapture?.Dispose();
+            _syntheticAudio?.Dispose();
+            _syntheticAudio = null;
+
+            // 测试信号 = 1920×1080 彩条 + 1 kHz 千周：音频用内置千周，不碰任何硬件端点
+            if (synthetic)
+            {
+                var tone = new SyntheticToneSource();
+                if (!tone.Open(null) || !tone.Start())
+                {
+                    AudioState = $"千周启动失败：{tone.LastError}";
+                    tone.Dispose();
+                    _audioCapture = null;
+                    return;
+                }
+                _syntheticAudio = tone;
+                _audioCapture = tone;
+                _audioAnalyser = new AudioFrameAnalyser(tone.Channels);
+                _audioHistory.Clear();
+                _audioHistorySeconds = 0;
+                _audioOriginSeconds = _syncClock.Elapsed.TotalSeconds - tone.ClockSeconds;
+                AudioState = "测试信号：彩条 + 千周（内置 1 kHz，2ch @ 48k）";
+                return;
+            }
+
             var capture = new WasapiCapture();
             if (!capture.Open(endpointId))
             {
@@ -368,6 +398,8 @@ public sealed class LiveSession : IDisposable
 
             _audioCapture = capture;
             _audioAnalyser = new AudioFrameAnalyser(capture.Channels);
+            // 音频源刚建好：把它的 0 点换算到会话时钟上（否则重启音频后延时读数会差一大截）
+            _audioOriginSeconds = _syncClock.Elapsed.TotalSeconds - capture.ClockSeconds;
             _audioHistory.Clear();
             _audioHistorySeconds = 0;
             AudioState = $"音频已开 {capture.Channels}ch @ {capture.SampleRate} Hz"
@@ -468,7 +500,9 @@ public sealed class LiveSession : IDisposable
     private double _previousAverageIre = -1;
 
     /// <summary>最近一次音频起音的时刻（秒；-1 = 还没检测到）</summary>
-    public double AudioOnsetSeconds => _audioCapture?.LastOnsetSeconds ?? -1;
+    public double AudioOnsetSeconds => _audioCapture is { LastOnsetSeconds: >= 0 } source
+        ? _audioOriginSeconds + source.LastOnsetSeconds
+        : -1;
 
     /// <summary>最近一次画面闪变的时刻（秒，与会话共同时钟）</summary>
     public double LastFlashSeconds => _lastFlashSeconds;
@@ -681,6 +715,10 @@ public sealed class LiveSession : IDisposable
         {
             return;
         }
+
+        // 测试信号自带千周：样本是按时间现算的（没有采集回调），先泵一次
+        _syntheticAudio?.Pump(_syntheticAudio.ClockSeconds);
+
         AudioCaptureFrame frame = _audioCapture.Latest;
         if (frame.Channels.Length == 0)
         {
@@ -754,6 +792,10 @@ public sealed class LiveSession : IDisposable
     /// 顶到 100 IRE、把色度峰抬到 89%，读数就没法用已知码值精确核对了。
     /// </summary>
     public bool AnimateSynthetic { get; init; } = true;
+
+    /// <summary>合成测试信号的固定尺寸（彩条 + 千周的标准测试信号）</summary>
+    public const int SyntheticWidth = 1920;
+    public const int SyntheticHeight = 1080;
 
     public LiveSession(int width, int height)
     {
@@ -1027,11 +1069,12 @@ public sealed class LiveSession : IDisposable
             using var readback = new ReadbackBuffer(d3d.Device, _width, _height, Format.B8G8R8A8_UNorm);
 
             // 合成信号：一张可反复更新的 RGBA 纹理（不是每帧新建，避免显存与 GC 抖动）
-            byte[] syntheticPixels = new byte[_width * _height * 4];
+            // 合成测试信号固定 1920×1080（彩条 + 千周的标准测试信号，不跟窗口大小走）
+            byte[] syntheticPixels = new byte[SyntheticWidth * SyntheticHeight * 4];
             using var synthetic = d3d.Device.CreateTexture2D(new Texture2DDescription
             {
-                Width = (uint)_width,
-                Height = (uint)_height,
+                Width = (uint)SyntheticWidth,
+                Height = (uint)SyntheticHeight,
                 MipLevels = 1,
                 ArraySize = 1,
                 Format = Format.R8G8B8A8_UNorm,
@@ -1050,7 +1093,7 @@ public sealed class LiveSession : IDisposable
             LiveSourceKind currentKind = LiveSourceKind.Synthetic;
             string message = string.Empty;
             string sourceName = "合成测试信号";
-            string formatText = $"{_width}×{_height} 合成";
+            string formatText = $"{SyntheticWidth}×{SyntheticHeight} 合成（彩条 + 千周）";
             string colorText = "全范围 0–255（合成信号本身就是 R'G'B'）";
 
             // 「冻结时连实时画面一起冻住」用的画面副本（默认不用，所以先建好但不占几 MB）
@@ -1293,8 +1336,8 @@ public sealed class LiveSession : IDisposable
                 else
                 {
                     long start = Stopwatch.GetTimestamp();
-                    syntheticSource.Render(syntheticPixels, _width, _height, frames, AnimateSynthetic);
-                    d3d.Context.UpdateSubresource<byte>(syntheticPixels, synthetic, 0, (uint)(_width * 4), 0, null);
+                    syntheticSource.Render(syntheticPixels, SyntheticWidth, SyntheticHeight, frames, AnimateSynthetic);
+                    d3d.Context.UpdateSubresource<byte>(syntheticPixels, synthetic, 0, (uint)(SyntheticWidth * 4), 0, null);
                     source = syntheticSrv;
                     sourceTexture = synthetic;
                     sourceMs = MsSince(start);

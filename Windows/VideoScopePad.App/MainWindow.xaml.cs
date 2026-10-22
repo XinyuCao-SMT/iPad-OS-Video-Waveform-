@@ -401,11 +401,12 @@ public partial class MainWindow : Window
 
             // 音视频同源：等**设备键真正就位**再匹配（在选源回调里匹配会赶在会话处理之前，
             // 那时 SelectedDeviceKey 还是空的 —— 实测就漏在这里）。
-            // 视频源一换，音频就跟着换并重开（界面上没有音频源选项）。
-            string? currentKey = _session.SelectedDeviceKey;
-            if (!string.IsNullOrEmpty(currentKey) && currentKey != _lastMatchedKey)
+            // ⚠️ 切到「合成测试信号」时设备键会变成 null —— **这也是一次切换**（音频要换成内置千周），
+            //    所以不能用 IsNullOrEmpty 跳过；用一个占位键参与比较。
+            string sourceIdentity = _session.SelectedDeviceKey ?? "__synthetic__";
+            if (sourceIdentity != _lastMatchedKey)
             {
-                _lastMatchedKey = currentKey;
+                _lastMatchedKey = sourceIdentity;
                 ApplyAudioForCurrentVideo();
             }
 
@@ -888,6 +889,15 @@ public partial class MainWindow : Window
     /// </summary>
     private void ApplyAudioForCurrentVideo()
     {
+        // 合成测试信号 = 1920×1080 彩条 + 1 kHz 千周：音频用内置千周，不碰任何硬件端点
+        if (_session.SelectedDeviceKey is null)
+        {
+            _session.SetAudioEnabled(true, null, synthetic: true);
+            _autoAudioEndpointId = null;
+            Diag.Log($"音频跟随视频源「合成测试信号」→ 内置 1 kHz 千周：{_session.AudioState}");
+            return;
+        }
+
         if (_audioEndpoints.Count == 0)
         {
             _session.SetAudioEnabled(false, null);
