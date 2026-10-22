@@ -85,6 +85,8 @@ case "audiocapture":
 
                 case "audioreport":
                     return AudioReport();
+                case "audiomatch":
+                    return AudioMatchCheck();
 
                 default:
                     PrintHelp();
@@ -2172,6 +2174,67 @@ case "audiocapture":
             }
         }
         return Path.Combine(Directory.GetCurrentDirectory(), "out");
+    }
+
+    // ------------------------------------------------------------------
+    //  audiomatch —— 音频跟随视频源的匹配逻辑自检（纯构造数据，不需要真设备）
+    // ------------------------------------------------------------------
+    private static int AudioMatchCheck()
+    {
+        Console.WriteLine("音频端点匹配自检（audio follows video，无硬件）");
+
+        // 构造端点：E0 = 采集卡音频（不默认）、E1 = 内置话筒（系统默认）、E2 = NDI 音频
+        var endpoints = new List<WasapiEndpointFormat>
+        {
+            new("{0.0.1.00000000}.{aaaaaaaa-0000-0000-0000-000000000001}", "UT-AUD 00K0601910", 2, 48000, 32, 1, true, false),
+            new("{0.0.1.00000000}.{bbbbbbbb-0000-0000-0000-000000000002}", "麦克风阵列 (Realtek Audio)", 2, 48000, 32, 1, true, true),
+            new("{0.0.1.00000000}.{cccccccc-0000-0000-0000-000000000003}", "NDI Webcam Audio", 2, 48000, 32, 1, true, false),
+        };
+
+        // 构造注册表映射：E0 的端点 -> USB VID_1F6A PID_15AE MI_00
+        var registry = new List<AudioDeviceInfo>
+        {
+            new("{0.0.0.00000000}.{aaaaaaaa-0000-0000-0000-000000000001}", "UT-AUD 00K0601910", 2, 48000, 2, 0, 1,
+                @"USB\VID_1F6A&PID_15AE&MI_00\7&1a2b3c4d&0&0000"),
+            new("{0.0.0.00000000}.{bbbbbbbb-0000-0000-0000-000000000002}", "麦克风阵列 (Realtek Audio)", 2, 48000, 2, 0, 1,
+                @"HDAUDIO\FUNC_01&VEN_10EC&DEV_0257\5&2b9f3a1&0&0001"),
+        };
+
+        // 1) VID/PID：采集卡（USB VID/PID 与音频端点一致）
+        AudioMatch card = AudioEndpointMatcher.Pick(
+            endpoints,
+            "UT-VID 00K0601910",
+            @"\?\usb#vid_1f6a&pid_15ae&mi_00#8&2c4d5e6f&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global",
+            registry);
+        Check(card.Kind == AudioMatchKind.DeviceId && card.Endpoint?.FriendlyName.Contains("UT-AUD") == true,
+            "采集卡按 VID/PID 匹配到自己的音频端点", card.Detail);
+
+        // 2) 名字 token：没有 VID/PID 时按型号（00K0601910）匹配
+        AudioMatch byName = AudioEndpointMatcher.Pick(endpoints, "UT-VID 00K0601910", null, registry);
+        Check(byName.Kind == AudioMatchKind.NameToken && byName.Endpoint?.FriendlyName.Contains("UT-AUD") == true,
+            "没有设备键时按名字里的型号匹配", byName.Detail);
+
+        // 3) 系统默认：内置摄像头（名字无型号、VID/PID 对不上）-> 系统默认采集端点（内置话筒）
+        AudioMatch camera = AudioEndpointMatcher.Pick(
+            endpoints,
+            "Integrated Camera",
+            @"\?\usb#vid_04f2&pid_b7b8&mi_00#7&4f2d1c3b&0&0000#{e5323777-f976-4f5b-9b55-b94699c46e44}\global",
+            registry);
+        Check(camera.Kind == AudioMatchKind.SystemDefault && camera.Endpoint?.IsDefault == true,
+            "内置摄像头落到系统默认采集端点（内置话筒）", camera.Detail);
+
+        // 4) 保底：没有任何匹配且没有默认端点 -> 第一个可用
+        var noDefault = endpoints.Where(e => !e.IsDefault).ToList();
+        AudioMatch fallback = AudioEndpointMatcher.Pick(noDefault, "某个没型号的源", null, registry);
+        Check(fallback.Kind == AudioMatchKind.Fallback && fallback.Endpoint is not null,
+            "什么都不匹配时保底用第一个端点", fallback.Detail);
+
+        // 5) 没有端点 -> None（界面据此不开音频，而不是假装打开）
+        AudioMatch none = AudioEndpointMatcher.Pick(Array.Empty<WasapiEndpointFormat>(), "x", null, registry);
+        Check(none.Kind == AudioMatchKind.None && none.Endpoint is null,
+            "没有可用端点时返回 None（不会假装打开音频）", none.Detail);
+
+        return Report();
     }
 
     // ------------------------------------------------------------------

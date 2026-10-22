@@ -521,3 +521,25 @@ powershell -File Windows\release.ps1 -Tag win-v0.1.1-fix -Note "修 xxx"
   `VideoScopePad.exe --snapshot out.png --frames 90 --source synthetic`，
   看 `out.png.report.txt` 是否全绿 —— 这一步同时证明了「自包含」与「着色器已内嵌」。
 
+
+## 音频：永远跟着视频源走（v0.14.1 起）
+
+用户要求，界面上**不再提供**任何音频源 / 校准模式选项：
+
+| 之前 | 现在 |
+|---|---|
+| 「音频」勾选框 | 去掉 —— 有视频就有音频，不需要单独开关 |
+| 音频设备下拉框 + 刷新按钮 | 去掉 —— 视频源一换，音频自动跟着换并重开 |
+| 「校准模式」下拉框 | 去掉 —— 只有「彩条 + 千周」一种 |
+
+挑音频端点的逻辑在核心库 Audio\AudioEndpointMatcher.cs（纯函数，可测），优先级：
+
+1. **VID/PID 相同** —— 采集卡的视频端点与音频端点在 USB 上共用 VID/PID，最可靠
+2. **名字里的型号/序列号 token** —— 如 UT-VID 00K0601910 ↔ UT-AUD 00K0601910
+3. **系统默认采集端点** —— 内置摄像头没有"同型号"的音频端点，落到内置话筒
+4. **第一个可用端点** —— 保底，宁可采到一个也别静音
+
+自检：dotnet run --project tools\mf-capture -- audiomatch（5 项断言，纯构造数据，不需要真设备）
+
+⚠️ 端点 ID 不能整串比较：WASAPI 给的是 {0.0.1.00000000}.{guid}，
+注册表子键是 {0.0.0.00000000}.{guid} —— 第三段不同，要比只比末尾的 GUID。

@@ -401,11 +401,12 @@ public partial class MainWindow : Window
 
             // 音视频同源：等**设备键真正就位**再匹配（在选源回调里匹配会赶在会话处理之前，
             // 那时 SelectedDeviceKey 还是空的 —— 实测就漏在这里）。
+            // 视频源一换，音频就跟着换并重开（界面上没有音频源选项）。
             string? currentKey = _session.SelectedDeviceKey;
             if (!string.IsNullOrEmpty(currentKey) && currentKey != _lastMatchedKey)
             {
                 _lastMatchedKey = currentKey;
-                AutoSelectAudioForVideo();
+                ApplyAudioForCurrentVideo();
             }
 
             // 🔴 顶部控件行必须**限宽**才会换行：父链给 WrapPanel 的是无限宽，
@@ -759,9 +760,6 @@ public partial class MainWindow : Window
     // ---- 音频控件（电平表本体在 XAML 里：AudioMeter）----
     private long _lastAudioDiagTick;
     private System.Windows.Threading.DispatcherTimer? _audioTimer;
-    private CheckBox _audioBox = null!;
-    private ComboBox _audioDeviceBox = null!;
-    private ComboBox _syncModeBox = null!;
     private ComboBox _renderFpsBox = null!;
     private WrapPanel? _audioControlsRow;
     private string? _lastMatchedKey;
@@ -769,26 +767,19 @@ public partial class MainWindow : Window
     private TextBlock? _audioStateText;
     private IReadOnlyList<WasapiEndpointFormat> _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
 
+    /// <summary>当前跟随视频源挑中的音频端点（界面上不再显示，仅用于诊断日志）</summary>
+    private string? _autoAudioEndpointId;
+
     private void BuildAudioRow()
     {
-        _audioBox = new CheckBox
-        {
-            Content = "音频",
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
         if (_audioControlsRow is null)
         {
             _audioControlsRow = new WrapPanel { Margin = new Thickness(0, 2, 0, 0) };
         }
-        _audioBox.Checked += OnAudioToggled;
-        _audioBox.Unchecked += OnAudioToggled;
-        _audioControlsRow.Children.Add(_audioBox);
 
-        _audioDeviceBox = MakeComboBox(220);
-        _audioDeviceBox.SelectionChanged += OnAudioDeviceChanged;
-        _audioControlsRow.Children.Add(_audioDeviceBox);
-        RebuildAudioDevices();
+        // 用户要求：**不提供音频源选择** —— 音视频永远同源同切（内置摄像头=内置话筒，
+        // 采集卡=采集卡的音频），校准模式也只有一种（彩条+千周），所以这两组选项都去掉了。
+        RefreshAudioEndpoints();
 
         var clearClip = new Button
         {
@@ -799,17 +790,8 @@ public partial class MainWindow : Window
             Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
         };
         clearClip.Click += (_, _) => _session.ClearAudioClip();
-        AutoSelectAudioForVideo();   // 音视频同源：跟着视频源挑音频端点并同开
         _audioControlsRow.Children.Add(clearClip);
 
-        var refresh = new Button
-        {
-            Content = "刷新音频设备",
-            Margin = new Thickness(6, 0, 0, 0),
-            Padding = new Thickness(8, 2, 8, 2),
-            Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(34, 38, 46)),
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(230, 234, 240)),
-        };
         var measure = new Button
         {
             Content = "测延时",
@@ -825,29 +807,6 @@ public partial class MainWindow : Window
             Diag.Log("开始测延时（以点击瞬间为画面变化时刻）");
         };
         _audioControlsRow.Children.Add(measure);
-
-        refresh.Click += (_, _) => RebuildAudioDevices();
-        _audioControlsRow.Children.Add(refresh);
-
-        // 校准模式：Sync-it（亮闪保持） / 彩条千周（静态彩条 + 短脉冲）
-        _audioControlsRow.Children.Add(new TextBlock
-        {
-            Text = "校准模式",
-            Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(154, 164, 178)),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(10, 0, 4, 0),
-        });
-        // Sync-it 模式已按用户要求**去掉**，只保留彩条 + 千周脉冲
-        _syncModeBox = MakeComboBox(170);
-        _syncModeBox.Items.Add("彩条 + 千周脉冲");
-        _syncModeBox.SelectedIndex = 0;
-        _session.SyncMode = SyncTestMode.BarsTone;
-        _syncModeBox.SelectionChanged += (_, _) =>
-        {
-            _session.SyncMode = SyncTestMode.BarsTone;
-            Diag.Log($"校准模式 → {_session.SyncMode}");
-        };
-        _audioControlsRow.Children.Add(_syncModeBox);
 
         _audioControlsRow.Children.Add(new TextBlock
         {
@@ -900,130 +859,66 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 默认**音视频同源、同开**：选视频源时，自动挑同一台设备的音频端点并打开音频。
-    /// 匹配办法：从视频设备名里抽出型号/序列号这类长 token（如 "00K0601910"），
-    /// 在音频端点名里找包含它的那条 —— 采集卡的视频与音频在 Windows 里是两个端点，
-    /// 名字通常共用同一个标识（UT-VID 00K0601910 ↔ UT-AUD 00K0601910 / 数字音频接口）。
-    /// 找不到就保持用户手动选择，不强行改。
+    /// 重新枚举音频采集端点。**界面上没有音频源选项**（用户要求：音视频永远同源同切），
+    /// 所以这里只负责"看清楚有哪些端点"，然后立刻按当前视频源挑一个并开着。
     /// </summary>
-    private bool AutoSelectAudioForVideo()
+    private void RefreshAudioEndpoints()
     {
-        Diag.Log($"同源检查：源「{SourceBox.Text}」，设备键 {(string.IsNullOrEmpty(_session.SelectedDeviceKey) ? "(无)" : "有")}，"
-               + $"音频候选 {_audioEndpoints.Count} 个");
-        if (_audioEndpoints.Count == 0 || _audioDeviceBox is null)
+        try
         {
-            return false;
+            _audioEndpoints = WasapiFormatProbe.Enumerate().Where(e => e.IsActive && e.Channels > 0).ToList();
         }
-
-        // ⚠️ 不能写 SelectedItem as string：源下拉里放的是**对象**，转 string 得到 null →
-        //    方法一开始就返回，表现为"同源完全不生效"（实测就是这么漏的）。用 Text 取显示文字。
-        string videoName = SourceBox.Text ?? string.Empty;
-        if (videoName.Length == 0)
+        catch (Exception ex)
         {
-            return false;
+            _audioEndpoints = Array.Empty<WasapiEndpointFormat>();
+            Diag.Log("枚举音频端点失败：" + ex.Message);
         }
-
-        // 首选 **VID/PID** 匹配：视频符号链接里有 vid_1f6a&pid_15ae&mi_00，
-        // 音频端点的 PKEY_Device_InstanceId 是 USB\VID_1F6A&PID_15AE&MI_00\... ——
-        // 这才是"同一台设备"的可靠依据（音频端点名字不一定带型号，例如「数字音频接口」）。
-        string? deviceKey = _session.SelectedDeviceKey;
-        var vidPid = System.Text.RegularExpressions.Regex.Match(
-            deviceKey ?? string.Empty, "vid_([0-9a-f]{4})&pid_([0-9a-f]{4})", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        if (vidPid.Success)
-        {
-            string vid = vidPid.Groups[1].Value;
-            string pid = vidPid.Groups[2].Value;
-            IReadOnlyList<AudioDeviceInfo> registryDevices = AudioDeviceEnumerator.Enumerate();
-            for (int i = 0; i < _audioEndpoints.Count; i++)
-            {
-                string endpointId = _audioEndpoints[i].EndpointId;
-                AudioDeviceInfo? match = registryDevices.FirstOrDefault(d =>
-                    endpointId.Contains(d.Id.Trim('{', '}'), StringComparison.OrdinalIgnoreCase));
-                if (match is null || match.InstanceId.Length == 0)
-                {
-                    continue;
-                }
-                if (match.InstanceId.Contains($"VID_{vid}", StringComparison.OrdinalIgnoreCase)
-                    && match.InstanceId.Contains($"PID_{pid}", StringComparison.OrdinalIgnoreCase))
-                {
-                    _audioDeviceBox.SelectedIndex = i;
-                    if (_audioBox.IsChecked != true) { _audioBox.IsChecked = true; }
-                    Diag.Log($"音视频同源（VID/PID）：{vid}/{pid} → 「{match.FriendlyName}」");
-                    return true;
-                }
-            }
-            Diag.Log($"音视频同源（VID/PID）：{vid}/{pid} 没找到对应音频端点，退回按名字匹配");
-        }
-
-        // 抽出所有 ≥6 位的字母数字 token（型号 / 序列号）
-        var tokens = System.Text.RegularExpressions.Regex
-            .Matches(videoName, "[A-Za-z0-9]{6,}")
-            .Select(match => match.Value)
-            .Where(token => !token.All(char.IsLetter))
-            .ToList();
-        if (tokens.Count == 0)
-        {
-            return false;
-        }
-
-        for (int i = 0; i < _audioEndpoints.Count; i++)
-        {
-            string audioName = _audioEndpoints[i].FriendlyName;
-            if (tokens.Any(token => audioName.Contains(token, StringComparison.OrdinalIgnoreCase)))
-            {
-                if (_audioDeviceBox.SelectedIndex != i)
-                {
-                    _audioDeviceBox.SelectedIndex = i;
-                    Diag.Log($"音视频同源：视频「{videoName}」→ 音频「{audioName}」");
-                }
-                // 同开：勾上并启动（勾选框的 Checked 事件会真正打开抓取）
-                if (_audioBox.IsChecked != true)
-                {
-                    _audioBox.IsChecked = true;
-                    Diag.Log("音视频同开：已自动打开音频");
-                }
-                return true;
-            }
-        }
-        Diag.Log($"音视频同源：视频「{videoName}」没找到匹配的音频端点（保持手动选择）");
-        return false;
-    }
-    private void RebuildAudioDevices()
-    {
-        _audioEndpoints = WasapiFormatProbe.Enumerate().Where(e => e.IsActive && e.Channels > 0).ToList();
-        _audioDeviceBox.Items.Clear();
-        foreach (WasapiEndpointFormat endpoint in _audioEndpoints)
-        {
-            _audioDeviceBox.Items.Add($"{endpoint.FriendlyName}　{endpoint.Channels}ch @ {endpoint.SampleRate}");
-        }
-        if (_audioDeviceBox.Items.Count > 0 && _audioDeviceBox.SelectedIndex < 0)
-        {
-            _audioDeviceBox.SelectedIndex = 0;
-        }
-        Diag.Log($"音频设备刷新：{_audioEndpoints.Count} 个在用端点");
-        AutoSelectAudioForVideo();
+        Diag.Log($"音频端点：{_audioEndpoints.Count} 个在用"
+               + (_audioEndpoints.Any(e => e.IsDefault) ? "（有系统默认）" : "（无系统默认）"));
+        ApplyAudioForCurrentVideo();
     }
 
-    private string? SelectedAudioEndpointId
-        => _audioDeviceBox.SelectedIndex >= 0 && _audioDeviceBox.SelectedIndex < _audioEndpoints.Count
-            ? _audioEndpoints[_audioDeviceBox.SelectedIndex].EndpointId
-            : null;
-
-    private void OnAudioToggled(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// **音频跟着视频源走**：视频源一换，音频端点跟着换并立即重开（不存在音视频不同源的情况）。
+    /// 挑端点的优先级：
+    ///   ① VID/PID 相同（采集卡：视频 vidsource 与音频端点共用 USB VID/PID，最可靠）
+    ///   ② 名字里含相同的型号 / 序列号 token（例如 UT-VID 00K0601910 ↔ UT-AUD 00K0601910）
+    ///   ③ 系统默认采集端点（内置摄像头没有"同型号"的音频端点，落到内置话筒上）
+    ///   ④ 第一个可用端点（保底：宁可采到一个端点，也别静音）
+    /// </summary>
+    private void ApplyAudioForCurrentVideo()
     {
-        if (!IsLoaded) { return; }
-        _session.SetAudioEnabled(_audioBox.IsChecked == true, SelectedAudioEndpointId);
-        Diag.Log($"音频开关 → {_audioBox.IsChecked}：{_session.AudioState}");
+        if (_audioEndpoints.Count == 0)
+        {
+            _session.SetAudioEnabled(false, null);
+            Diag.Log("音频：没有可用端点，先不开");
+            return;
+        }
+
+        WasapiEndpointFormat chosen = PickAudioForVideo();
+        _autoAudioEndpointId = chosen.EndpointId;
+        _session.SetAudioEnabled(true, chosen.EndpointId);
+        Diag.Log($"音频跟随视频源「{SourceBox.Text}」→ 「{chosen.FriendlyName}」 "
+               + $"（{chosen.Channels}ch @ {chosen.SampleRate}"
+               + (chosen.IsDefault ? "，系统默认" : string.Empty) + $"）：{_session.AudioState}");
     }
 
-    private void OnAudioDeviceChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    private WasapiEndpointFormat PickAudioForVideo()
     {
-        if (!IsLoaded) { return; }
-        if (_audioBox.IsChecked == true)
+        // 匹配逻辑放在核心库 AudioEndpointMatcher 里 —— 界面只调用 + 记日志，
+        // 好处是 tools\mf-capture 的 audiomatch 自检能用构造数据断言四条匹配路径（不用插采集卡）。
+        AudioMatch match = AudioEndpointMatcher.Pick(
+            _audioEndpoints,
+            SourceBox.Text ?? string.Empty,
+            _session.SelectedDeviceKey,
+            AudioDeviceEnumerator.Enumerate());
+        if (match.Found)
         {
-            _session.SetAudioEnabled(true, SelectedAudioEndpointId);   // 换设备 = 重开
+            Diag.Log($"音频匹配（{match.Kind}）：{match.Detail} → 「{match.Endpoint!.FriendlyName}」");
+            return match.Endpoint!;
         }
-        Diag.Log($"音频设备 → {_audioDeviceBox.SelectedItem}");
+        Diag.Log($"音频匹配失败：{match.Detail}");
+        return _audioEndpoints[0];
     }
 
     /// <summary>每帧把音频读数喂给电平表</summary>

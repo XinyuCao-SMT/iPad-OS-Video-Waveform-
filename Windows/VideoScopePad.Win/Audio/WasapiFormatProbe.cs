@@ -1,4 +1,4 @@
-﻿//
+//
 //  WasapiFormatProbe.cs
 //  VideoScopePad.Win
 //
@@ -26,7 +26,9 @@ public sealed record WasapiEndpointFormat(
     int SampleRate,
     int BitsPerSample,
     int DeviceState,
-    bool IsActive);
+    bool IsActive,
+    /// <summary>是否系统默认采集端点（内置摄像头 → 内置话筒的保底匹配依据）</summary>
+    bool IsDefault = false);
 
 public static class WasapiFormatProbe
 {
@@ -70,6 +72,31 @@ public static class WasapiFormatProbe
                 return result;
             }
 
+            // 系统默认采集端点（先 eConsole 再 eCommunications）——
+            // 内置摄像头没有"同型号"的音频端点，靠它落到内置话筒上
+            string defaultId = string.Empty;
+            foreach (int role in new[] { 0, 1 })
+            {
+                IMMDevice? defaultDevice = null;
+                try
+                {
+                    if (enumerator.GetDefaultAudioEndpoint(Capture, role, out defaultDevice) == 0 && defaultDevice is not null
+                        && defaultDevice.GetId(out string candidateId) == 0 && !string.IsNullOrEmpty(candidateId))
+                    {
+                        defaultId = candidateId;
+                        break;
+                    }
+                }
+                catch
+                {
+                    // 没有默认端点就继续用后面的保底逻辑
+                }
+                finally
+                {
+                    if (defaultDevice is not null) { Marshal.ReleaseComObject(defaultDevice); }
+                }
+            }
+
             for (int index = 0; index < count; index++)
             {
                 if (collection.Item(index, out IMMDevice? device) != 0 || device is null)
@@ -90,7 +117,8 @@ public static class WasapiFormatProbe
                         : $"（注册表里没有的端点 {id}）";
 
                     (int channels, int rate, int bits) = QueryMixFormat(device);
-                    result.Add(new WasapiEndpointFormat(id, name, channels, rate, bits, state & 0xF, (state & 0xF) == 1));
+                    bool isDefault = defaultId.Length > 0 && string.Equals(id, defaultId, StringComparison.OrdinalIgnoreCase);
+                    result.Add(new WasapiEndpointFormat(id, name, channels, rate, bits, state & 0xF, (state & 0xF) == 1, isDefault));
                 }
                 finally
                 {
