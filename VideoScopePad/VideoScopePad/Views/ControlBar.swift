@@ -221,7 +221,7 @@ struct ControlBar: View {
     /// 辅助项（原来是 Menu，换成 sheet + Toggle）
     private var assistSheet: some View {
         NavigationStack {
-            Form {
+            List {
                 if settings.showsPeakHoldOption {
                     Toggle("峰值保持游标", isOn: $settings.peakHoldEnabled)
                 }
@@ -408,14 +408,19 @@ struct ControlBar: View {
             ChipLabel(title: settings.monitorLayout.title, systemImage: settings.monitorLayout.symbolName)
         }
         .buttonStyle(.plain)
-        .confirmationDialog("布局", isPresented: $showLayoutDialog, titleVisibility: .visible) {
-            ForEach(MonitorLayoutPreset.allCases) { preset in
-                Button(preset.title) { settings.monitorLayout = preset }
-            }
-            ForEach(AspectMode.allCases) { mode in
-                Button("缩放：" + mode.title) { settings.aspectMode = mode }
-            }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $showLayoutDialog) {
+            ChipChoiceSheet(title: "布局", sections: [
+                .init(title: "布局", rows: MonitorLayoutPreset.allCases.map { preset in
+                    .init(title: preset.title,
+                          isSelected: settings.monitorLayout == preset,
+                          action: { settings.monitorLayout = preset })
+                }),
+                .init(title: "缩放", rows: AspectMode.allCases.map { mode in
+                    .init(title: mode.title,
+                          isSelected: settings.aspectMode == mode,
+                          action: { settings.aspectMode = mode })
+                }),
+            ])
         }
     }
 
@@ -427,11 +432,12 @@ struct ControlBar: View {
             ChipLabel(title: settings.displayMode.title, systemImage: "circle.lefthalf.filled")
         }
         .buttonStyle(.plain)
-        .confirmationDialog("显示通道", isPresented: $showDisplayDialog, titleVisibility: .visible) {
-            ForEach(DisplayMode.allCases) { mode in
-                Button(mode.title) { settings.displayMode = mode }
-            }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $showDisplayDialog) {
+            ChipChoiceSheet.single(title: "显示通道", rows: DisplayMode.allCases.map { mode in
+                .init(title: mode.title,
+                      isSelected: settings.displayMode == mode,
+                      action: { settings.displayMode = mode })
+            })
         }
     }
 
@@ -443,11 +449,12 @@ struct ControlBar: View {
             ChipLabel(title: "波形：\(settings.waveformMode.title)", systemImage: "waveform.path.ecg")
         }
         .buttonStyle(.plain)
-        .confirmationDialog("波形模式", isPresented: $showWaveformDialog, titleVisibility: .visible) {
-            ForEach(WaveformMode.allCases) { mode in
-                Button(mode.title) { settings.waveformMode = mode }
-            }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $showWaveformDialog) {
+            ChipChoiceSheet.single(title: "波形模式", rows: WaveformMode.allCases.map { mode in
+                .init(title: mode.title,
+                      isSelected: settings.waveformMode == mode,
+                      action: { settings.waveformMode = mode })
+            })
         }
     }
 
@@ -459,15 +466,20 @@ struct ControlBar: View {
             ChipLabel(title: currentLUTName, systemImage: "camera.filters", isActive: lutStore.selectedID != nil)
         }
         .buttonStyle(.plain)
-        .confirmationDialog("LUT", isPresented: $showLUTDialog, titleVisibility: .visible) {
-            ForEach(lutStore.items) { item in
-                Button(item.name) { lutStore.select(id: item.id) }
-            }
-            Button("导入 .cube 文件…") { showLUTImporter = true }
-            if lutStore.selectedID != nil {
-                Button("不使用 LUT", role: .destructive) { lutStore.select(id: nil) }
-            }
-            Button("取消", role: .cancel) {}
+        .sheet(isPresented: $showLUTDialog) {
+            ChipChoiceSheet(title: "LUT", sections: [
+                .init(title: "已导入", rows: lutStore.items.map { item in
+                    .init(title: item.name,
+                          isSelected: lutStore.selectedID == item.id,
+                          action: { lutStore.select(id: item.id) })
+                }),
+                .init(title: "操作", rows: [
+                    .init(title: "导入 .cube 文件…", isSelected: false,
+                          action: { showLUTImporter = true }),
+                    .init(title: "不使用 LUT", isSelected: lutStore.selectedID == nil,
+                          action: { lutStore.select(id: nil) }),
+                ]),
+            ])
         }
     }
 
