@@ -182,3 +182,24 @@ Get-FileHash .\dist\VideoScopePad-v1.11.0-reference-unsigned.ipa -Algorithm SHA2
   混着推会把对方正在改的文件卷进本次提交，还会放大「BOM/换行符」这类噪声改动。
 * 实操：提交前先看 git status，只 git add 属于自己那一侧的文件；
   文档（README/ROLLBACK/NEXT-STEPS）按内容归属决定，跨侧只增不改。
+
+### v1.12.7-regressfix（2026-10-23）
+
+| 项 | 值 |
+|---|---|
+| IPA | `dist\VideoScopePad-v1.12.7-regressfix-unsigned.ipa` |
+| SHA256 | `7F021289355A4B81FE7AB28074C40DBB987A849209941E9F4FFC271485A170F3` |
+| tag | `v1.12.7-regressfix` |
+| Release | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.12.7-regressfix> |
+| 回滚目标 | `dist\VideoScopePad-v1.12.0-samesource-unsigned.ipa`（音视频同源，无本次回归） |
+
+**修的问题**：1.12.0 在采集回调线程**每帧**写 `avSync.videoTimingDeltaMs`（@Published），
+SwiftUI 状态被后台线程 50–60 Hz 冲刷 → 界面假死、设备菜单第二次点不出来，
+但主线程未阻塞（诊断日志无 MAIN BLOCKED）。1.11.0 及更早无此现象。
+
+**同时包含**：设备选择 Menu → 自绘 sheet（避免 SwiftUI 菜单第二次不弹）；
+格式列表区分 1080i/1080p；声画延时诊断行（视频 PTS−到达 / 音频时戳−到达）；
+诊断日志搬进 App（设置 → 关于 → 诊断日志，可复制）。
+
+**声画延时归零**：实测采集卡有约 40 ms「声音领前」（PTS −30 / 音频 +105 均为准确时戳），
+在 ITU 允许范围内，用「测量补偿 = +40」把读数归零。
