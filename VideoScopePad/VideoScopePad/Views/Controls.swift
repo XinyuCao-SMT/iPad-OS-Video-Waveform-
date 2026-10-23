@@ -94,69 +94,70 @@ struct AlarmBorderOverlay: View {
 
 // MARK: - 内容 / 单位选择器
 
+// 这几处原来都是 Menu。SwiftUI 的 Menu 在本 App 里会「点不开 / 第二次不弹」，
+// 表现就是点格子菜单界面卡死，所以统一改成 ChipChoiceSheet 弹窗。
+
 struct PaneContentPicker: View {
     let title: String
     @Binding var selection: PaneContent
+    @State private var showPicker = false
 
     var body: some View {
-        Menu {
-            ForEach(PaneContent.allCases) { content in
-                if selection == content {
-                    Button {
-                        selection = content
-                    } label: {
-                        Label(content.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button {
-                        selection = content
-                    } label: {
-                        Label(content.title, systemImage: content.symbolName)
-                    }
-                }
-            }
+        Button {
+            HangLog.mark("点开内容选择：\(title)")
+            showPicker = true
         } label: {
             ChipLabel(title: title + "：" + selection.shortTitle,
                       systemImage: selection.symbolName)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showPicker) {
+            ChipChoiceSheet.single(title: title, rows: PaneContent.allCases.map { content in
+                .init(title: content.title,
+                      isSelected: selection == content,
+                      action: { selection = content })
+            })
         }
     }
 }
 
 struct ScaleUnitPicker: View {
     @Binding var unit: ScaleUnit
+    @State private var showPicker = false
 
     var body: some View {
-        Menu {
-            ForEach(ScaleUnit.allCases) { candidate in
-                if unit == candidate {
-                    Button {
-                        unit = candidate
-                    } label: {
-                        Label(candidate.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(candidate.title) {
-                        unit = candidate
-                    }
-                }
-            }
-            Divider()
-            Text("mV 为按 100 IRE = 700 mV 换算的等效电平")
+        Button {
+            HangLog.mark("点开刻度单位")
+            showPicker = true
         } label: {
             ChipLabel(title: "刻度：" + unit.shortTitle, systemImage: "ruler")
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showPicker) {
+            ChipChoiceSheet.single(title: "刻度单位",
+                                   rows: ScaleUnit.allCases.map { candidate in
+                .init(title: candidate.title,
+                      isSelected: unit == candidate,
+                      action: { unit = candidate })
+            },
+                                   footer: "mV 为按 100 IRE = 700 mV 换算的等效电平")
         }
     }
 }
 
 // MARK: - 格子内容选择（全屏 / 四分割）
 
-/// 在监视区上方铺一层「每格右上角一个内容菜单」的交互层。
+/// 在监视区上方铺一层「每格右上角一个内容按钮」的交互层。
 /// 只有全屏和四分割模式会显示；旧预设（底部/右侧/叠加）不显示，避免和示波器开关打架。
+/// 点按钮弹出统一样式的 ChipChoiceSheet（原来是 Menu，会卡死）。
 struct PaneChromeOverlay: View {
 
     let layout: ScopeLayoutResult
     @ObservedObject var settings: AppSettings
     let containerSize: CGSize
+
+    /// 正在选内容的格子（nil = 没弹出）
+    @State private var pickerPane: PaneLayout?
 
     private var showsChrome: Bool {
         settings.monitorLayout == .fullscreen || settings.monitorLayout == .quad
@@ -167,54 +168,78 @@ struct PaneChromeOverlay: View {
             if showsChrome {
                 ForEach(layout.panes, id: \.slot) { pane in
                     let rect = pane.panel.scaled(to: containerSize)
-                    // 内边距按格子尺寸缩放（iPad mini 到 iPad Pro 都能留出同样的观感），
-                    // 并且整个菜单被限制在格子矩形内 —— 固定像素偏移会让它在小格子上跑到格子外。
+                    // 内边距按格子尺寸缩放（iPad mini 到 iPad Pro 都留出同样的观感），
+                    // 并且整个按钮被限制在格子矩形内 —— 固定像素偏移会让它在小格子上跑到格子外。
                     let inset = min(max(rect.width * 0.02, 3), 12)
-                    PaneContentMenu(pane: pane, settings: settings)
-                        .frame(maxWidth: max(rect.width - inset * 2, 44), alignment: .trailing)
-                        .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
-                        .padding(inset)
-                        .clipped()
-                        .position(x: rect.midX, y: rect.midY)
+                    PaneContentButton(pane: pane) {
+                        HangLog.mark("点开格子内容菜单：格 \(pane.slot)")
+                        pickerPane = pane
+                    }
+                    .frame(maxWidth: max(rect.width - inset * 2, 44), alignment: .trailing)
+                    .frame(width: rect.width, height: rect.height, alignment: .topTrailing)
+                    .padding(inset)
+                    .clipped()
+                    .position(x: rect.midX, y: rect.midY)
                 }
             }
         }
         .frame(width: containerSize.width, height: containerSize.height, alignment: .topLeading)
+        .sheet(isPresented: Binding(get: { pickerPane != nil },
+                                    set: { if !$0 { pickerPane = nil } })) {
+            if let pane = pickerPane {
+                ChipChoiceSheet(title: "格 \(pane.slot + 1) 显示内容",
+                                sections: [
+                    .init(title: "内容", rows: PaneContent.allCases.map { content in
+                        .init(title: content.title,
+                              isSelected: isCurrent(pane, content),
+                              action: { apply(pane, content) })
+                    }),
+                    .init(title: "布局", rows: [
+                        .init(title: "切到" + settings.monitorLayout.toggled.shortTitle,
+                              isSelected: false,
+                              action: { settings.monitorLayout = settings.monitorLayout.toggled }),
+                    ]),
+                ])
+            }
+        }
+    }
+
+    private func isCurrent(_ pane: PaneLayout, _ content: PaneContent) -> Bool {
+        switch settings.monitorLayout {
+        case .fullscreen:
+            return settings.fullscreenContent == content
+        case .quad:
+            let list = settings.normalizedQuadContents
+            return pane.slot < list.count && list[pane.slot] == content
+        default:
+            return false
+        }
+    }
+
+    private func apply(_ pane: PaneLayout, _ content: PaneContent) {
+        switch settings.monitorLayout {
+        case .fullscreen:
+            settings.fullscreenContent = content
+        case .quad:
+            var list = settings.normalizedQuadContents
+            if pane.slot < list.count {
+                list[pane.slot] = content
+                settings.quadContents = list
+            }
+        default:
+            break
+        }
     }
 }
 
-struct PaneContentMenu: View {
+/// 每格右上角那个小按钮（只负责外观与点击，弹窗在 PaneChromeOverlay 里统一处理）
+struct PaneContentButton: View {
 
     let pane: PaneLayout
-    @ObservedObject var settings: AppSettings
+    let onTap: () -> Void
 
     var body: some View {
-        Menu {
-            ForEach(PaneContent.allCases) { content in
-                if isCurrent(content) {
-                    Button {
-                        apply(content)
-                    } label: {
-                        Label(content.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button {
-                        apply(content)
-                    } label: {
-                        Label(content.title, systemImage: content.symbolName)
-                    }
-                }
-            }
-
-            Divider()
-
-            Button {
-                settings.monitorLayout = settings.monitorLayout.toggled
-            } label: {
-                Label("切到" + settings.monitorLayout.toggled.shortTitle,
-                      systemImage: settings.monitorLayout.toggled.symbolName)
-            }
-        } label: {
+        Button(action: onTap) {
             HStack(spacing: 4) {
                 Image(systemName: pane.content.symbolName)
                     .font(.system(size: 10, weight: .semibold))
@@ -229,32 +254,6 @@ struct PaneContentMenu: View {
             .foregroundStyle(Color.white.opacity(0.92))
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-    }
-
-    private func isCurrent(_ content: PaneContent) -> Bool {
-        switch settings.monitorLayout {
-        case .fullscreen:
-            return settings.fullscreenContent == content
-        case .quad:
-            let list = settings.normalizedQuadContents
-            return pane.slot < list.count && list[pane.slot] == content
-        default:
-            return false
-        }
-    }
-
-    private func apply(_ content: PaneContent) {
-        switch settings.monitorLayout {
-        case .fullscreen:
-            settings.fullscreenContent = content
-        case .quad:
-            var list = settings.normalizedQuadContents
-            if pane.slot < list.count {
-                list[pane.slot] = content
-                settings.quadContents = list
-            }
-        default:
-            break
-        }
+        .buttonStyle(.plain)
     }
 }

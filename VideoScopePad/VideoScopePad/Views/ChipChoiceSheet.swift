@@ -2,11 +2,11 @@
 //  ChipChoiceSheet.swift
 //  VideoScopePad
 //
-//  统一样式的「选项列表」弹窗（设备 / 格式 / 布局 / 显示通道 / 波形模式 / LUT 共用）。
+//  统一样式的「选项列表」弹窗（设备 / 格式 / 布局 / 显示通道 / 波形模式 / LUT /
+//  格子内容 / 刻度单位 共用）。
 //
 //  为什么自绘：SwiftUI 的 Menu 在本 App 里会「点不开 / 第二次不弹」（界面像卡死），
-//  系统 confirmationDialog 虽然稳，但外观与设备/格式那两张自绘卡片（深色圆角行）不一致。
-//  所以统一成这一套：NavigationStack + List，圆角行、当前项右侧打勾。
+//  所以全部改用这套：NavigationStack + List，当前项右侧打勾，左上「关闭」。
 //
 
 import SwiftUI
@@ -20,8 +20,7 @@ struct ChipChoiceSheet: View {
         let action: () -> Void
     }
 
-    /// 分组标题（可选），空字符串表示不显示分组头
-    /// ⚠️ 不能叫 Section：会遮住 SwiftUI.Section，导致 body 里的 Section 解析成自己
+    /// 分组（⚠️ 不能叫 Section：会遮住 SwiftUI.Section，body 里的 Section 会被解析成自己）
     struct ChoiceSection: Identifiable {
         let id = UUID()
         let title: String
@@ -30,6 +29,8 @@ struct ChipChoiceSheet: View {
 
     let title: String
     let sections: [ChoiceSection]
+    /// 底部说明（可选）
+    var footer: String? = nil
 
     @Environment(\.dismiss) private var dismiss
 
@@ -58,6 +59,10 @@ struct ChipChoiceSheet: View {
                         if !section.title.isEmpty {
                             Text(section.title)
                         }
+                    } footer: {
+                        if let footer, section.id == sections.last?.id {
+                            Text(footer)
+                        }
                     }
                 }
             }
@@ -72,7 +77,9 @@ struct ChipChoiceSheet: View {
     }
 
     /// 单组列表的便捷构造
-    static func single(title: String, rows: [Row]) -> ChipChoiceSheet {
-        ChipChoiceSheet(title: title, sections: [ChoiceSection(title: "", rows: rows)])
+    static func single(title: String, rows: [Row], footer: String? = nil) -> ChipChoiceSheet {
+        ChipChoiceSheet(title: title,
+                        sections: [ChoiceSection(title: "", rows: rows)],
+                        footer: footer)
     }
 }
