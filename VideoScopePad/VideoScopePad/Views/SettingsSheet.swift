@@ -130,8 +130,7 @@ struct SettingsSheet: View {
                 LabeledContent("当前输入", value: audio.isRunning ? audio.inputName : audio.statusText)
                 LabeledContent("1 kHz 电平", value: String(format: "%.0f dBFS", audio.toneLevelDB))
 
-                HStack {
-                    // 视频事件时刻：设备 PTS vs 到达时刻
+                // 视频事件时刻：设备 PTS vs 到达时刻
             Toggle("声画延时用「帧到达时刻」计算", isOn: $settings.avSyncUseArrivalTime)
             Text("默认用采集设备的 PTS。若读数一直固定偏「声音快」（例如现实中基本同步却显示快 40 ms），"
                  + "多半是 UVC 的 PTS 比帧真正送达晚：打开这个开关改用到达时刻，与音频侧（缓冲区 hostTime）同一语义。"
