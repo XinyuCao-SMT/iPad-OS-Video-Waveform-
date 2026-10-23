@@ -24,6 +24,8 @@ struct ControlBar: View {
     @State private var showGrade = false
     /// 设备选择改成自绘 sheet：SwiftUI 的 Menu 在第二次点击时不弹（实测卡死），不用它了
     @State private var showDevicePicker = false
+    /// 格式选择同样不用 Menu（与设备选择同一问题：菜单不弹、界面像卡死）
+    @State private var showFormatPicker = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -163,6 +165,52 @@ struct ControlBar: View {
     }
 
     /// 看守辅助：只显示当前布局用得上的项
+    /// 格式选择列表（替代 Menu）
+    private var formatPickerSheet: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        settings.autoFormat = true
+                        capture.useAutomaticFormat()
+                        showFormatPicker = false
+                    } label: {
+                        Label("自动跟随输入信号", systemImage: "wand.and.stars")
+                    }
+                }
+                Section("格式（只列 1920×1080）") {
+                    if capture.formats.isEmpty {
+                        Text("该设备没有可用格式").foregroundStyle(.secondary)
+                    }
+                    ForEach(capture.formats.prefix(40)) { format in
+                        Button {
+                            HangLog.mark("选中格式：\(format.displayName)")
+                            capture.select(formatID: format.id)
+                            showFormatPicker = false
+                        } label: {
+                            HStack {
+                                Text(format.displayName)
+                                Spacer()
+                                if capture.selectedFormatID == format.id {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("选择格式")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { showFormatPicker = false }
+                }
+            }
+            .onAppear { HangLog.mark("格式列表已显示（\(capture.formats.count) 项）") }
+        }
+    }
+
     /// 设备选择列表（替代 Menu）
     private var devicePickerSheet: some View {
         NavigationStack {
@@ -344,25 +392,15 @@ struct ControlBar: View {
     }
 
     private var formatMenu: some View {
-        Menu {
-            if capture.formats.isEmpty {
-                Text("该设备没有可用格式")
-            }
-            ForEach(capture.formats.prefix(40)) { format in
-                if capture.selectedFormatID == format.id {
-                    Button {
-                        capture.select(formatID: format.id)
-                    } label: {
-                        Label(format.displayName, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(format.displayName) {
-                        capture.select(formatID: format.id)
-                    }
-                }
-            }
+        Button {
+            HangLog.mark("点开格式选择")
+            showFormatPicker = true
         } label: {
             ChipLabel(title: currentFormatName, systemImage: "4k.tv")
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showFormatPicker) {
+            formatPickerSheet
         }
     }
 
