@@ -21,14 +21,15 @@ struct ChipChoiceSheet: View {
     }
 
     /// 分组标题（可选），空字符串表示不显示分组头
-    struct Section: Identifiable {
+    /// ⚠️ 不能叫 Section：会遮住 SwiftUI.Section，导致 body 里的 Section 解析成自己
+    struct ChoiceSection: Identifiable {
         let id = UUID()
         let title: String
         let rows: [Row]
     }
 
     let title: String
-    let sections: [Section]
+    let sections: [ChoiceSection]
 
     @Environment(\.dismiss) private var dismiss
 
@@ -72,6 +73,6 @@ struct ChipChoiceSheet: View {
 
     /// 单组列表的便捷构造
     static func single(title: String, rows: [Row]) -> ChipChoiceSheet {
-        ChipChoiceSheet(title: title, sections: [Section(title: "", rows: rows)])
+        ChipChoiceSheet(title: title, sections: [ChoiceSection(title: "", rows: rows)])
     }
 }
