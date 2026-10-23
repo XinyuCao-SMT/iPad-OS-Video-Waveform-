@@ -483,6 +483,15 @@ public sealed class LiveSession : IDisposable
 
     private volatile int _renderFpsTarget;
     private long _lastRenderTick;
+    /// <summary>
+    /// 当前这份读数**对应的那一帧**的时间戳（会话秒）。
+    /// ⚠️ 不能用"读数回读到手里时"的时钟：读数走 GPU 非阻塞回读，比画面本身滞后若干帧
+    ///    （50 fps 下 2 帧就是 40 ms），直接拿 now 当画面事件时刻会让声画延时**系统性地偏**
+    ///    —— 现场表现就是"实际差不多同步，却一直显示声音快 40 ms"。
+    /// </summary>
+    private double _measurementSeconds = -1;
+    /// <summary>每次派发测量时压入该帧时间戳；回调（拿到的是上一次派发的结果）按队列取用</summary>
+    private readonly Queue<double> _measureTimestamps = new();
     private double _lastFlashSeconds = -1;
     private double _lastSyncSeconds;
     private double _pulseBaseline;
@@ -696,11 +705,18 @@ public sealed class LiveSession : IDisposable
         SignalMeasurement measurement = Measurement;
         if (measurement.AverageIre > 0)
         {
-            double now = _syncClock.Elapsed.TotalSeconds;
-            // 帧长用**相邻两次调用的间隔**推（比猜 fps 可靠；隔行时这个间隔就是场间隔）
-            double frameDuration = _lastSyncSeconds > 0 ? Math.Clamp(now - _lastSyncSeconds, 1.0 / 240, 1.0 / 5) : 1.0 / 50;
-            _lastSyncSeconds = now;
-            DetectFlash(measurement.AverageIre, now, frameDuration);
+            // 用**读数所属那一帧**的时间戳，而不是"现在"（异步回读会晚几帧，直接用 now 会系统性地偏）
+            double stamped = Volatile.Read(ref _measurementSeconds);
+            double now = stamped >= 0 ? stamped : _syncClock.Elapsed.TotalSeconds;
+            if (now > _lastSyncSeconds + 1e-9)
+            {
+                // 帧长用**相邻两帧时间戳之差**推（比猜 fps 可靠；隔行时就是场间隔）
+                double frameDuration = _lastSyncSeconds > 0
+                    ? Math.Clamp(now - _lastSyncSeconds, 1.0 / 240, 1.0 / 5)
+                    : 1.0 / 50;
+                _lastSyncSeconds = now;
+                DetectFlash(measurement.AverageIre, now, frameDuration);
+            }
         }
         PairSync();
     }
@@ -1381,11 +1397,27 @@ public sealed class LiveSession : IDisposable
                     scopeMs = MsSince(start);
 
                     // 测量（数值读数）：GPU 累加 + 非阻塞回读，回调里更新读数与峰值保持
+                    // 记下这一帧的时间戳：回读是异步的，等它回来时时钟已经晚了几帧
+                    double measureFrameSeconds = stopwatch.Elapsed.TotalSeconds;
+                    lock (_measureTimestamps)
+                    {
+                        _measureTimestamps.Enqueue(measureFrameSeconds);
+                        while (_measureTimestamps.Count > 8) { _measureTimestamps.Dequeue(); }
+                    }
                     engine.EncodeMeasurement(d3d.Context, scopeSource, ScopeStride, counts =>
                     {
                         if (SignalMeasurementBuilder.FromMeasureBuffer(counts) is { } measured)
                         {
                             Volatile.Write(ref _measurement, measured);
+                            // 这份读数属于哪一帧：FIFO 里最老的那个时间戳（回读总是落后若干帧）
+                            double stamp;
+                            lock (_measureTimestamps)
+                            {
+                                stamp = _measureTimestamps.Count > 0
+                                    ? _measureTimestamps.Dequeue()
+                                    : _syncClock.Elapsed.TotalSeconds;
+                            }
+                            Volatile.Write(ref _measurementSeconds, stamp);
                             _peakHold.Update(measured, stopwatch.Elapsed.TotalSeconds);
                             _peakHoldState = _peakHold.Snapshot();
 
