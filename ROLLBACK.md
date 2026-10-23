@@ -172,3 +172,13 @@ Get-FileHash .\dist\VideoScopePad-v1.11.0-reference-unsigned.ipa -Algorithm SHA2
   Windows 版对应 win-v0.12.1-samesource-ok。
 - 验证：GitHub Actions build-ipa.yml run **#45 success**（未签名 IPA，需自签安装）
 - 回滚：`dist/VideoScopePad-v1.11.0-reference-unsigned.ipa`（tag `v1.11.0-reference`）
+---
+
+## 会话分工（2026-10-23 用户规定）
+
+* **本会话（iPad 版）只推送 iPad 相关改动**：VideoScopePad/（Swift/Xcode）、iPad 的 IPA 与发版记录。
+* **另一条会话（Windows 版）只推送 Windows 相关改动**：Windows/、dist\win-*。
+* 原因：两个会话在同一工作区并行工作，且推送走 API（服务端生成新 SHA，本地与远端历史本就分叉），
+  混着推会把对方正在改的文件卷进本次提交，还会放大「BOM/换行符」这类噪声改动。
+* 实操：提交前先看 git status，只 git add 属于自己那一侧的文件；
+  文档（README/ROLLBACK/NEXT-STEPS）按内容归属决定，跨侧只增不改。
