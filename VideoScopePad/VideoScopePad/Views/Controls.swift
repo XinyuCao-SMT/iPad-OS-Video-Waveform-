@@ -149,12 +149,14 @@ struct ScaleUnitPicker: View {
 
 /// 在监视区上方铺一层「每格右上角一个内容按钮」的交互层。
 /// 只有全屏和四分割模式会显示；旧预设（底部/右侧/叠加）不显示，避免和示波器开关打架。
-/// 点按钮弹出统一样式的 ChipChoiceSheet（原来是 Menu，会卡死）。
+/// 亮度格额外支持整块拖动 —— 拖动即改手动参考线的电平（调光基准）。
 struct PaneChromeOverlay: View {
 
     let layout: ScopeLayoutResult
     @ObservedObject var settings: AppSettings
     let containerSize: CGSize
+    /// 视频范围（参考线的 IRE 换算要用，与刻度层同一个来源）
+    let videoRange: Bool
 
     /// 正在选内容的格子（nil = 没弹出）
     @State private var pickerPane: PaneLayout?
@@ -171,6 +173,17 @@ struct PaneChromeOverlay: View {
                     // 内边距按格子尺寸缩放（iPad mini 到 iPad Pro 都留出同样的观感），
                     // 并且整个按钮被限制在格子矩形内 —— 固定像素偏移会让它在小格子上跑到格子外。
                     let inset = min(max(rect.width * 0.02, 3), 12)
+
+                    // 亮度格：整块绘图区可拖动 → 改参考线
+                    if pane.content == .waveform, let plot = pane.plot {
+                        let plotRect = plot.scaled(to: containerSize)
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: plotRect.width, height: plotRect.height)
+                            .position(x: plotRect.midX, y: plotRect.midY)
+                            .gesture(guideDrag(in: plotRect))
+                    }
+
                     PaneContentButton(pane: pane) {
                         HangLog.mark("点开格子内容菜单：格 \(pane.slot)")
                         pickerPane = pane
@@ -202,6 +215,18 @@ struct PaneChromeOverlay: View {
                 ])
             }
         }
+    }
+
+    /// 拖动亮度格的参考线：屏幕 y → 码值 → IRE（与刻度层 yPosition 互逆）
+    private func guideDrag(in rect: CGRect) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard rect.height > 1 else { return }
+                let code = Double((rect.maxY - value.location.y) / rect.height) * 255
+                let ire = videoRange ? (code - 16) / 219 * 100 : code / 255 * 100
+                settings.waveformGuideIRE = min(max(ire, 0), 110)
+                if !settings.waveformGuideEnabled { settings.waveformGuideEnabled = true }
+            }
     }
 
     private func isCurrent(_ pane: PaneLayout, _ content: PaneContent) -> Bool {

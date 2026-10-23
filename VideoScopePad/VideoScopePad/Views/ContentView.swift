@@ -254,7 +254,8 @@ struct ContentView: View {
                     // 每个格子右上角的内容选择菜单（点它切换这一格显示什么）
                     PaneChromeOverlay(layout: layout,
                                       settings: settings,
-                                      containerSize: geo.size)
+                                      containerSize: geo.size,
+                                      videoRange: capture.isVideoRange)
 
                     // 布局调试叠加层：画出每格的 格子/绘图区/刻度栏/画面区 实际矩形与尺寸
                     if settings.showLayoutDebug {

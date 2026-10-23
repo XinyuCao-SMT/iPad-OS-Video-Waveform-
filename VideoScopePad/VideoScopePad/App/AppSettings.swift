@@ -40,6 +40,8 @@ final class AppSettings: ObservableObject {
         static let autoFormat = prefix + "autoFormat"
         static let peakHoldEnabled = prefix + "peakHoldEnabled"
         static let peakHoldSeconds = prefix + "peakHoldSeconds"
+        static let waveformGuideEnabled = prefix + "waveformGuideEnabled"
+        static let waveformGuideIRE = prefix + "waveformGuideIRE"
         static let zebraEnabled = prefix + "zebraEnabled"
         static let zebraThreshold = prefix + "zebraThreshold"
         static let zebraBlackEnabled = prefix + "zebraBlackEnabled"
@@ -212,6 +214,15 @@ final class AppSettings: ObservableObject {
     // MARK: - 峰值保持 / 斑马纹 / 报警
 
     /// 峰值保持：把一段时间内的最高 / 最低电平用游标钉在波形图上
+    /// 亮度格的手动参考线（拖动改电平，调光时当基准）
+    @Published var waveformGuideEnabled = true {
+        didSet { UserDefaults.standard.set(waveformGuideEnabled, forKey: Key.waveformGuideEnabled) }
+    }
+    /// 参考线电平（IRE，0…110）
+    @Published var waveformGuideIRE: Double = 100 {
+        didSet { UserDefaults.standard.set(waveformGuideIRE, forKey: Key.waveformGuideIRE) }
+    }
+
     @Published var peakHoldEnabled = true {
         didSet { UserDefaults.standard.set(peakHoldEnabled, forKey: Key.peakHoldEnabled) }
     }

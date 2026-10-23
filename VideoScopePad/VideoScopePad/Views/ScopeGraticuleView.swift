@@ -47,6 +47,7 @@ struct ScopeGraticuleView: View {
                                      labels: settings.waveformMode == .luma ? ["Y"] : ["RGB"])
                         drawPeakHold(&layer, rect: plot)
                         drawReferencePeakHold(&layer, rect: plot)
+                        drawGuideLine(&layer, rect: plot)
                     case .parade:
                         drawWaveform(&layer, rect: plot, columns: 3, labels: ["R", "G", "B"])
                         drawPeakHold(&layer, rect: plot)
@@ -148,6 +149,28 @@ struct ScopeGraticuleView: View {
     // MARK: - 峰值保持游标
 
     /// 把保持住的最高 / 最低电平用虚线钉在波形上（数值跟着刻度单位走）
+    /// 手动参考线（可拖动）：调光时当基准，例如「白电平压到这条线」
+    private func drawGuideLine(_ ctx: inout GraphicsContext, rect: CGRect) {
+        guard settings.waveformGuideEnabled else { return }
+        let y = yPosition(forIRE: settings.waveformGuideIRE, in: rect)
+        guard y >= rect.minY - 1, y <= rect.maxY + 1 else { return }
+
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: y))
+        path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        stroke(&ctx, path, color: Color.orange.opacity(0.9), width: 1.4)
+
+        let unit = settings.scaleUnit
+        let narrow = rect.width < 170
+        ctx.draw(label("参考 " + unit.formatPrecise(settings.waveformGuideIRE),
+                       size: 10,
+                       weight: .semibold,
+                       opacity: 0.95,
+                       monospaced: true),
+                 at: CGPoint(x: narrow ? rect.minX + 6 : rect.maxX - 6, y: y - 10),
+                 anchor: narrow ? .leading : .trailing)
+    }
+
     private func drawPeakHold(_ ctx: inout GraphicsContext, rect: CGRect) {
         guard settings.peakHoldEnabled else { return }
         let state = measurement.peakHold
