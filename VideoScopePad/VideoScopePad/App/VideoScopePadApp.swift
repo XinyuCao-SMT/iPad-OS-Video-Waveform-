@@ -9,6 +9,11 @@ import SwiftUI
 
 @main
 struct VideoScopePadApp: App {
+    init() {
+        HangLog.start()
+        HangLog.mark("App 启动完成")
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

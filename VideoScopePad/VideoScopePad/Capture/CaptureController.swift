@@ -159,14 +159,20 @@ final class CaptureController: NSObject, ObservableObject {
     // MARK: - 选择设备 / 格式
 
     func select(deviceID: String) {
+        HangLog.mark("选设备：\(deviceID)")
         selectedDeviceID = deviceID
         sessionQueue.async { [weak self] in
             guard let self else { return }
+            HangLog.mark("sessionQueue：stopRunning 开始")
             self.sessionDeviceID = deviceID
             self.session.stopRunning()
+            HangLog.mark("sessionQueue：stopRunning 完成")
             self.loadFormatsLocked(deviceID: deviceID, preferredFormatID: nil)
+            HangLog.mark("sessionQueue：格式加载完成（\(self.sessionFormats.count) 条）")
             self.configureLocked()
+            HangLog.mark("sessionQueue：configure 完成")
             self.startRunningLocked()
+            HangLog.mark("sessionQueue：startRunning 完成（isRunning=\(self.session.isRunning)）")
         }
     }
 
@@ -286,6 +292,7 @@ final class CaptureController: NSObject, ObservableObject {
     }
 
     private func configureLocked() {
+        HangLog.mark("beginConfiguration()")
         session.beginConfiguration()
         defer { session.commitConfiguration() }
 
@@ -420,7 +427,9 @@ final class CaptureController: NSObject, ObservableObject {
     private func startRunningLocked() {
         guard wantsRunning else { return }
         if !session.isRunning {
+            HangLog.mark("startRunning() 开始")
             session.startRunning()
+            HangLog.mark("startRunning() 返回")
         }
         let running = session.isRunning
         DispatchQueue.main.async { self.stats.isRunning = running }

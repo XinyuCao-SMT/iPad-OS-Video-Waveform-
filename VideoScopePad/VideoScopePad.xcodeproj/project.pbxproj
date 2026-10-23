@@ -8,128 +8,130 @@
 
 /* Begin PBXBuildFile section */
 		AB0000000000000000000004 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000003 /* AppSettings.swift */; };
-		AB0000000000000000000006 /* VideoScopePadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000005 /* VideoScopePadApp.swift */; };
-		AB0000000000000000000009 /* AudioMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000008 /* AudioMonitor.swift */; };
-		AB000000000000000000000B /* AVSyncMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000A /* AVSyncMeter.swift */; };
-		AB000000000000000000000D /* SpectrumAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000C /* SpectrumAnalyzer.swift */; };
-		AB0000000000000000000010 /* CaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000F /* CaptureController.swift */; };
-		AB0000000000000000000012 /* CaptureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* CaptureModels.swift */; };
-		AB0000000000000000000015 /* GeometryHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000014 /* GeometryHelpers.swift */; };
-		AB0000000000000000000017 /* ScopeLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000016 /* ScopeLayout.swift */; };
-		AB0000000000000000000019 /* ScopeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000018 /* ScopeModels.swift */; };
-		AB000000000000000000001C /* FrameSignatureAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001B /* FrameSignatureAnalyzer.swift */; };
-		AB000000000000000000001E /* LUTCube.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001D /* LUTCube.swift */; };
-		AB0000000000000000000020 /* LUTStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001F /* LUTStore.swift */; };
-		AB0000000000000000000022 /* LUTTextures.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000021 /* LUTTextures.swift */; };
-		AB0000000000000000000024 /* MetalContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000023 /* MetalContext.swift */; };
-		AB0000000000000000000026 /* RenderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000025 /* RenderCoordinator.swift */; };
-		AB0000000000000000000028 /* ScopeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000027 /* ScopeEngine.swift */; };
-		AB000000000000000000002A /* SignalMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000029 /* SignalMeasurement.swift */; };
-		AB000000000000000000002C /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002B /* VideoRenderer.swift */; };
-		AB000000000000000000002F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002E /* Assets.xcassets */; };
-		AB0000000000000000000032 /* DisplayShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000031 /* DisplayShaders.metal */; };
-		AB0000000000000000000034 /* ScopeKernels.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* ScopeKernels.metal */; };
-		AB0000000000000000000039 /* MeasurementLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000038 /* MeasurementLog.swift */; };
-		AB000000000000000000003B /* MP4Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003A /* MP4Recorder.swift */; };
-		AB000000000000000000003D /* NetworkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003C /* NetworkDiagnostics.swift */; };
-		AB000000000000000000003F /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003E /* StreamController.swift */; };
-		AB0000000000000000000041 /* StreamEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* StreamEndpoint.swift */; };
-		AB0000000000000000000043 /* StreamMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* StreamMetrics.swift */; };
-		AB0000000000000000000045 /* StreamTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* StreamTransport.swift */; };
-		AB0000000000000000000047 /* VideoEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* VideoEncoder.swift */; };
-		AB000000000000000000004A /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000049 /* AudioMeterView.swift */; };
-		AB000000000000000000004C /* AudioPhaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004B /* AudioPhaseView.swift */; };
-		AB000000000000000000004E /* AudioSpectrumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004D /* AudioSpectrumView.swift */; };
-		AB0000000000000000000050 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004F /* ContentView.swift */; };
-		AB0000000000000000000052 /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000051 /* ControlBar.swift */; };
-		AB0000000000000000000054 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000053 /* Controls.swift */; };
-		AB0000000000000000000056 /* LayoutDebugOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000055 /* LayoutDebugOverlay.swift */; };
-		AB0000000000000000000058 /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000057 /* MonitorSurface.swift */; };
-		AB000000000000000000005A /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000059 /* ScopeGraticuleView.swift */; };
-		AB000000000000000000005C /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005B /* SettingsSheet.swift */; };
-		AB000000000000000000005E /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005D /* StreamPanelView.swift */; };
-		AB0000000000000000000060 /* StreamStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005F /* StreamStatsView.swift */; };
-		AB0000000000000000000062 /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000061 /* TopStatusBar.swift */; };
-		AB0000000000000000000073 /* HaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000072 /* HaishinKit */; };
-		AB0000000000000000000075 /* RTMPHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000074 /* RTMPHaishinKit */; };
-		AB0000000000000000000077 /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000076 /* SRTHaishinKit */; };
+		AB0000000000000000000006 /* HangLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000005 /* HangLog.swift */; };
+		AB0000000000000000000008 /* VideoScopePadApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000007 /* VideoScopePadApp.swift */; };
+		AB000000000000000000000B /* AudioMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000A /* AudioMonitor.swift */; };
+		AB000000000000000000000D /* AVSyncMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000C /* AVSyncMeter.swift */; };
+		AB000000000000000000000F /* SpectrumAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000000E /* SpectrumAnalyzer.swift */; };
+		AB0000000000000000000012 /* CaptureController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000011 /* CaptureController.swift */; };
+		AB0000000000000000000014 /* CaptureModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000013 /* CaptureModels.swift */; };
+		AB0000000000000000000017 /* GeometryHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000016 /* GeometryHelpers.swift */; };
+		AB0000000000000000000019 /* ScopeLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000018 /* ScopeLayout.swift */; };
+		AB000000000000000000001B /* ScopeModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001A /* ScopeModels.swift */; };
+		AB000000000000000000001E /* FrameSignatureAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001D /* FrameSignatureAnalyzer.swift */; };
+		AB0000000000000000000020 /* LUTCube.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000001F /* LUTCube.swift */; };
+		AB0000000000000000000022 /* LUTStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000021 /* LUTStore.swift */; };
+		AB0000000000000000000024 /* LUTTextures.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000023 /* LUTTextures.swift */; };
+		AB0000000000000000000026 /* MetalContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000025 /* MetalContext.swift */; };
+		AB0000000000000000000028 /* RenderCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000027 /* RenderCoordinator.swift */; };
+		AB000000000000000000002A /* ScopeEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000029 /* ScopeEngine.swift */; };
+		AB000000000000000000002C /* SignalMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002B /* SignalMeasurement.swift */; };
+		AB000000000000000000002E /* VideoRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000002D /* VideoRenderer.swift */; };
+		AB0000000000000000000031 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000030 /* Assets.xcassets */; };
+		AB0000000000000000000034 /* DisplayShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000033 /* DisplayShaders.metal */; };
+		AB0000000000000000000036 /* ScopeKernels.metal in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000035 /* ScopeKernels.metal */; };
+		AB000000000000000000003B /* MeasurementLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003A /* MeasurementLog.swift */; };
+		AB000000000000000000003D /* MP4Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003C /* MP4Recorder.swift */; };
+		AB000000000000000000003F /* NetworkDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000003E /* NetworkDiagnostics.swift */; };
+		AB0000000000000000000041 /* StreamController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000040 /* StreamController.swift */; };
+		AB0000000000000000000043 /* StreamEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000042 /* StreamEndpoint.swift */; };
+		AB0000000000000000000045 /* StreamMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000044 /* StreamMetrics.swift */; };
+		AB0000000000000000000047 /* StreamTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000046 /* StreamTransport.swift */; };
+		AB0000000000000000000049 /* VideoEncoder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000048 /* VideoEncoder.swift */; };
+		AB000000000000000000004C /* AudioMeterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004B /* AudioMeterView.swift */; };
+		AB000000000000000000004E /* AudioPhaseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004D /* AudioPhaseView.swift */; };
+		AB0000000000000000000050 /* AudioSpectrumView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000004F /* AudioSpectrumView.swift */; };
+		AB0000000000000000000052 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000051 /* ContentView.swift */; };
+		AB0000000000000000000054 /* ControlBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000053 /* ControlBar.swift */; };
+		AB0000000000000000000056 /* Controls.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000055 /* Controls.swift */; };
+		AB0000000000000000000058 /* LayoutDebugOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000057 /* LayoutDebugOverlay.swift */; };
+		AB000000000000000000005A /* MonitorSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000059 /* MonitorSurface.swift */; };
+		AB000000000000000000005C /* ScopeGraticuleView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005B /* ScopeGraticuleView.swift */; };
+		AB000000000000000000005E /* SettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005D /* SettingsSheet.swift */; };
+		AB0000000000000000000060 /* StreamPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB000000000000000000005F /* StreamPanelView.swift */; };
+		AB0000000000000000000062 /* StreamStatsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000061 /* StreamStatsView.swift */; };
+		AB0000000000000000000064 /* TopStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AB0000000000000000000063 /* TopStatusBar.swift */; };
+		AB0000000000000000000075 /* HaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000074 /* HaishinKit */; };
+		AB0000000000000000000077 /* RTMPHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000076 /* RTMPHaishinKit */; };
+		AB0000000000000000000079 /* SRTHaishinKit in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000078 /* SRTHaishinKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		AB0000000000000000000065 /* VideoScopePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoScopePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0000000000000000000067 /* VideoScopePad.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VideoScopePad.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB0000000000000000000003 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
-		AB0000000000000000000005 /* VideoScopePadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoScopePadApp.swift; sourceTree = "<group>"; };
-		AB0000000000000000000008 /* AudioMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMonitor.swift; sourceTree = "<group>"; };
-		AB000000000000000000000A /* AVSyncMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVSyncMeter.swift; sourceTree = "<group>"; };
-		AB000000000000000000000C /* SpectrumAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectrumAnalyzer.swift; sourceTree = "<group>"; };
-		AB000000000000000000000F /* CaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureController.swift; sourceTree = "<group>"; };
-		AB0000000000000000000011 /* CaptureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModels.swift; sourceTree = "<group>"; };
-		AB0000000000000000000014 /* GeometryHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryHelpers.swift; sourceTree = "<group>"; };
-		AB0000000000000000000016 /* ScopeLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeLayout.swift; sourceTree = "<group>"; };
-		AB0000000000000000000018 /* ScopeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeModels.swift; sourceTree = "<group>"; };
-		AB000000000000000000001B /* FrameSignatureAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSignatureAnalyzer.swift; sourceTree = "<group>"; };
-		AB000000000000000000001D /* LUTCube.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTCube.swift; sourceTree = "<group>"; };
-		AB000000000000000000001F /* LUTStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTStore.swift; sourceTree = "<group>"; };
-		AB0000000000000000000021 /* LUTTextures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTTextures.swift; sourceTree = "<group>"; };
-		AB0000000000000000000023 /* MetalContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalContext.swift; sourceTree = "<group>"; };
-		AB0000000000000000000025 /* RenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderCoordinator.swift; sourceTree = "<group>"; };
-		AB0000000000000000000027 /* ScopeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeEngine.swift; sourceTree = "<group>"; };
-		AB0000000000000000000029 /* SignalMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalMeasurement.swift; sourceTree = "<group>"; };
-		AB000000000000000000002B /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
-		AB000000000000000000002E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		AB0000000000000000000031 /* DisplayShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = DisplayShaders.metal; sourceTree = "<group>"; };
-		AB0000000000000000000033 /* ScopeKernels.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = ScopeKernels.metal; sourceTree = "<group>"; };
-		AB0000000000000000000035 /* ShaderTypes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ShaderTypes.h; sourceTree = "<group>"; };
-		AB0000000000000000000036 /* VideoScopePad-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VideoScopePad-Bridging-Header.h"; sourceTree = "<group>"; };
-		AB0000000000000000000038 /* MeasurementLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementLog.swift; sourceTree = "<group>"; };
-		AB000000000000000000003A /* MP4Recorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Recorder.swift; sourceTree = "<group>"; };
-		AB000000000000000000003C /* NetworkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiagnostics.swift; sourceTree = "<group>"; };
-		AB000000000000000000003E /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
-		AB0000000000000000000040 /* StreamEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamEndpoint.swift; sourceTree = "<group>"; };
-		AB0000000000000000000042 /* StreamMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamMetrics.swift; sourceTree = "<group>"; };
-		AB0000000000000000000044 /* StreamTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTransport.swift; sourceTree = "<group>"; };
-		AB0000000000000000000046 /* VideoEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEncoder.swift; sourceTree = "<group>"; };
-		AB0000000000000000000049 /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
-		AB000000000000000000004B /* AudioPhaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPhaseView.swift; sourceTree = "<group>"; };
-		AB000000000000000000004D /* AudioSpectrumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSpectrumView.swift; sourceTree = "<group>"; };
-		AB000000000000000000004F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		AB0000000000000000000051 /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
-		AB0000000000000000000053 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
-		AB0000000000000000000055 /* LayoutDebugOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutDebugOverlay.swift; sourceTree = "<group>"; };
-		AB0000000000000000000057 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
-		AB0000000000000000000059 /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
-		AB000000000000000000005B /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
-		AB000000000000000000005D /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
-		AB000000000000000000005F /* StreamStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamStatsView.swift; sourceTree = "<group>"; };
-		AB0000000000000000000061 /* TopStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopStatusBar.swift; sourceTree = "<group>"; };
+		AB0000000000000000000005 /* HangLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HangLog.swift; sourceTree = "<group>"; };
+		AB0000000000000000000007 /* VideoScopePadApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoScopePadApp.swift; sourceTree = "<group>"; };
+		AB000000000000000000000A /* AudioMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMonitor.swift; sourceTree = "<group>"; };
+		AB000000000000000000000C /* AVSyncMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AVSyncMeter.swift; sourceTree = "<group>"; };
+		AB000000000000000000000E /* SpectrumAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpectrumAnalyzer.swift; sourceTree = "<group>"; };
+		AB0000000000000000000011 /* CaptureController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureController.swift; sourceTree = "<group>"; };
+		AB0000000000000000000013 /* CaptureModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaptureModels.swift; sourceTree = "<group>"; };
+		AB0000000000000000000016 /* GeometryHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeometryHelpers.swift; sourceTree = "<group>"; };
+		AB0000000000000000000018 /* ScopeLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeLayout.swift; sourceTree = "<group>"; };
+		AB000000000000000000001A /* ScopeModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeModels.swift; sourceTree = "<group>"; };
+		AB000000000000000000001D /* FrameSignatureAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameSignatureAnalyzer.swift; sourceTree = "<group>"; };
+		AB000000000000000000001F /* LUTCube.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTCube.swift; sourceTree = "<group>"; };
+		AB0000000000000000000021 /* LUTStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTStore.swift; sourceTree = "<group>"; };
+		AB0000000000000000000023 /* LUTTextures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LUTTextures.swift; sourceTree = "<group>"; };
+		AB0000000000000000000025 /* MetalContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetalContext.swift; sourceTree = "<group>"; };
+		AB0000000000000000000027 /* RenderCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RenderCoordinator.swift; sourceTree = "<group>"; };
+		AB0000000000000000000029 /* ScopeEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeEngine.swift; sourceTree = "<group>"; };
+		AB000000000000000000002B /* SignalMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignalMeasurement.swift; sourceTree = "<group>"; };
+		AB000000000000000000002D /* VideoRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoRenderer.swift; sourceTree = "<group>"; };
+		AB0000000000000000000030 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AB0000000000000000000033 /* DisplayShaders.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = DisplayShaders.metal; sourceTree = "<group>"; };
+		AB0000000000000000000035 /* ScopeKernels.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = ScopeKernels.metal; sourceTree = "<group>"; };
+		AB0000000000000000000037 /* ShaderTypes.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ShaderTypes.h; sourceTree = "<group>"; };
+		AB0000000000000000000038 /* VideoScopePad-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "VideoScopePad-Bridging-Header.h"; sourceTree = "<group>"; };
+		AB000000000000000000003A /* MeasurementLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeasurementLog.swift; sourceTree = "<group>"; };
+		AB000000000000000000003C /* MP4Recorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MP4Recorder.swift; sourceTree = "<group>"; };
+		AB000000000000000000003E /* NetworkDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiagnostics.swift; sourceTree = "<group>"; };
+		AB0000000000000000000040 /* StreamController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamController.swift; sourceTree = "<group>"; };
+		AB0000000000000000000042 /* StreamEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamEndpoint.swift; sourceTree = "<group>"; };
+		AB0000000000000000000044 /* StreamMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamMetrics.swift; sourceTree = "<group>"; };
+		AB0000000000000000000046 /* StreamTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamTransport.swift; sourceTree = "<group>"; };
+		AB0000000000000000000048 /* VideoEncoder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoEncoder.swift; sourceTree = "<group>"; };
+		AB000000000000000000004B /* AudioMeterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioMeterView.swift; sourceTree = "<group>"; };
+		AB000000000000000000004D /* AudioPhaseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioPhaseView.swift; sourceTree = "<group>"; };
+		AB000000000000000000004F /* AudioSpectrumView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSpectrumView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000051 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000053 /* ControlBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlBar.swift; sourceTree = "<group>"; };
+		AB0000000000000000000055 /* Controls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Controls.swift; sourceTree = "<group>"; };
+		AB0000000000000000000057 /* LayoutDebugOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutDebugOverlay.swift; sourceTree = "<group>"; };
+		AB0000000000000000000059 /* MonitorSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorSurface.swift; sourceTree = "<group>"; };
+		AB000000000000000000005B /* ScopeGraticuleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScopeGraticuleView.swift; sourceTree = "<group>"; };
+		AB000000000000000000005D /* SettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsSheet.swift; sourceTree = "<group>"; };
+		AB000000000000000000005F /* StreamPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamPanelView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000061 /* StreamStatsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamStatsView.swift; sourceTree = "<group>"; };
+		AB0000000000000000000063 /* TopStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopStatusBar.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		AB000000000000000000006A /* Frameworks */ = {
+		AB000000000000000000006C /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AB0000000000000000000073 /* HaishinKit in Frameworks */,
-				AB0000000000000000000075 /* RTMPHaishinKit in Frameworks */,
-				AB0000000000000000000077 /* SRTHaishinKit in Frameworks */,
+				AB0000000000000000000075 /* HaishinKit in Frameworks */,
+				AB0000000000000000000077 /* RTMPHaishinKit in Frameworks */,
+				AB0000000000000000000079 /* SRTHaishinKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		AB0000000000000000000066 = {
+		AB0000000000000000000068 = {
 			isa = PBXGroup;
 			children = (
 				AB0000000000000000000001 /* VideoScopePad */,
-				AB0000000000000000000067 /* Products */,
+				AB0000000000000000000069 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000067 /* Products */ = {
+		AB0000000000000000000069 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000065 /* VideoScopePad.app */,
+				AB0000000000000000000067 /* VideoScopePad.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -138,106 +140,107 @@
 			isa = PBXGroup;
 			children = (
 				AB0000000000000000000003 /* AppSettings.swift */,
-				AB0000000000000000000005 /* VideoScopePadApp.swift */,
+				AB0000000000000000000005 /* HangLog.swift */,
+				AB0000000000000000000007 /* VideoScopePadApp.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000007 /* Audio */ = {
+		AB0000000000000000000009 /* Audio */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000008 /* AudioMonitor.swift */,
-				AB000000000000000000000A /* AVSyncMeter.swift */,
-				AB000000000000000000000C /* SpectrumAnalyzer.swift */,
+				AB000000000000000000000A /* AudioMonitor.swift */,
+				AB000000000000000000000C /* AVSyncMeter.swift */,
+				AB000000000000000000000E /* SpectrumAnalyzer.swift */,
 			);
 			path = Audio;
 			sourceTree = "<group>";
 		};
-		AB000000000000000000000E /* Capture */ = {
+		AB0000000000000000000010 /* Capture */ = {
 			isa = PBXGroup;
 			children = (
-				AB000000000000000000000F /* CaptureController.swift */,
-				AB0000000000000000000011 /* CaptureModels.swift */,
+				AB0000000000000000000011 /* CaptureController.swift */,
+				AB0000000000000000000013 /* CaptureModels.swift */,
 			);
 			path = Capture;
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000013 /* Model */ = {
+		AB0000000000000000000015 /* Model */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000014 /* GeometryHelpers.swift */,
-				AB0000000000000000000016 /* ScopeLayout.swift */,
-				AB0000000000000000000018 /* ScopeModels.swift */,
+				AB0000000000000000000016 /* GeometryHelpers.swift */,
+				AB0000000000000000000018 /* ScopeLayout.swift */,
+				AB000000000000000000001A /* ScopeModels.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
 		};
-		AB000000000000000000001A /* Render */ = {
+		AB000000000000000000001C /* Render */ = {
 			isa = PBXGroup;
 			children = (
-				AB000000000000000000001B /* FrameSignatureAnalyzer.swift */,
-				AB000000000000000000001D /* LUTCube.swift */,
-				AB000000000000000000001F /* LUTStore.swift */,
-				AB0000000000000000000021 /* LUTTextures.swift */,
-				AB0000000000000000000023 /* MetalContext.swift */,
-				AB0000000000000000000025 /* RenderCoordinator.swift */,
-				AB0000000000000000000027 /* ScopeEngine.swift */,
-				AB0000000000000000000029 /* SignalMeasurement.swift */,
-				AB000000000000000000002B /* VideoRenderer.swift */,
+				AB000000000000000000001D /* FrameSignatureAnalyzer.swift */,
+				AB000000000000000000001F /* LUTCube.swift */,
+				AB0000000000000000000021 /* LUTStore.swift */,
+				AB0000000000000000000023 /* LUTTextures.swift */,
+				AB0000000000000000000025 /* MetalContext.swift */,
+				AB0000000000000000000027 /* RenderCoordinator.swift */,
+				AB0000000000000000000029 /* ScopeEngine.swift */,
+				AB000000000000000000002B /* SignalMeasurement.swift */,
+				AB000000000000000000002D /* VideoRenderer.swift */,
 			);
 			path = Render;
 			sourceTree = "<group>";
 		};
-		AB000000000000000000002D /* Resources */ = {
+		AB000000000000000000002F /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				AB000000000000000000002E /* Assets.xcassets */,
+				AB0000000000000000000030 /* Assets.xcassets */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000030 /* Shaders */ = {
+		AB0000000000000000000032 /* Shaders */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000031 /* DisplayShaders.metal */,
-				AB0000000000000000000033 /* ScopeKernels.metal */,
-				AB0000000000000000000035 /* ShaderTypes.h */,
-				AB0000000000000000000036 /* VideoScopePad-Bridging-Header.h */,
+				AB0000000000000000000033 /* DisplayShaders.metal */,
+				AB0000000000000000000035 /* ScopeKernels.metal */,
+				AB0000000000000000000037 /* ShaderTypes.h */,
+				AB0000000000000000000038 /* VideoScopePad-Bridging-Header.h */,
 			);
 			path = Shaders;
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000037 /* Stream */ = {
+		AB0000000000000000000039 /* Stream */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000038 /* MeasurementLog.swift */,
-				AB000000000000000000003A /* MP4Recorder.swift */,
-				AB000000000000000000003C /* NetworkDiagnostics.swift */,
-				AB000000000000000000003E /* StreamController.swift */,
-				AB0000000000000000000040 /* StreamEndpoint.swift */,
-				AB0000000000000000000042 /* StreamMetrics.swift */,
-				AB0000000000000000000044 /* StreamTransport.swift */,
-				AB0000000000000000000046 /* VideoEncoder.swift */,
+				AB000000000000000000003A /* MeasurementLog.swift */,
+				AB000000000000000000003C /* MP4Recorder.swift */,
+				AB000000000000000000003E /* NetworkDiagnostics.swift */,
+				AB0000000000000000000040 /* StreamController.swift */,
+				AB0000000000000000000042 /* StreamEndpoint.swift */,
+				AB0000000000000000000044 /* StreamMetrics.swift */,
+				AB0000000000000000000046 /* StreamTransport.swift */,
+				AB0000000000000000000048 /* VideoEncoder.swift */,
 			);
 			path = Stream;
 			sourceTree = "<group>";
 		};
-		AB0000000000000000000048 /* Views */ = {
+		AB000000000000000000004A /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				AB0000000000000000000049 /* AudioMeterView.swift */,
-				AB000000000000000000004B /* AudioPhaseView.swift */,
-				AB000000000000000000004D /* AudioSpectrumView.swift */,
-				AB000000000000000000004F /* ContentView.swift */,
-				AB0000000000000000000051 /* ControlBar.swift */,
-				AB0000000000000000000053 /* Controls.swift */,
-				AB0000000000000000000055 /* LayoutDebugOverlay.swift */,
-				AB0000000000000000000057 /* MonitorSurface.swift */,
-				AB0000000000000000000059 /* ScopeGraticuleView.swift */,
-				AB000000000000000000005B /* SettingsSheet.swift */,
-				AB000000000000000000005D /* StreamPanelView.swift */,
-				AB000000000000000000005F /* StreamStatsView.swift */,
-				AB0000000000000000000061 /* TopStatusBar.swift */,
+				AB000000000000000000004B /* AudioMeterView.swift */,
+				AB000000000000000000004D /* AudioPhaseView.swift */,
+				AB000000000000000000004F /* AudioSpectrumView.swift */,
+				AB0000000000000000000051 /* ContentView.swift */,
+				AB0000000000000000000053 /* ControlBar.swift */,
+				AB0000000000000000000055 /* Controls.swift */,
+				AB0000000000000000000057 /* LayoutDebugOverlay.swift */,
+				AB0000000000000000000059 /* MonitorSurface.swift */,
+				AB000000000000000000005B /* ScopeGraticuleView.swift */,
+				AB000000000000000000005D /* SettingsSheet.swift */,
+				AB000000000000000000005F /* StreamPanelView.swift */,
+				AB0000000000000000000061 /* StreamStatsView.swift */,
+				AB0000000000000000000063 /* TopStatusBar.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -246,14 +249,14 @@
 			isa = PBXGroup;
 			children = (
 				AB0000000000000000000002 /* App */,
-				AB0000000000000000000007 /* Audio */,
-				AB000000000000000000000E /* Capture */,
-				AB0000000000000000000013 /* Model */,
-				AB000000000000000000001A /* Render */,
-				AB000000000000000000002D /* Resources */,
-				AB0000000000000000000030 /* Shaders */,
-				AB0000000000000000000037 /* Stream */,
-				AB0000000000000000000048 /* Views */,
+				AB0000000000000000000009 /* Audio */,
+				AB0000000000000000000010 /* Capture */,
+				AB0000000000000000000015 /* Model */,
+				AB000000000000000000001C /* Render */,
+				AB000000000000000000002F /* Resources */,
+				AB0000000000000000000032 /* Shaders */,
+				AB0000000000000000000039 /* Stream */,
+				AB000000000000000000004A /* Views */,
 			);
 			path = VideoScopePad;
 			sourceTree = "<group>";
@@ -261,13 +264,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		AB0000000000000000000064 /* VideoScopePad */ = {
+		AB0000000000000000000066 /* VideoScopePad */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AB000000000000000000006C /* Build configuration list for PBXNativeTarget "VideoScopePad" */;
+			buildConfigurationList = AB000000000000000000006E /* Build configuration list for PBXNativeTarget "VideoScopePad" */;
 			buildPhases = (
-				AB0000000000000000000068 /* Sources */,
-				AB000000000000000000006A /* Frameworks */,
-				AB0000000000000000000069 /* Resources */,
+				AB000000000000000000006A /* Sources */,
+				AB000000000000000000006C /* Frameworks */,
+				AB000000000000000000006B /* Resources */,
 			);
 			buildRules = (
 			);
@@ -275,30 +278,30 @@
 			);
 			name = VideoScopePad;
 			packageProductDependencies = (
-				AB0000000000000000000072 /* HaishinKit */,
-				AB0000000000000000000074 /* RTMPHaishinKit */,
-				AB0000000000000000000076 /* SRTHaishinKit */,
+				AB0000000000000000000074 /* HaishinKit */,
+				AB0000000000000000000076 /* RTMPHaishinKit */,
+				AB0000000000000000000078 /* SRTHaishinKit */,
 			);
 			productName = VideoScopePad;
-			productReference = AB0000000000000000000065 /* VideoScopePad.app */;
+			productReference = AB0000000000000000000067 /* VideoScopePad.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		AB0000000000000000000063 /* Project object */ = {
+		AB0000000000000000000065 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					AB0000000000000000000064 = {
+					AB0000000000000000000066 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
 			};
-			buildConfigurationList = AB000000000000000000006B /* Build configuration list for PBXProject "VideoScopePad" */;
+			buildConfigurationList = AB000000000000000000006D /* Build configuration list for PBXProject "VideoScopePad" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -307,84 +310,85 @@
 				Base,
 				"zh-Hans",
 			);
-			mainGroup = AB0000000000000000000066;
+			mainGroup = AB0000000000000000000068;
 			packageReferences = (
-				AB0000000000000000000071 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
+				AB0000000000000000000073 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */,
 			);
-			productRefGroup = AB0000000000000000000067 /* Products */;
+			productRefGroup = AB0000000000000000000069 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AB0000000000000000000064 /* VideoScopePad */,
+				AB0000000000000000000066 /* VideoScopePad */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		AB0000000000000000000069 /* Resources */ = {
+		AB000000000000000000006B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AB000000000000000000002F /* Assets.xcassets in Resources */,
+				AB0000000000000000000031 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		AB0000000000000000000068 /* Sources */ = {
+		AB000000000000000000006A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				AB0000000000000000000004 /* AppSettings.swift in Sources */,
-				AB0000000000000000000006 /* VideoScopePadApp.swift in Sources */,
-				AB0000000000000000000009 /* AudioMonitor.swift in Sources */,
-				AB000000000000000000000B /* AVSyncMeter.swift in Sources */,
-				AB000000000000000000000D /* SpectrumAnalyzer.swift in Sources */,
-				AB0000000000000000000010 /* CaptureController.swift in Sources */,
-				AB0000000000000000000012 /* CaptureModels.swift in Sources */,
-				AB0000000000000000000015 /* GeometryHelpers.swift in Sources */,
-				AB0000000000000000000017 /* ScopeLayout.swift in Sources */,
-				AB0000000000000000000019 /* ScopeModels.swift in Sources */,
-				AB000000000000000000001C /* FrameSignatureAnalyzer.swift in Sources */,
-				AB000000000000000000001E /* LUTCube.swift in Sources */,
-				AB0000000000000000000020 /* LUTStore.swift in Sources */,
-				AB0000000000000000000022 /* LUTTextures.swift in Sources */,
-				AB0000000000000000000024 /* MetalContext.swift in Sources */,
-				AB0000000000000000000026 /* RenderCoordinator.swift in Sources */,
-				AB0000000000000000000028 /* ScopeEngine.swift in Sources */,
-				AB000000000000000000002A /* SignalMeasurement.swift in Sources */,
-				AB000000000000000000002C /* VideoRenderer.swift in Sources */,
-				AB0000000000000000000032 /* DisplayShaders.metal in Sources */,
-				AB0000000000000000000034 /* ScopeKernels.metal in Sources */,
-				AB0000000000000000000039 /* MeasurementLog.swift in Sources */,
-				AB000000000000000000003B /* MP4Recorder.swift in Sources */,
-				AB000000000000000000003D /* NetworkDiagnostics.swift in Sources */,
-				AB000000000000000000003F /* StreamController.swift in Sources */,
-				AB0000000000000000000041 /* StreamEndpoint.swift in Sources */,
-				AB0000000000000000000043 /* StreamMetrics.swift in Sources */,
-				AB0000000000000000000045 /* StreamTransport.swift in Sources */,
-				AB0000000000000000000047 /* VideoEncoder.swift in Sources */,
-				AB000000000000000000004A /* AudioMeterView.swift in Sources */,
-				AB000000000000000000004C /* AudioPhaseView.swift in Sources */,
-				AB000000000000000000004E /* AudioSpectrumView.swift in Sources */,
-				AB0000000000000000000050 /* ContentView.swift in Sources */,
-				AB0000000000000000000052 /* ControlBar.swift in Sources */,
-				AB0000000000000000000054 /* Controls.swift in Sources */,
-				AB0000000000000000000056 /* LayoutDebugOverlay.swift in Sources */,
-				AB0000000000000000000058 /* MonitorSurface.swift in Sources */,
-				AB000000000000000000005A /* ScopeGraticuleView.swift in Sources */,
-				AB000000000000000000005C /* SettingsSheet.swift in Sources */,
-				AB000000000000000000005E /* StreamPanelView.swift in Sources */,
-				AB0000000000000000000060 /* StreamStatsView.swift in Sources */,
-				AB0000000000000000000062 /* TopStatusBar.swift in Sources */,
+				AB0000000000000000000006 /* HangLog.swift in Sources */,
+				AB0000000000000000000008 /* VideoScopePadApp.swift in Sources */,
+				AB000000000000000000000B /* AudioMonitor.swift in Sources */,
+				AB000000000000000000000D /* AVSyncMeter.swift in Sources */,
+				AB000000000000000000000F /* SpectrumAnalyzer.swift in Sources */,
+				AB0000000000000000000012 /* CaptureController.swift in Sources */,
+				AB0000000000000000000014 /* CaptureModels.swift in Sources */,
+				AB0000000000000000000017 /* GeometryHelpers.swift in Sources */,
+				AB0000000000000000000019 /* ScopeLayout.swift in Sources */,
+				AB000000000000000000001B /* ScopeModels.swift in Sources */,
+				AB000000000000000000001E /* FrameSignatureAnalyzer.swift in Sources */,
+				AB0000000000000000000020 /* LUTCube.swift in Sources */,
+				AB0000000000000000000022 /* LUTStore.swift in Sources */,
+				AB0000000000000000000024 /* LUTTextures.swift in Sources */,
+				AB0000000000000000000026 /* MetalContext.swift in Sources */,
+				AB0000000000000000000028 /* RenderCoordinator.swift in Sources */,
+				AB000000000000000000002A /* ScopeEngine.swift in Sources */,
+				AB000000000000000000002C /* SignalMeasurement.swift in Sources */,
+				AB000000000000000000002E /* VideoRenderer.swift in Sources */,
+				AB0000000000000000000034 /* DisplayShaders.metal in Sources */,
+				AB0000000000000000000036 /* ScopeKernels.metal in Sources */,
+				AB000000000000000000003B /* MeasurementLog.swift in Sources */,
+				AB000000000000000000003D /* MP4Recorder.swift in Sources */,
+				AB000000000000000000003F /* NetworkDiagnostics.swift in Sources */,
+				AB0000000000000000000041 /* StreamController.swift in Sources */,
+				AB0000000000000000000043 /* StreamEndpoint.swift in Sources */,
+				AB0000000000000000000045 /* StreamMetrics.swift in Sources */,
+				AB0000000000000000000047 /* StreamTransport.swift in Sources */,
+				AB0000000000000000000049 /* VideoEncoder.swift in Sources */,
+				AB000000000000000000004C /* AudioMeterView.swift in Sources */,
+				AB000000000000000000004E /* AudioPhaseView.swift in Sources */,
+				AB0000000000000000000050 /* AudioSpectrumView.swift in Sources */,
+				AB0000000000000000000052 /* ContentView.swift in Sources */,
+				AB0000000000000000000054 /* ControlBar.swift in Sources */,
+				AB0000000000000000000056 /* Controls.swift in Sources */,
+				AB0000000000000000000058 /* LayoutDebugOverlay.swift in Sources */,
+				AB000000000000000000005A /* MonitorSurface.swift in Sources */,
+				AB000000000000000000005C /* ScopeGraticuleView.swift in Sources */,
+				AB000000000000000000005E /* SettingsSheet.swift in Sources */,
+				AB0000000000000000000060 /* StreamPanelView.swift in Sources */,
+				AB0000000000000000000062 /* StreamStatsView.swift in Sources */,
+				AB0000000000000000000064 /* TopStatusBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		AB0000000000000000000071 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
+		AB0000000000000000000073 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/HaishinKit/HaishinKit.swift";
 			requirement = {
@@ -395,25 +399,25 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		AB0000000000000000000072 /* HaishinKit */ = {
+		AB0000000000000000000074 /* HaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB0000000000000000000071 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB0000000000000000000073 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = HaishinKit;
 		};
-		AB0000000000000000000074 /* RTMPHaishinKit */ = {
+		AB0000000000000000000076 /* RTMPHaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB0000000000000000000071 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB0000000000000000000073 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = RTMPHaishinKit;
 		};
-		AB0000000000000000000076 /* SRTHaishinKit */ = {
+		AB0000000000000000000078 /* SRTHaishinKit */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = AB0000000000000000000071 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
+			package = AB0000000000000000000073 /* XCRemoteSwiftPackageReference "HaishinKit.swift" */;
 			productName = SRTHaishinKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
-		AB000000000000000000006D /* Debug */ = {
+		AB000000000000000000006F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ALWAYS_SEARCH_USER_PATHS = NO;
@@ -447,7 +451,7 @@
 			};
 			name = Debug;
 		};
-		AB000000000000000000006E /* Release */ = {
+		AB0000000000000000000070 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ALWAYS_SEARCH_USER_PATHS = NO;
@@ -478,7 +482,7 @@
 			};
 			name = Release;
 		};
-		AB000000000000000000006F /* Debug */ = {
+		AB0000000000000000000071 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -501,7 +505,7 @@
     INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-    MARKETING_VERSION = 1.12.2;
+    MARKETING_VERSION = 1.12.3;
     MTL_HEADER_SEARCH_PATHS = "$(SRCROOT)/VideoScopePad/Shaders";
     PRODUCT_BUNDLE_IDENTIFIER = com.videoscopepad.app;
     PRODUCT_NAME = "$(TARGET_NAME)";
@@ -513,7 +517,7 @@
 			};
 			name = Debug;
 		};
-		AB0000000000000000000070 /* Release */ = {
+		AB0000000000000000000072 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
     ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -536,7 +540,7 @@
     INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
     INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
     IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-    MARKETING_VERSION = 1.12.2;
+    MARKETING_VERSION = 1.12.3;
     MTL_HEADER_SEARCH_PATHS = "$(SRCROOT)/VideoScopePad/Shaders";
     PRODUCT_BUNDLE_IDENTIFIER = com.videoscopepad.app;
     PRODUCT_NAME = "$(TARGET_NAME)";
@@ -551,16 +555,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AB000000000000000000006B /* Build configuration list for PBXProject "VideoScopePad" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AB000000000000000000006D /* Debug */,
-				AB000000000000000000006E /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AB000000000000000000006C /* Build configuration list for PBXNativeTarget "VideoScopePad" */ = {
+		AB000000000000000000006D /* Build configuration list for PBXProject "VideoScopePad" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AB000000000000000000006F /* Debug */,
@@ -569,8 +564,17 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		AB000000000000000000006E /* Build configuration list for PBXNativeTarget "VideoScopePad" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AB0000000000000000000071 /* Debug */,
+				AB0000000000000000000072 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 	};
-	rootObject = AB0000000000000000000063 /* Project object */;
+	rootObject = AB0000000000000000000065 /* Project object */;
 }

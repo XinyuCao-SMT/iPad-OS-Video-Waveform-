@@ -1,4 +1,4 @@
-﻿//
+//
 //  AudioMonitor.swift
 //  VideoScopePad
 //
@@ -207,6 +207,7 @@ final class AudioMonitor: ObservableObject {
         }
         isStarting = true
         statusText = "正在启动音频…"
+        HangLog.mark("音频 start 入队")
         controlQueue.async { [weak self] in
             self?.startLocked(preferredInputID: preferredInputID)
         }
@@ -214,6 +215,7 @@ final class AudioMonitor: ObservableObject {
 
     private func startLocked(preferredInputID: String?) {
         guard isStarting else { return }   // 已被 stop() 取消
+        HangLog.mark("音频 startLocked：setCategory/setActive 开始")
 
         let session = AVAudioSession.sharedInstance()
         do {
@@ -268,9 +270,11 @@ final class AudioMonitor: ObservableObject {
             self?.process(buffer: buffer, when: when)
         }
 
+        HangLog.mark("音频 engine.start() 开始")
         do {
             engine.prepare()
             try engine.start()
+            HangLog.mark("音频 engine.start() 返回")
         } catch {
             publish { $0.statusText = "启动音频引擎失败：\(error.localizedDescription)" }
             isStarting = false
@@ -289,6 +293,7 @@ final class AudioMonitor: ObservableObject {
     }
 
     func stop() {
+        HangLog.mark("音频 stop() 进入")
         isStarting = false
         guard isRunning else { return }
         isRunning = false          // 先置位，避免重复进入
