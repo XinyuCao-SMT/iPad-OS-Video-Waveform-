@@ -131,10 +131,18 @@ final class RenderCoordinator: ObservableObject {
         capture.onFrame = { [weak self] pixelBuffer, presentationTime in
             guard let self else { return }
             self.renderer?.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
-            self.avSync.videoTimingDeltaMs = self.renderer?.lastFrameTimingDeltaMs ?? 0
             self.stream.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
             DispatchQueue.main.async { [weak self] in
-                self?.view?.setNeedsDisplay()
+                guard let self else { return }
+                // ⚠️ @Published 必须在主线程写，而且只在变化时写：
+                // 1.12.0 曾在采集回调线程**每帧**写 avSync.videoTimingDeltaMs，
+                // SwiftUI 状态被后台线程 50–60 Hz 冲刷 → 界面像卡死（菜单第二次点不出来），
+                // 但主线程没有阻塞（日志里没有 MAIN BLOCKED）。这是 1.12.0 引入的回归。
+                let delta = self.renderer?.lastFrameTimingDeltaMs ?? 0
+                if abs(self.avSync.videoTimingDeltaMs - delta) > 0.1 {
+                    self.avSync.videoTimingDeltaMs = delta
+                }
+                self.view?.setNeedsDisplay()
             }
         }
 
