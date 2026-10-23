@@ -139,13 +139,18 @@ struct SettingsSheet: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
-            Text("测量补偿")
-                    Spacer()
-                    Stepper(value: $settings.avSyncCompensationMs, in: -100...100, step: 1) {
-                        Text(String(format: "%+.0f ms", settings.avSyncCompensationMs))
-                            .font(.system(.body, design: .monospaced))
-                    }
+            // 测量补偿：直接输入数字（原来的 Stepper 一点点加太费劲）
+            LabeledContent("测量补偿（ms）") {
+                HStack(spacing: 6) {
+                    TextField("0", value: $settings.avSyncCompensationMs, format: .number)
+                        .keyboardType(.numbersAndPunctuation)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 90)
+                    Text("ms")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
+            }
 
                 Text("""
                 · 音柱是左右两个电平柱（L/R，-60…0 dBFS）；只有单声道输入时显示一根。
