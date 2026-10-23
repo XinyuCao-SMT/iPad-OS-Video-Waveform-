@@ -37,6 +37,47 @@ $manifestPath = Join-Path $releaseDir 'MANIFEST.txt'
 
 Write-Host "发版：$Tag"
 
+# ---------------------------------------------------------------- 0) 预检：版本必须递增 + 先看远端
+# 🔴 教训（2026-10-21）：另一个会话已经发了 0.14.0–0.14.3，本会话随后又发 0.12.5–0.13.2，
+#    结果**版本号倒挂** —— 最新提交带着更小的号，清单/回滚表都对不上。
+#    所以发版前必须先挡住：本次版本必须**大于**已发布的最大版本。
+if ($Tag -match 'win-v(\d+\.\d+\.\d+)') {
+    $tagVersion = [version]$Matches[1]
+    $published = New-Object System.Collections.Generic.List[version]
+    Get-ChildItem (Join-Path $repoRoot 'dist') -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            if ($_.Name -match '^win-v(\d+\.\d+\.\d+)') { $published.Add([version]$Matches[1]) }
+        }
+    (& git tag -l 'win-v*') | ForEach-Object {
+        if ($_ -match '^win-v(\d+\.\d+\.\d+)') { $published.Add([version]$Matches[1]) }
+    }
+    if ($published.Count -gt 0) {
+        $maxPublished = ($published | Sort-Object | Select-Object -Last 1)
+        Write-Host "  已发布的最大版本：$maxPublished；本次：$tagVersion"
+        if ($tagVersion -le $maxPublished) {
+            throw "版本号倒挂：本次 $tagVersion ≤ 已发布 $maxPublished。请先提高 csproj 的 <Version> 与 -Tag（例如 $(([version]("$($maxPublished.Major).$($maxPublished.Minor).$($maxPublished.Build + 1)"))))，再发版。"
+        }
+    }
+}
+
+# 远端预检（尽力而为：网络不可用时只告警，不阻断发版）
+try {
+    $remoteLine = (& git ls-remote --heads origin main 2>$null)
+    if ($remoteLine) {
+        $remoteSha = ($remoteLine -split '\s+')[0]
+        $localSha = (& git rev-parse HEAD).Trim()
+        if ($remoteSha -ne $localSha) {
+            Write-Host "  ⚠ 远端 main（$($remoteSha.Substring(0,7))）与本地（$($localSha.Substring(0,7))）不一致 —— 先确认没有别人的更新没合进来"
+        }
+        else {
+            Write-Host '  远端与本地一致 ✓'
+        }
+    }
+}
+catch {
+    Write-Host '  · 远端检查跳过（网络不可用）'
+}
+
 # ---------------------------------------------------------------- 1) 编译发布
 if (Test-Path $releaseDir) {
     Write-Host "  ⚠ 目标文件夹已存在，先清掉旧内容：$releaseDir"
