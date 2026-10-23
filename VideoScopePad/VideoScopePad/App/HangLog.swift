@@ -21,9 +21,16 @@ import Foundation
 enum HangLog {
 
     private static let queue = DispatchQueue(label: "vsp.hanglog")
+    /// 日志文件位置：优先 Documents（用户能用「文件」App 取）；
+    /// 写不进去就退回临时目录 —— 但界面里的「诊断日志」页始终可读（不依赖文件共享）。
     private static var fileURL: URL = {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return documents.appendingPathComponent("hanglog.txt")
+        let fm = FileManager.default
+        let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let preferred = documents.appendingPathComponent("hanglog.txt")
+        if fm.isWritableFile(atPath: documents.path) {
+            return preferred
+        }
+        return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("hanglog.txt")
     }()
 
     /// 主线程心跳计数（主线程上的定时器递增）
@@ -34,6 +41,16 @@ enum HangLog {
     private static var started = false
 
     static var logPath: String { fileURL.path }
+
+    /// 读日志尾部（界面里显示 / 一键复制用）
+    static func tail(lines: Int) -> String {
+        guard let text = try? String(contentsOf: fileURL, encoding: .utf8) else {
+            return ""
+        }
+        let all = text.split(separator: "\n", omittingEmptySubsequences: false)
+        let tailPart = all.suffix(max(lines, 1))
+        return tailPart.joined(separator: "\n")
+    }
 
     /// 启动看门狗（App 启动时调一次）
     static func start() {
@@ -90,6 +107,10 @@ enum HangLog {
             let stamp = String(format: "%.3f", Date().timeIntervalSince1970)
             let text = "\(stamp) \(line)\n"
             guard let data = text.data(using: .utf8) else { return }
+            if !FileManager.default.fileExists(atPath: fileURL.path) {
+                try? text.write(to: fileURL, atomically: true, encoding: .utf8)
+                return
+            }
             if let handle = try? FileHandle(forWritingTo: fileURL) {
                 handle.seekToEndOfFile()
                 handle.write(data)

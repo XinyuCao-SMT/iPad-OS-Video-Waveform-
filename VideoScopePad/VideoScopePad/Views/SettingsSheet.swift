@@ -450,6 +450,11 @@ struct SettingsSheet: View {
             }
             LabeledContent("版本", value: appVersion)
             LabeledContent("开发者", value: "smt 曹昕宇")
+
+            // 卡死取证：日志页（不依赖「文件」App，能一键复制）
+            NavigationLink("诊断日志（卡死取证）") {
+                DiagnosticsLogView()
+            }
             Text("""
             支持 UVC 采集卡的 iPad 监视器 + 示波器。
 
