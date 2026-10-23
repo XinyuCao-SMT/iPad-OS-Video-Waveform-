@@ -26,6 +26,13 @@ struct ControlBar: View {
     @State private var showDevicePicker = false
     /// 格式选择同样不用 Menu（与设备选择同一问题：菜单不弹、界面像卡死）
     @State private var showFormatPicker = false
+    // 以下四个原来都是 Menu：SwiftUI 菜单在本 App 里会「点不开 / 第二次不弹」，统一换成
+    // confirmationDialog 或 sheet（系统标准呈现，不受该问题影响）
+    @State private var showAssistSheet = false
+    @State private var showLayoutDialog = false
+    @State private var showDisplayDialog = false
+    @State private var showWaveformDialog = false
+    @State private var showLUTDialog = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -211,6 +218,32 @@ struct ControlBar: View {
         }
     }
 
+    /// 辅助项（原来是 Menu，换成 sheet + Toggle）
+    private var assistSheet: some View {
+        NavigationStack {
+            Form {
+                if settings.showsPeakHoldOption {
+                    Toggle("峰值保持游标", isOn: $settings.peakHoldEnabled)
+                }
+                if settings.showsZebraOption {
+                    Toggle("超白斑马纹（>\(Int(settings.zebraThresholdIRE)) IRE）", isOn: $settings.zebraEnabled)
+                    Toggle("黑切割斑马纹（<0 IRE）", isOn: $settings.zebraBlackEnabled)
+                }
+                Toggle("超标报警红框", isOn: $settings.warningAlarmEnabled)
+                Section {
+                    Button("清报警与峰值游标") { onClearAlarms() }
+                }
+            }
+            .navigationTitle("辅助")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showAssistSheet = false }
+                }
+            }
+        }
+    }
+
     /// 设备选择列表（替代 Menu）
     private var devicePickerSheet: some View {
         NavigationStack {
@@ -260,51 +293,14 @@ struct ControlBar: View {
     }
 
     private var assistMenu: some View {
-        Menu {
-            if settings.showsPeakHoldOption {
-                Button {
-                    settings.peakHoldEnabled.toggle()
-                } label: {
-                    Label("峰值保持游标", systemImage: settings.peakHoldEnabled ? "checkmark" : "waveform.path")
-                }
-            }
-
-            if settings.showsZebraOption {
-                Button {
-                    settings.zebraEnabled.toggle()
-                } label: {
-                    Label("超白斑马纹（>" + String(format: "%.0f", settings.zebraThresholdIRE) + " IRE）",
-                          systemImage: settings.zebraEnabled ? "checkmark" : "square.dashed")
-                }
-
-                Button {
-                    settings.zebraBlackEnabled.toggle()
-                } label: {
-                    Label("黑切割斑马纹（<0 IRE）",
-                          systemImage: settings.zebraBlackEnabled ? "checkmark" : "square.dashed")
-                }
-            }
-
-            Button {
-                settings.warningAlarmEnabled.toggle()
-            } label: {
-                Label("超标报警红框",
-                      systemImage: settings.warningAlarmEnabled ? "checkmark" : "exclamationmark.triangle")
-            }
-
-            Divider()
-
-            Button {
-                onClearAlarms()
-            } label: {
-                Label("清报警与峰值游标", systemImage: "arrow.counterclockwise")
-            }
+        Button {
+            HangLog.mark("点开辅助")
+            showAssistSheet = true
         } label: {
-            ChipLabel(title: "辅助",
-                      systemImage: "sparkles",
-                      isActive: settings.peakHoldEnabled || settings.zebraEnabled
-                          || settings.zebraBlackEnabled || settings.warningAlarmEnabled)
+            ChipLabel(title: "辅助", systemImage: "sparkles", isActive: true)
         }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showAssistSheet) { assistSheet }
     }
 
     /// 全屏 / 四分割 时的内容选择；旧预设时显示示波器开关
@@ -405,106 +401,73 @@ struct ControlBar: View {
     }
 
     private var layoutMenu: some View {
-        Menu {
-            ForEach(MonitorLayoutPreset.allCases) { preset in
-                if settings.monitorLayout == preset {
-                    Button {
-                        settings.monitorLayout = preset
-                    } label: {
-                        Label(preset.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(preset.title) {
-                        settings.monitorLayout = preset
-                    }
-                }
-            }
-            Divider()
-            ForEach(AspectMode.allCases) { mode in
-                Button {
-                    settings.aspectMode = mode
-                } label: {
-                    Label(mode.title, systemImage: settings.aspectMode == mode ? "checkmark" : "aspectratio")
-                }
-            }
+        Button {
+            HangLog.mark("点开布局")
+            showLayoutDialog = true
         } label: {
             ChipLabel(title: settings.monitorLayout.title, systemImage: settings.monitorLayout.symbolName)
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("布局", isPresented: $showLayoutDialog, titleVisibility: .visible) {
+            ForEach(MonitorLayoutPreset.allCases) { preset in
+                Button(preset.title) { settings.monitorLayout = preset }
+            }
+            ForEach(AspectMode.allCases) { mode in
+                Button("缩放：" + mode.title) { settings.aspectMode = mode }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 
     private var displayModeMenu: some View {
-        Menu {
-            ForEach(DisplayMode.allCases) { mode in
-                if settings.displayMode == mode {
-                    Button {
-                        settings.displayMode = mode
-                    } label: {
-                        Label(mode.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(mode.title) {
-                        settings.displayMode = mode
-                    }
-                }
-            }
+        Button {
+            HangLog.mark("点开显示通道")
+            showDisplayDialog = true
         } label: {
             ChipLabel(title: settings.displayMode.title, systemImage: "circle.lefthalf.filled")
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("显示通道", isPresented: $showDisplayDialog, titleVisibility: .visible) {
+            ForEach(DisplayMode.allCases) { mode in
+                Button(mode.title) { settings.displayMode = mode }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 
     private var waveformModeMenu: some View {
-        Menu {
-            ForEach(WaveformMode.allCases) { mode in
-                if settings.waveformMode == mode {
-                    Button {
-                        settings.waveformMode = mode
-                    } label: {
-                        Label(mode.title, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(mode.title) {
-                        settings.waveformMode = mode
-                    }
-                }
-            }
+        Button {
+            HangLog.mark("点开波形模式")
+            showWaveformDialog = true
         } label: {
             ChipLabel(title: "波形：\(settings.waveformMode.title)", systemImage: "waveform.path.ecg")
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("波形模式", isPresented: $showWaveformDialog, titleVisibility: .visible) {
+            ForEach(WaveformMode.allCases) { mode in
+                Button(mode.title) { settings.waveformMode = mode }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 
     private var lutMenu: some View {
-        Menu {
-            if lutStore.items.isEmpty {
-                Text("还没有 LUT，先导入 .cube 文件")
-            }
-            ForEach(lutStore.items) { item in
-                if lutStore.selectedID == item.id {
-                    Button {
-                        lutStore.select(id: item.id)
-                    } label: {
-                        Label(item.name, systemImage: "checkmark")
-                    }
-                } else {
-                    Button(item.name) {
-                        lutStore.select(id: item.id)
-                    }
-                }
-            }
-            Divider()
-            Button {
-                showLUTImporter = true
-            } label: {
-                Label("导入 .cube 文件…", systemImage: "square.and.arrow.down")
-            }
-            if lutStore.selectedID != nil {
-                Button(role: .destructive) {
-                    lutStore.select(id: nil)
-                } label: {
-                    Label("不使用 LUT", systemImage: "xmark")
-                }
-            }
+        Button {
+            HangLog.mark("点开 LUT")
+            showLUTDialog = true
         } label: {
             ChipLabel(title: currentLUTName, systemImage: "camera.filters", isActive: lutStore.selectedID != nil)
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("LUT", isPresented: $showLUTDialog, titleVisibility: .visible) {
+            ForEach(lutStore.items) { item in
+                Button(item.name) { lutStore.select(id: item.id) }
+            }
+            Button("导入 .cube 文件…") { showLUTImporter = true }
+            if lutStore.selectedID != nil {
+                Button("不使用 LUT", role: .destructive) { lutStore.select(id: nil) }
+            }
+            Button("取消", role: .cancel) {}
         }
     }
 
