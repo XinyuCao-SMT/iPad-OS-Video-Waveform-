@@ -68,6 +68,8 @@ struct VideoFormatInfo: Identifiable, Hashable {
     let subtype: FourCharCode
     let requestedPixelFormat: OSType
     let colorMatrix: ColorMatrixKind
+    /// 是否为**隔行**格式（1080i / 576i）。标签里显示 i，否则 p。
+    var isInterlaced: Bool = false
 
     var usesBiPlanar: Bool {
         requestedPixelFormat == OSType(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)
@@ -81,10 +83,12 @@ struct VideoFormatInfo: Identifiable, Hashable {
     var sizeText: String { "\(width)×\(height)" }
 
     var frameRateText: String {
+        // 隔行显示 i、逐行显示 p（用户要求能区分 1080i / 1080p）
+        let suffix = isInterlaced ? "i" : "p"
         if abs(frameRate - frameRate.rounded()) < 0.01 {
-            return "\(Int(frameRate.rounded()))p"
+            return "\(Int(frameRate.rounded()))\(suffix)"
         }
-        return String(format: "%.2fp", frameRate)
+        return String(format: "%.2f%@", frameRate, suffix)
     }
 
     var pixelFormatText: String {

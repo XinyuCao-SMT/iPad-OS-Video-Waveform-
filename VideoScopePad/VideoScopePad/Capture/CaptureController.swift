@@ -449,6 +449,11 @@ final class CaptureController: NSObject, ObservableObject {
                 rates = [maxRate.rounded()]
             }
 
+            // 场数 > 1 = 隔行（1080i / 576i）；读不到就按逐行处理
+            let fieldCountValue = CMFormatDescriptionGetExtension(
+                format.formatDescription,
+                extensionKey: kCMFormatDescriptionExtension_FieldCount) as? Int ?? 1
+
             for rate in rates {
                 infos.append(VideoFormatInfo(id: "\(index)-\(Int((rate * 1000).rounded()))",
                                              formatIndex: index,
@@ -457,14 +462,15 @@ final class CaptureController: NSObject, ObservableObject {
                                              frameRate: rate,
                                              subtype: subtype,
                                              requestedPixelFormat: pixelFormat,
-                                             colorMatrix: matrix))
+                                             colorMatrix: matrix,
+                                             isInterlaced: max(fieldCountValue, 1) > 1))
             }
         }
 
         var seen = Set<String>()
         var unique: [VideoFormatInfo] = []
         for info in infos {
-            let key = "\(info.width)x\(info.height)@\(info.frameRate)-\(info.subtype)"
+            let key = "\(info.width)x\(info.height)@\(info.frameRate)-\(info.subtype)-\(info.isInterlaced ? "i" : "p")"
             if seen.contains(key) { continue }
             seen.insert(key)
             unique.append(info)
