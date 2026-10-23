@@ -22,6 +22,9 @@ struct ControlBar: View {
     var onSetReference: (Bool) -> Void = { _ in }
 
     @State private var showGrade = false
+
+    /// LUT 相关界面**暂时隐藏**（用户：暂不考虑 LUT）。逻辑与文件都保留，改回 true 即恢复
+    private let showsLUTUI = false
     /// 设备选择改成自绘 sheet：SwiftUI 的 Menu 在第二次点击时不弹（实测卡死），不用它了
     @State private var showDevicePicker = false
     /// 格式选择同样不用 Menu（与设备选择同一问题：菜单不弹、界面像卡死）
@@ -114,18 +117,18 @@ struct ControlBar: View {
                     assistMenu
                 }
 
-                Button {
-                    settings.scopeSource = settings.scopeSource == .preLUT ? .postLUT : .preLUT
-                } label: {
-                    ChipLabel(title: settings.scopeSource == .preLUT ? "取样 LUT 前" : "取样 LUT 后",
-                              systemImage: "scope")
-                }
-                .buttonStyle(.plain)
+                // LUT 相关界面暂时隐藏（showsLUTUI = false）：取样前后、选择 LUT、LUT 开关都不再显示
+                if showsLUTUI {
+                    Button {
+                        settings.scopeSource = settings.scopeSource == .preLUT ? .postLUT : .preLUT
+                    } label: {
+                        ChipLabel(title: settings.scopeSource == .preLUT ? "取样 LUT 前" : "取样 LUT 后",
+                                  systemImage: "scope")
+                    }
+                    .buttonStyle(.plain)
 
-                lutMenu
+                    lutMenu
 
-                // 尾部按钮用 Group 包一层，给 ViewBuilder 的 10 个子视图上限留余量
-                Group {
                     Button {
                         settings.lutEnabled.toggle()
                     } label: {
@@ -135,7 +138,10 @@ struct ControlBar: View {
                                   tint: .blue)
                     }
                     .buttonStyle(.plain)
+                }
 
+                // 尾部按钮用 Group 包一层，给 ViewBuilder 的 10 个子视图上限留余量
+                Group {
                     Button {
                         settings.showMeasurement.toggle()
                     } label: {
@@ -355,7 +361,9 @@ struct ControlBar: View {
             LabeledSlider(title: "对比度", value: $settings.contrast, range: 0.2...2.5, format: "%.2f")
             LabeledSlider(title: "饱和度", value: $settings.saturation, range: 0...2.5, format: "%.2f")
             LabeledSlider(title: "伽马", value: $settings.gamma, range: 0.4...2.5, format: "%.2f")
+            if showsLUTUI {
             LabeledSlider(title: "LUT 强度", value: $settings.lutIntensity, range: 0...1, format: "%.2f")
+            }
 
             Button {
                 settings.resetGrade()

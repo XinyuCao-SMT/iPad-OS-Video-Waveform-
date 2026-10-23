@@ -28,7 +28,8 @@ struct SettingsSheet: View {
                 scopeSection
                 assistSection
                 gradeSection
-                lutSection
+                // LUT 相关界面暂时隐藏（用户：暂不考虑 LUT）；实现保留在 lutSection
+            // lutSection
                 aboutSection
             }
             .navigationTitle("设置")
@@ -369,7 +370,8 @@ struct SettingsSheet: View {
             LabeledSlider(title: "对比度", value: $settings.contrast, range: 0.2...2.5, format: "%.2f")
             LabeledSlider(title: "饱和度", value: $settings.saturation, range: 0...2.5, format: "%.2f")
             LabeledSlider(title: "伽马", value: $settings.gamma, range: 0.4...2.5, format: "%.2f")
-            LabeledSlider(title: "LUT 强度", value: $settings.lutIntensity, range: 0...1, format: "%.2f")
+            // LUT 强度暂时隐藏
+            // LabeledSlider(title: "LUT 强度", value: $settings.lutIntensity, range: 0...1, format: "%.2f")
 
             Button {
                 settings.resetGrade()
