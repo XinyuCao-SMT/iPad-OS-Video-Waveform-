@@ -51,6 +51,7 @@ final class AppSettings: ObservableObject {
         static let audioInputID = prefix + "audioInputID"
         static let showAudioMeters = prefix + "showAudioMeters"
         static let avSyncCompensation = prefix + "avSyncCompensation"
+        static let avSyncUseArrivalTime = prefix + "avSyncUseArrivalTime"
         static let freezePictureToo = prefix + "freezePictureToo"
         static let freezeReference = prefix + "freezeReference"
         static let referenceOpacity = prefix + "referenceOpacity"
@@ -91,6 +92,12 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(showAudioMeters, forKey: Key.showAudioMeters) }
     }
     /// 声画延时的手动补偿（毫秒），用来抵消已知的系统偏差（例如麦克风声程）
+    /// 声画延时的视频事件时刻改用「帧到达时刻」而不是设备 PTS。
+    /// 原因：音频事件用的是缓冲区 hostTime（≈ 到达），两者语义不一致会带来固定偏差
+    /// （现场：实际基本同步却一直显示「声音快 ~40 ms」）。差异值会显示在声画延时格里。
+    @Published var avSyncUseArrivalTime = false {
+        didSet { UserDefaults.standard.set(avSyncUseArrivalTime, forKey: Key.avSyncUseArrivalTime) }
+    }
     @Published var avSyncCompensationMs: Double = 0 {
         didSet { UserDefaults.standard.set(avSyncCompensationMs, forKey: Key.avSyncCompensation) }
     }

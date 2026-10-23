@@ -124,9 +124,14 @@ final class RenderCoordinator: ObservableObject {
         self.renderer = renderer
         view?.delegate = renderer
 
+        // 声画延时的视频事件时刻：默认用设备 PTS；打开后改用到达时刻（与音频侧同一语义）
+        renderer.useArrivalTimeForEvents = settings.avSyncUseArrivalTime
+        avSync.useArrivalTimeForEvents = settings.avSyncUseArrivalTime
+
         capture.onFrame = { [weak self] pixelBuffer, presentationTime in
             guard let self else { return }
             self.renderer?.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
+            self.avSync.videoTimingDeltaMs = self.renderer?.lastFrameTimingDeltaMs ?? 0
             self.stream.submit(pixelBuffer: pixelBuffer, presentationTime: presentationTime)
             DispatchQueue.main.async { [weak self] in
                 self?.view?.setNeedsDisplay()

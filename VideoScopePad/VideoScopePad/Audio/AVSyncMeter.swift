@@ -59,6 +59,13 @@ final class AVSyncMeter: ObservableObject {
     @Published private(set) var lastFrameInterval: TimeInterval = 0
     /// 手动静默阈值：小于它就认为「同步」（默认 5 ms）
     @Published var syncThresholdMs: Double = 5
+    /// 最近一帧的「设备 PTS − 到达时刻」（毫秒）。用来判断视频事件该用哪个时刻：
+    /// 这个数如果是 -30…-60 这种固定值，说明 UVC 的 PTS 比实际送达晚，
+    /// 把它当作事件时刻就会让读数系统性偏「声音快」。
+    @Published var videoTimingDeltaMs: Double = 0
+    /// 视频事件时刻用的是「到达时刻」(true) 还是「设备 PTS」(false) —— 界面显示用
+    @Published var useArrivalTimeForEvents = false
+
     /// 手动补偿（毫秒）：用来抵消已知的系统偏差（例如麦克风声程）
     @Published var compensationMs: Double = 0
 

@@ -57,6 +57,16 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
     /// 待渲染帧的时刻（主机时钟秒），供画面签名标注时间
     private var pendingFrameHostTime: TimeInterval?
 
+    /// 最近一次「设备 PTS − 到达时刻」的差值（毫秒）。
+    /// 声画延时的视频事件如果用设备 PTS、音频事件用的是缓冲区到达时刻，两者语义不同：
+    /// UVC 采集卡的 PTS 通常比"帧真的送到 App"晚几十毫秒，直接相减就会得到一个固定偏差
+    /// （现场表现：实际基本同步，却一直显示「声音快 40 ms」左右）。把它显示出来就能判断。
+    private(set) var lastFrameTimingDeltaMs: Double = 0
+
+    /// 视频事件时刻改用「到达时刻」而不是设备 PTS（默认否 = 保持原有行为）。
+    /// 打开后与音频侧（缓冲区 hostTime）走同一套语义，固定偏差会消失。
+    var useArrivalTimeForEvents = false
+
     // 仅主线程
     private var texturePreLUT: MTLTexture?
     private var textureDisplay: MTLTexture?
@@ -87,13 +97,17 @@ final class VideoRenderer: NSObject, MTKViewDelegate {
     func submit(pixelBuffer: CVPixelBuffer, presentationTime: CMTime = .invalid) {
         frameLock.lock()
         pendingPixelBuffer = pixelBuffer
-        // 帧时刻：AVFoundation 给的 PTS 在**主机时钟**上，和音频的 AVAudioTime.hostTime 同一时基，
-        // 所以声画延时可以直接相减。拿不到有效 PTS 时退回当前时刻。
-        if presentationTime.isValid, presentationTime.seconds.isFinite {
-            pendingFrameHostTime = presentationTime.seconds
-        } else {
-            pendingFrameHostTime = AVAudioTime.seconds(forHostTime: mach_absolute_time())
-        }
+        // 帧时刻有两个候选：
+        //   ① 设备 PTS（AVFoundation 给的，主机时钟域）—— "这一帧在信号源里是哪一刻"
+        //   ② 到达时刻（帧真的被送进本 App 的时刻）—— "这一帧到这一刻才真的可见"
+        // 音频侧的事件时刻是缓冲区 hostTime（≈ 到达），所以用 ① 会引入固定偏差；
+        // 用 ② 两边语义一致。差值存下来显示，便于现场判断该用哪个。
+        let arrival = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+        let pts = (presentationTime.isValid && presentationTime.seconds.isFinite)
+            ? presentationTime.seconds
+            : arrival
+        lastFrameTimingDeltaMs = (pts - arrival) * 1000
+        pendingFrameHostTime = useArrivalTimeForEvents ? arrival : pts
         frameLock.unlock()
     }
 

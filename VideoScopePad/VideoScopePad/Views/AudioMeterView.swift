@@ -150,6 +150,10 @@ struct AVSyncPaneView: View {
             }
             lines.append("测量 \(meter.samples.count) 次 · 极差 \(String(format: "%.1f", meter.spreadMs)) ms")
             lines.append(meter.quantizationText)
+            // 视频事件时刻的来源与偏差：判断「固定偏 40 ms」到底出在哪一侧
+            lines.append(String(format: "视频 PTS−到达 %+.1f ms（事件用%@时刻）",
+                                meter.videoTimingDeltaMs,
+                                meter.useArrivalTimeForEvents ? "到达" : "设备 PTS"))
             if let last = meter.samples.last {
                 let formatter = DateFormatter()
                 formatter.dateFormat = "HH:mm:ss"
