@@ -22,6 +22,8 @@ struct ControlBar: View {
     var onSetReference: (Bool) -> Void = { _ in }
 
     @State private var showGrade = false
+    /// 设备选择改成自绘 sheet：SwiftUI 的 Menu 在第二次点击时不弹（实测卡死），不用它了
+    @State private var showDevicePicker = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -161,6 +163,54 @@ struct ControlBar: View {
     }
 
     /// 看守辅助：只显示当前布局用得上的项
+    /// 设备选择列表（替代 Menu）
+    private var devicePickerSheet: some View {
+        NavigationStack {
+            List {
+                Section("输入源") {
+                    if capture.devices.isEmpty {
+                        Text("未检测到设备").foregroundStyle(.secondary)
+                    }
+                    ForEach(capture.devices) { device in
+                        Button {
+                            HangLog.mark("选中设备：\(device.name)")
+                            capture.select(deviceID: device.id)
+                            showDevicePicker = false
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(device.name)
+                                    Text(device.badge).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if capture.selectedDeviceID == device.id {
+                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                Section {
+                    Button {
+                        HangLog.mark("刷新设备列表")
+                        capture.refresh()
+                    } label: {
+                        Label("刷新设备列表", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
+            .navigationTitle("选择输入源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { showDevicePicker = false }
+                }
+            }
+            .onAppear { HangLog.mark("设备列表已显示（\(capture.devices.count) 个）") }
+        }
+    }
+
     private var assistMenu: some View {
         Menu {
             if settings.showsPeakHoldOption {
@@ -276,34 +326,20 @@ struct ControlBar: View {
     // MARK: - 菜单
 
     private var deviceMenu: some View {
-        Menu {
-            if capture.devices.isEmpty {
-                Text("未检测到设备")
-            }
-            ForEach(capture.devices) { device in
-                if capture.selectedDeviceID == device.id {
-                    Button {
-                        capture.select(deviceID: device.id)
-                    } label: {
-                        Label("\(device.name)（\(device.badge)）", systemImage: "checkmark")
-                    }
-                } else {
-                    Button("\(device.name)（\(device.badge)）") {
-                        capture.select(deviceID: device.id)
-                    }
-                }
-            }
-            Divider()
-            Button {
-                capture.refresh()
-            } label: {
-                Label("刷新设备列表", systemImage: "arrow.clockwise")
-            }
+        // 不用 Menu：实测第二次点击时 SwiftUI 的菜单不再弹出（界面像卡死，日志里却没有
+        // MAIN BLOCKED —— 说明主线程没阻塞，是菜单呈现本身的问题）。改成自绘 sheet。
+        Button {
+            HangLog.mark("点开设备选择")
+            showDevicePicker = true
         } label: {
             ChipLabel(title: currentDeviceName,
                       systemImage: "video",
                       isActive: capture.hasExternalDevice,
                       tint: .green)
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showDevicePicker) {
+            devicePickerSheet
         }
     }
 
