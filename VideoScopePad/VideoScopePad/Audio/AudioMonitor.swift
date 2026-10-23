@@ -189,12 +189,31 @@ final class AudioMonitor: ObservableObject {
         }
         return nil
     }
+    /// 音频引擎的控制队列 —— **引擎启停与音频会话激活绝不能放在主线程**。
+    ///
+    /// 为什么：切换视频设备时采集会话正在重配**同一块 USB 设备**，此时如果主线程还去调
+    /// `AVAudioSession.setActive(true/false)` 或 `engine.start()`，会阻塞几十秒甚至死锁 ——
+    /// 现场表现就是「点了选择摄像头以后一直卡住，只能杀后台」。
+    /// 现在把这些调用放到独立串行队列，界面线程只负责接收最终状态。
+    private let controlQueue = DispatchQueue(label: "vsp.audio.control", qos: .userInitiated)
+    /// 启动流程进行中（防止 start 重入 / stop 后继续启动）
+    private var isStarting = false
+
     func start(preferredInputID: String?) {
-        guard !isRunning else { return }
+        guard !isRunning, !isStarting else { return }
         guard Self.hasPermission else {
             statusText = "没有麦克风/音频输入权限"
             return
         }
+        isStarting = true
+        statusText = "正在启动音频…"
+        controlQueue.async { [weak self] in
+            self?.startLocked(preferredInputID: preferredInputID)
+        }
+    }
+
+    private func startLocked(preferredInputID: String?) {
+        guard isStarting else { return }   // 已被 stop() 取消
 
         let session = AVAudioSession.sharedInstance()
         do {
@@ -208,17 +227,19 @@ final class AudioMonitor: ObservableObject {
                 // 没指定输入时**自动选同源**：优先 USB 音频口（采集卡的音频在 iPadOS 上就是 USB Audio），
                 // 其次排除内置麦克风后的第一个。与 Windows 版的音视频同源思路一致。
                 try session.setPreferredInput(auto)
-                statusText = "自动选择音频输入：\(auto.portName)"
+                publish { $0.statusText = "自动选择音频输入：\(auto.portName)" }
             }
         } catch {
-            statusText = "音频会话失败：\(error.localizedDescription)"
+            publish { $0.statusText = "音频会话失败：\(error.localizedDescription)" }
+            isStarting = false
             return
         }
 
         let input = engine.inputNode
         let format = input.inputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
-            statusText = "音频输入不可用（没有可用的输入设备？）"
+            publish { $0.statusText = "音频输入不可用（没有可用的输入设备？）" }
+            isStarting = false
             return
         }
 
@@ -235,13 +256,11 @@ final class AudioMonitor: ObservableObject {
         }
         analyzer?.configure(sampleRate: Float(format.sampleRate))
 
-        sampleRate = format.sampleRate
-        channelCount = Int(format.channelCount)
-        inputName = session.preferredInput?.portName
+        let rate = format.sampleRate
+        let channels = Int(format.channelCount)
+        let name = session.preferredInput?.portName
             ?? session.currentRoute.inputs.first?.portName
             ?? "默认输入"
-        statusText = "运行中"
-        refreshInputOptions()
 
         input.removeTap(onBus: 0)
         // 512 帧（48 kHz 约 10.7 ms）——包络按样本扫描，起音时刻不受缓冲区长度影响
@@ -252,21 +271,44 @@ final class AudioMonitor: ObservableObject {
         do {
             engine.prepare()
             try engine.start()
-            isRunning = true
         } catch {
-            statusText = "启动音频引擎失败：\(error.localizedDescription)"
+            publish { $0.statusText = "启动音频引擎失败：\(error.localizedDescription)" }
+            isStarting = false
+            return
+        }
+
+        isStarting = false
+        publish { monitor in
+            monitor.sampleRate = rate
+            monitor.channelCount = channels
+            monitor.inputName = name
+            monitor.statusText = "运行中"
+            monitor.isRunning = true
+            monitor.refreshInputOptions()
         }
     }
 
     func stop() {
+        isStarting = false
         guard isRunning else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        isRunning = false
+        isRunning = false          // 先置位，避免重复进入
         statusText = "已停止"
         levelLeft = 0; levelRight = 0; peakLeft = 0; peakRight = 0
         toneLevelDB = -120
-        try? AVAudioSession.sharedInstance().setActive(false)
+        controlQueue.async { [weak self] in
+            guard let self else { return }
+            self.engine.inputNode.removeTap(onBus: 0)
+            self.engine.stop()
+            try? AVAudioSession.sharedInstance().setActive(false)
+        }
+    }
+
+    /// 把状态写回主线程（@Published 必须在主线程更新）
+    private func publish(_ body: @escaping (AudioMonitor) -> Void) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            body(self)
+        }
     }
 
     // MARK: - 分析（音频线程）
