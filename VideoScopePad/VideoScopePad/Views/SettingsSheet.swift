@@ -84,6 +84,9 @@ struct SettingsSheet: View {
                     Text(format.displayName).tag(format.id)
                 }
             }
+            // 60 个格式在弹窗式 Picker 里**滚不动也点不中**（用户实测）：
+            // 换成 navigationLink 风格 —— 推进一个可滚动的列表，点一下即选。
+            .pickerStyle(.navigationLink)
             .disabled(capture.formats.isEmpty)
 
             Button {
@@ -121,6 +124,8 @@ struct SettingsSheet: View {
                         Text(option.name).tag(option.id)
                     }
                 }
+                // 同样换成可滚动、可点选的列表风格
+                .pickerStyle(.navigationLink)
 
                 LabeledContent("当前输入", value: audio.isRunning ? audio.inputName : audio.statusText)
                 LabeledContent("1 kHz 电平", value: String(format: "%.0f dBFS", audio.toneLevelDB))
