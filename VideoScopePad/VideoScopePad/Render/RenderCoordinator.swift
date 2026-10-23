@@ -162,10 +162,25 @@ final class RenderCoordinator: ObservableObject {
     }
 
     /// 音频输入设备换了：重启一次引擎
+    /// 待执行的音频重启（去抖用）
+    private var pendingAudioRestart: DispatchWorkItem?
+
+    /// 音频重启（**去抖**）。
+    ///
+    /// ⚠️ 为什么必须去抖：选设备时同一轮里会连续触发多次重启 ——
+    ///   ① onChange(settings.audioInputID)  ② 显式的 restartAudio(...)  ③ audioEnabled 的 didSet。
+    /// 实测（iPad + USB 采集卡）：这样连着重启会让 AVAudioEngine 在音频回调还在跑的时候被拆装，
+    /// **点选输入源直接闪退**。合并成一次（250 ms 内只执行最后一次）就不会撞上。
     func restartAudio(preferredInputID: String?) {
         guard settings?.audioEnabled ?? false else { return }
-        audio.stop()
-        startAudio(preferredInputID: preferredInputID)
+        pendingAudioRestart?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.settings?.audioEnabled ?? false else { return }
+            self.audio.stop()
+            self.startAudio(preferredInputID: preferredInputID)
+        }
+        pendingAudioRestart = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
 
     // MARK: - 峰值保持 / 报警（主线程，由测量回调驱动）

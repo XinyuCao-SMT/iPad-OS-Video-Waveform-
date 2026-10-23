@@ -69,6 +69,10 @@ final class AudioMonitor: ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var statusText = "未启动"
     @Published private(set) var inputName = "—"
+    /// 音频缓冲区时戳相对「真的到手上」领先多少毫秒（正 = 时戳比送达早）。
+    /// 声画延时的音频事件用的是缓冲区 hostTime，如果它比实际送达早很多，
+    /// 读数就会系统性偏"声音快"。把它和视频那边的 PTS−到达 一起看就能判断偏在哪一侧。
+    @Published private(set) var lastBufferLatencyMs: Double = 0
     @Published private(set) var sampleRate: Double = 0
     @Published private(set) var channelCount = 0
     /// 0…1（-60 dBFS → 0，0 dBFS → 1）
@@ -276,6 +280,12 @@ final class AudioMonitor: ObservableObject {
         let startHost = when.isHostTimeValid
             ? AVAudioTime.seconds(forHostTime: when.hostTime)
             : AVAudioTime.seconds(forHostTime: mach_absolute_time())
+        // 量一下：缓冲区时戳 与 真正到手的时刻 差多少
+        let arrivalNow = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+        let latency = (arrivalNow - startHost) * 1000
+        if latency.isFinite, latency > -500, latency < 500 {
+            lastBufferLatencyMs = latency
+        }
 
         // ---- 音量柱（每声道 RMS → dBFS → 0…1）----
         let channelCount = Int(buffer.format.channelCount)

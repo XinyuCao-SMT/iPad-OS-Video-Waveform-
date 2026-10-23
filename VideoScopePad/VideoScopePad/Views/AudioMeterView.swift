@@ -154,6 +154,7 @@ struct AVSyncPaneView: View {
             lines.append(String(format: "视频 PTS−到达 %+.1f ms（事件用%@时刻）",
                                 meter.videoTimingDeltaMs,
                                 meter.useArrivalTimeForEvents ? "到达" : "设备 PTS"))
+            lines.append(String(format: "音频时戳−到达 %+.1f ms", audio.lastBufferLatencyMs))
             if let last = meter.samples.last {
                 let formatter = DateFormatter()
                 formatter.dateFormat = "HH:mm:ss"
