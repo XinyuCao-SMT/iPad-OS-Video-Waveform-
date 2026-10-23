@@ -485,6 +485,12 @@ final class CaptureController: NSObject, ObservableObject {
             unique.append(info)
         }
 
+        // 只保留 1920×1080（用户要求）；设备若没有 1080，则保留全部，避免选不出格式
+        let fullHD = unique.filter { $0.width == 1920 && $0.height == 1080 }
+        if !fullHD.isEmpty {
+            unique = fullHD
+        }
+
         unique.sort { lhs, rhs in
             func rank(_ info: VideoFormatInfo) -> Int {
                 if info.height == 1080 { return 0 }
