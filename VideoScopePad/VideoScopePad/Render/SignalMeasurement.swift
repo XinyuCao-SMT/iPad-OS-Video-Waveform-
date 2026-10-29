@@ -240,8 +240,8 @@ enum SignalMeasurementBuilder {
         // 注意：直方图的码值来自**已做范围展开**的 RGB（视频范围信号会被展开成 0…255），
         // 所以这里的 IRE 一律用「码值 / 255」，不能再按 16–235 算 —— 否则白电平被算成 109、
         // 整体阶梯被压低（曾导致与 Tek 对不上）。
-        let whiteThreshold: Double = 250
-        let blackThreshold: Double = 2
+        let whiteThreshold = 250
+        let blackThreshold = 2
 
         guard let luma = stats(counts: counts,
                                offset: 3 * bins,
