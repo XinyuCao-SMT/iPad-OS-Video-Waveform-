@@ -217,7 +217,7 @@ struct ContentView: View {
                     ScopeGraticuleView(layout: layout,
                                        settings: settings,
                                        measurement: coordinator.measurementHub,
-                                       videoRange: coordinator.effectiveVideoRange)
+                                       videoRange: coordinator.uiVideoRange)
                         .allowsHitTesting(false)
 
                     // 「推流状态」格子：近 5 分钟带宽 / 码率 / 延迟曲线（不走 Metal 示波器管线）
@@ -255,7 +255,7 @@ struct ContentView: View {
                     PaneChromeOverlay(layout: layout,
                                       settings: settings,
                                       containerSize: geo.size,
-                                      videoRange: coordinator.effectiveVideoRange)
+                                      videoRange: coordinator.uiVideoRange)
 
                     // 布局调试叠加层：画出每格的 格子/绘图区/刻度栏/画面区 实际矩形与尺寸
                     if settings.showLayoutDebug {

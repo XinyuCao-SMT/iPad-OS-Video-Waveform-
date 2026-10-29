@@ -73,6 +73,11 @@ final class RenderCoordinator: ObservableObject {
     func attach(settings: AppSettings, capture: CaptureController, lutStore: LUTStore) {
         guard self.settings == nil else { return }
         self.settings = settings
+        self.captureIsVideoRange = capture.isVideoRange
+        // 采集卡换格式后范围可能变，这里持续跟随
+        capture.$isVideoRange.receive(on: DispatchQueue.main).sink { [weak self] value in
+            self?.captureIsVideoRange = value
+        }.store(in: &cancellables)
 
         guard let context, let scopeEngine, let placeholderLUT else { return }
 
@@ -81,9 +86,9 @@ final class RenderCoordinator: ObservableObject {
                                      settings: settings,
                                      lutSlot: lutStore.slot,
                                      placeholderLUT: placeholderLUT)
-        renderer.sourceInfoProvider = { [weak capture] in
+        renderer.sourceInfoProvider = { [weak self, weak capture] in
             FrameSourceInfo(colorMatrix: capture?.colorMatrix ?? .bt709,
-                            isVideoRange: effectiveVideoRange)
+                            isVideoRange: self?.effectiveVideoRange(captureIsVideoRange: capture?.isVideoRange ?? true) ?? true)
         }
         renderer.onMeasurement = { [weak self] measurement in
             DispatchQueue.main.async {
@@ -180,10 +185,17 @@ final class RenderCoordinator: ObservableObject {
     /// 实测（iPad + USB 采集卡）：这样连着重启会让 AVAudioEngine 在音频回调还在跑的时候被拆装，
     /// **点选输入源直接闪退**。合并成一次（250 ms 内只执行最后一次）就不会撞上。
     /// 最终用于换算的范围：设置里勾了「按全范围解读」就无视采集卡的自述
-    var effectiveVideoRange: Bool {
+    func effectiveVideoRange(captureIsVideoRange: Bool) -> Bool {
         if settings?.forceFullRange == true { return false }
-        return capture?.isVideoRange ?? true
+        return captureIsVideoRange
     }
+
+    /// 供界面使用的同一个出口（刻度层、拖动层与渲染保持一致）
+    var uiVideoRange: Bool { effectiveVideoRange(captureIsVideoRange: captureIsVideoRange) }
+
+    /// 采集侧最近一次自述的范围（由 attach 时的回调刷新）
+    private(set) var captureIsVideoRange = true
+    private var cancellables = Set<AnyCancellable>()
 
     func restartAudio(preferredInputID: String?) {
         guard settings?.audioEnabled ?? false else { return }
