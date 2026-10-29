@@ -121,15 +121,32 @@ struct AudioPhasePaneView: View {
 
         let dot = max(plot.width / 220, 1.4)
 
-        // 自适应放大：声小时点云挤在圆心一小坨，看不出形状。
-        // 按「有意义的点」覆盖的半径归一化到 ~92%，最多放大 8×（再大就是噪声了）。
-        var extent: CGFloat = 0
-        for point in points where point.intensity >= 0.35 {
-            let dx = abs(CGFloat(point.x) - 127.5)
-            let dy = abs(CGFloat(point.y) - 127.5)
-            extent = max(extent, max(dx, dy))
+        // 自适应放大：声小时点云挤在圆心一小坨，看不出形状（-30 dBFS 时半径只有约 4 个 bin）。
+        // 取「按强度加权的 95% 分位半径」当有效范围，归一化到 ~92% 画布，最多 40×。
+        var weighted: [(offset: CGFloat, weight: CGFloat)] = []
+        weighted.reserveCapacity(points.count)
+        var totalWeight: CGFloat = 0
+        for point in points {
+            let dx = CGFloat(point.x) - 127.5
+            let dy = CGFloat(point.y) - 127.5
+            let offset = max(abs(dx), abs(dy))
+            let weight = max(CGFloat(point.intensity), 0.01)
+            weighted.append((offset, weight))
+            totalWeight += weight
         }
-        let gain = extent > 6 ? min(127.5 * 0.92 / extent, 8) : CGFloat(1)
+        var extent: CGFloat = 0
+        if totalWeight > 0 {
+            weighted.sort { $0.offset < $1.offset }
+            var accumulated: CGFloat = 0
+            for item in weighted {
+                accumulated += item.weight
+                if accumulated >= totalWeight * 0.95 {
+                    extent = item.offset
+                    break
+                }
+            }
+        }
+        let gain = min(127.5 * 0.92 / max(extent, 0.5), 40)
 
         // 点云用 plusLighter 叠加：重叠越多越亮，和示波器的观感一致
         ctx.drawLayer { layer in
