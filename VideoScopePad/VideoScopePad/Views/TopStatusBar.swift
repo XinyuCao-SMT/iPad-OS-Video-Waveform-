@@ -60,6 +60,8 @@ struct TopInfoChips: View {
                 ChipLabel(title: "黑位 " + settings.scaleUnit.formatPrecise(value.stableBlackIRE))
                 ChipLabel(title: "平均 " + settings.scaleUnit.formatPrecise(value.averageIRE))
                 ChipLabel(title: String(format: "色度 %.0f%%", value.peakSaturationPercent))
+                // 原始码值（0…255）：排查「范围/位深」问题时对比 Tek 用
+                ChipLabel(title: String(format: "码值 Y %.0f…%.0f", value.yBlackCode, value.yPeakCode))
 
                 // 冻结参考：把抓取那一刻的读数与差值一起摆出来（校色时对着调）
                 if settings.freeze, let reference = measurement.reference {

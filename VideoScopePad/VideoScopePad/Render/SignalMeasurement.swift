@@ -24,6 +24,9 @@ struct SignalMeasurement: Equatable {
 
     /// 绝对峰值白（IRE）——含噪点，仅作参考
     var peakWhiteIRE: Double = 0
+    /// Y 的原始码值（0…255），用来诊断范围/位深问题：换算是否出错一看便知
+    var yPeakCode: Double = 0
+    var yBlackCode: Double = 0
     /// 稳定白：从最高码值往下累计到 0.1% 像素处的码值，去噪点后更接近真实白电平
     var stableWhiteIRE: Double = 0
     /// 绝对最低码值（IRE）
@@ -252,6 +255,8 @@ enum SignalMeasurementBuilder {
         measurement.sampledPixels = Int(luma.total)
         measurement.peakWhiteIRE = ire(luma.peakCode)
         measurement.stableWhiteIRE = ire(luma.stablePeakCode)
+        measurement.yPeakCode = luma.peakCode.rounded()
+        measurement.yBlackCode = luma.blackCode.rounded()
         measurement.blackLevelIRE = ire(luma.blackCode)
         measurement.stableBlackIRE = ire(luma.stableBlackCode)
         measurement.averageIRE = ire(luma.meanCode)
