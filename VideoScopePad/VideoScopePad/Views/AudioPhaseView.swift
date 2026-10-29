@@ -121,13 +121,25 @@ struct AudioPhasePaneView: View {
 
         let dot = max(plot.width / 220, 1.4)
 
+        // 自适应放大：声小时点云挤在圆心一小坨，看不出形状。
+        // 按「有意义的点」覆盖的半径归一化到 ~92%，最多放大 8×（再大就是噪声了）。
+        var extent: CGFloat = 0
+        for point in points where point.intensity >= 0.35 {
+            let dx = abs(CGFloat(point.x) - 127.5)
+            let dy = abs(CGFloat(point.y) - 127.5)
+            extent = max(extent, max(dx, dy))
+        }
+        let gain = extent > 6 ? min(127.5 * 0.92 / extent, 8) : CGFloat(1)
+
         // 点云用 plusLighter 叠加：重叠越多越亮，和示波器的观感一致
         ctx.drawLayer { layer in
             layer.blendMode = .plusLighter
             for point in points {
-                let x = plot.minX + CGFloat(point.x) / 255 * plot.width
+                let px = 127.5 + (CGFloat(point.x) - 127.5) * gain
+                let py = 127.5 + (CGFloat(point.y) - 127.5) * gain
+                let x = plot.minX + min(max(px, 0), 255) / 255 * plot.width
                 // 图像坐标 y 向上、屏幕向下 → 翻转
-                let y = plot.maxY - CGFloat(point.y) / 255 * plot.height
+                let y = plot.maxY - min(max(py, 0), 255) / 255 * plot.height
                 let alpha = 0.25 + 0.75 * Double(point.intensity)
                 let rect = CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)
                 layer.fill(Path(ellipseIn: rect),
