@@ -278,6 +278,13 @@ struct ControlBar: View {
                         .buttonStyle(.plain)
                     }
                 }
+                if !capture.hasExternalDevice && UIDevice.current.userInterfaceIdiom == .phone {
+                    Section {
+                        Text("iPhone 不支持外接 UVC 采集卡（AVFoundation 的 .external 仅 iPadOS 提供）。请使用 iPad 或 Windows 版。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Section {
                     Button {
                         HangLog.mark("刷新设备列表")

@@ -223,7 +223,9 @@ final class CaptureController: NSObject, ObservableObject {
                                                          mediaType: .video,
                                                          position: .unspecified)
 
-        var map: [String: AVCaptureDevice] = [:]
+        // 诊断：iPhone 上 .external 是否真的返回设备（iPhone 平台不支持外接 UVC，要现场确证）
+        HangLog.mark("发现设备：共 \(discovery.devices.count) 个，外接 \(discovery.devices.filter { $0.deviceType == .external }.count) 个；权限=\(AVCaptureDevice.authorizationStatus(for: .video).rawValue)")
+                var map: [String: AVCaptureDevice] = [:]
         var infos: [CaptureDeviceInfo] = []
 
         for device in discovery.devices {
