@@ -602,7 +602,8 @@ struct ScopeGraticuleView: View {
 
     /// IRE → 纵向坐标（视频范围 0 IRE = 码值 16、100 IRE = 235；全范围 0/255）
     private func yPosition(forIRE ire: Double, in rect: CGRect) -> CGFloat {
-        let code = videoRange ? (16 + ire / 100 * 219) : (ire / 100 * 255)
+        // 直方图码值已含范围展开，这里同样用 0…255 的展开域
+        let code = ire / 100 * 255
         return rect.maxY - CGFloat(code / 255) * rect.height
     }
 
