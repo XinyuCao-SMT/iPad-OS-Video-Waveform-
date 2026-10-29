@@ -22,7 +22,7 @@ const sourcesAbs = path.join(rootDir, sourcesDirName);
 
 // 应用内「设置 → 关于」显示的版本号（MARKETING_VERSION）。
 // 每次发版改这一处，重新生成工程即可，不用手动动 pbxproj。
-const appVersion = '1.12.27';
+const appVersion = '1.13.0';
 
 if (!fs.existsSync(sourcesAbs)) {
     console.error(`找不到源码目录: ${sourcesAbs}`);
@@ -223,7 +223,7 @@ const commonSettings = {
     SWIFT_OBJC_BRIDGING_HEADER: 'VideoScopePad/Shaders/VideoScopePad-Bridging-Header.h',
     SWIFT_STRICT_CONCURRENCY: 'minimal',
     SWIFT_VERSION: '5.0',
-    TARGETED_DEVICE_FAMILY: '1,2'
+    TARGETED_DEVICE_FAMILY: '2'
 };
 
 const projectCommonSettings = {
