@@ -195,7 +195,7 @@ struct ControlBar: View {
                     if capture.formats.isEmpty {
                         Text("该设备没有可用格式").foregroundStyle(.secondary)
                     }
-                    ForEach(capture.formats.prefix(40)) { format in
+                    ForEach(capture.formats) { format in
                         Button {
                             HangLog.mark("选中格式：\(format.displayName)")
                             capture.select(formatID: format.id)

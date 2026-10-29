@@ -83,7 +83,7 @@ final class RenderCoordinator: ObservableObject {
                                      placeholderLUT: placeholderLUT)
         renderer.sourceInfoProvider = { [weak capture] in
             FrameSourceInfo(colorMatrix: capture?.colorMatrix ?? .bt709,
-                            isVideoRange: capture?.isVideoRange ?? true)
+                            isVideoRange: effectiveVideoRange)
         }
         renderer.onMeasurement = { [weak self] measurement in
             DispatchQueue.main.async {
@@ -179,6 +179,12 @@ final class RenderCoordinator: ObservableObject {
     ///   ① onChange(settings.audioInputID)  ② 显式的 restartAudio(...)  ③ audioEnabled 的 didSet。
     /// 实测（iPad + USB 采集卡）：这样连着重启会让 AVAudioEngine 在音频回调还在跑的时候被拆装，
     /// **点选输入源直接闪退**。合并成一次（250 ms 内只执行最后一次）就不会撞上。
+    /// 最终用于换算的范围：设置里勾了「按全范围解读」就无视采集卡的自述
+    var effectiveVideoRange: Bool {
+        if settings?.forceFullRange == true { return false }
+        return capture?.isVideoRange ?? true
+    }
+
     func restartAudio(preferredInputID: String?) {
         guard settings?.audioEnabled ?? false else { return }
         pendingAudioRestart?.cancel()

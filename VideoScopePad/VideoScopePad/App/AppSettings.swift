@@ -42,6 +42,7 @@ final class AppSettings: ObservableObject {
         static let peakHoldSeconds = prefix + "peakHoldSeconds"
         static let waveformGuideEnabled = prefix + "waveformGuideEnabled"
         static let waveformGuideIRE = prefix + "waveformGuideIRE"
+        static let forceFullRange = prefix + "forceFullRange"
         static let zebraEnabled = prefix + "zebraEnabled"
         static let zebraThreshold = prefix + "zebraThreshold"
         static let zebraBlackEnabled = prefix + "zebraBlackEnabled"
@@ -218,6 +219,14 @@ final class AppSettings: ObservableObject {
     @Published var waveformGuideEnabled = true {
         didSet { UserDefaults.standard.set(waveformGuideEnabled, forKey: Key.waveformGuideEnabled) }
     }
+    /// 强制按**全范围（0–255）**解读码值。
+    ///
+    /// 为什么需要：部分 UVC 采集卡声明自己是「视频范围（420v）」，实际送出的却是 0–255 全范围码值。
+    /// 这种「声明与实际不符」没法靠改格式解决，只能手动指定，否则 IRE 读数整体偏低、白电平跑到 100 以外。
+    @Published var forceFullRange = false {
+        didSet { UserDefaults.standard.set(forceFullRange, forKey: Key.forceFullRange) }
+    }
+
     /// 参考线电平（IRE，0…110）
     @Published var waveformGuideIRE: Double = 100 {
         didSet { UserDefaults.standard.set(waveformGuideIRE, forKey: Key.waveformGuideIRE) }

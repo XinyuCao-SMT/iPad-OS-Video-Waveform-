@@ -128,6 +128,12 @@ struct SettingsSheet: View {
                 // 同样换成可滚动、可点选的列表风格
                 .pickerStyle(.navigationLink)
 
+                // 范围覆盖：卡声明与实际不符时用（0–255 码值却报 420v 的情况）
+                Toggle("按全范围解读码值（0–255）", isOn: $settings.forceFullRange)
+                Text("采集卡若声明「视频范围」却实际送出 0–255 码值，IRE 读数会整体偏低、白电平超出 100。勾上这个即可按全范围换算。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
                 LabeledContent("当前输入", value: audio.isRunning ? audio.inputName : audio.statusText)
                 LabeledContent("1 kHz 电平", value: String(format: "%.0f dBFS", audio.toneLevelDB))
 
