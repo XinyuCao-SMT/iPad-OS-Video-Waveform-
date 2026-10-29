@@ -135,7 +135,9 @@ struct AudioPhasePaneView: View {
         ctx.drawLayer { layer in
             layer.blendMode = .plusLighter
             for point in points {
-                let px = 127.5 + (CGFloat(point.x) - 127.5) * gain
+                // 直方图 x 是 side=(L−R)◦½：L 大就落在右侧；但李萨如约定 L 在左、R 在右，
+                // 所以这里对 x 做镜像（否则左右反）。
+                let px = 127.5 - (CGFloat(point.x) - 127.5) * gain
                 let py = 127.5 + (CGFloat(point.y) - 127.5) * gain
                 let x = plot.minX + min(max(px, 0), 255) / 255 * plot.width
                 // 图像坐标 y 向上、屏幕向下 → 翻转
