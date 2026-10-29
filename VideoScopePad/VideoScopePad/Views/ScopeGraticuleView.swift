@@ -48,6 +48,7 @@ struct ScopeGraticuleView: View {
                         drawPeakHold(&layer, rect: plot)
                         drawReferencePeakHold(&layer, rect: plot)
                         drawGuideLine(&layer, rect: plot)
+                        drawCodeLabel(&layer, rect: plot)
                     case .parade:
                         drawWaveform(&layer, rect: plot, columns: 3, labels: ["R", "G", "B"])
                         drawPeakHold(&layer, rect: plot)
@@ -149,6 +150,15 @@ struct ScopeGraticuleView: View {
     // MARK: - 峰值保持游标
 
     /// 把保持住的最高 / 最低电平用虚线钉在波形上（数值跟着刻度单位走）
+    /// 左上角显示 Y 的原始码值（0…255）：排查「限幅/全范围」「位深」问题时对比 Tek 用
+    private func drawCodeLabel(_ ctx: inout GraphicsContext, rect: CGRect) {
+        guard let value = measurement.value else { return }
+        let text = String(format: "Y 码值 %.0f…%.0f", value.yBlackCode, value.yPeakCode)
+        ctx.draw(label(text, size: 10, weight: .semibold, opacity: 0.85, monospaced: true),
+                 at: CGPoint(x: rect.minX + 6, y: rect.minY + 8),
+                 anchor: .leading)
+    }
+
     /// 手动参考线（可拖动）：调光时当基准，例如「白电平压到这条线」
     private func drawGuideLine(_ ctx: inout GraphicsContext, rect: CGRect) {
         guard settings.waveformGuideEnabled else { return }
