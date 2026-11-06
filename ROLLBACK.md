@@ -203,3 +203,34 @@ SwiftUI 状态被后台线程 50–60 Hz 冲刷 → 界面假死、设备菜单�
 
 **声画延时归零**：实测采集卡有约 40 ms「声音领前」（PTS −30 / 音频 +105 均为准确时戳），
 在 ITU 允许范围内，用「测量补偿 = +40」把读数归零。
+
+### v1.13.0（2026-11-06）— 仅 iPad
+
+| 项 | 值 |
+|---|---|
+| IPA | `dist\VideoScopePad-v1.13.0-unsigned.ipa` |
+| SHA256 | `6C0BA224ED7859D0CDDD89528BE12AE5EB24331E924F7238E28A7201BFE2C33B` |
+| tag | `v1.13.0` |
+| Release | <https://github.com/XinyuCao-SMT/iPad-OS-Video-Waveform-/releases/tag/v1.13.0> |
+| CI | run 40839149251（fa49c7f, success） |
+| 回滚目标 | `dist\VideoScopePad-v1.12.7-regressfix-unsigned.ipa`（上次验证可用的版本） |
+
+**设备族改为仅 iPad**（`TARGETED_DEVICE_FAMILY = 2`）：实测 iPhone 17 Pro 日志为
+「发现设备：共 2 个，外接 0 个；权限=3」—— AVFoundation 的 `.external` 仅 iPadOS 提供，
+iPhone 即使 USB-C 也拿不到 UVC 采集卡，装了也用不了。
+
+**本版主要修复**
+- 全工程 0 个 SwiftUI Menu（设备/格式/布局/显示通道/波形模式/LUT/格子内容/刻度单位
+  统一为 ChipChoiceSheet 弹窗）→ 修「菜单点不开、第二次不弹、界面假死」
+- 修 1.12.0 回归：采集回调线程每帧写 `@Published` 导致界面假死
+- IRE 换算统一到展开域（`code/255`）：修白电平被算成 109、整条阶梯压低
+- 音频引擎启停移出主线程：切设备不再卡死
+- 格式列表只保留 1920×1080，区分 1080i/1080p
+
+**新增**
+- 亮度格可拖动参考线（调光基准）；左上角显示 Y 原始码值
+- 声相自适应放大（加权 95% 分位、上限 40×）、修正左右镜像
+- 测量补偿改为直接输入数字
+- 诊断日志内置（设置 → 关于 → 诊断日志）
+
+**暂时隐藏**：LUT 全部界面（`showsLUTUI = false`，解析/渲染/导入逻辑保留）
